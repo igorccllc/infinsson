@@ -3959,29 +3959,6 @@ function renderExpenses() {
               secEntries.map(([s]) => SECAO_COLORS[s] || '#475569')
             );
           }
-          if (!activeCharts.expStacked) {
-            const stackCtx = document.getElementById('ch-exp-stacked');
-            if (stackCtx) {
-              activeCharts.expStacked = new Chart(stackCtx, {
-                type: 'bar',
-                data: {
-                  labels: last12m.map(m => monthLabel(m)),
-                  datasets: secNames.map(sec => ({
-                    label: sec, data: last12m.map(m => bySecMonthMap[sec + '|' + m] || 0),
-                    backgroundColor: SECAO_COLORS[sec] || '#475569', borderRadius: 2,
-                  }))
-                },
-                options: {
-                  responsive: true, maintainAspectRatio: false,
-                  plugins: { legend: { labels: { color: '#8ca3c1', font: { size: 10 }, boxWidth: 12 } }, tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } } },
-                  scales: {
-                    x: { stacked: true, grid: { color: '#1e2d4230' }, ticks: { color: '#8ca3c1', font: { size: 10 } } },
-                    y: { stacked: true, grid: { color: '#1e2d4250' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } }
-                  }
-                }
-              });
-            }
-          }
           if (!activeCharts.expBar) {
             const barCtx = document.getElementById('ch-exp-bar');
             if (barCtx) {
