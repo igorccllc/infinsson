@@ -4263,6 +4263,22 @@ const SECAO_MAP = {
   // Viagens
   'Passagens':'Viagens','Seguro Viagens':'Viagens','Hospedagem':'Viagens','Outros (Viagens)':'Viagens',
 };
+const SECAO_ORDER = [
+  'Alimentação','Casa','Família','Life','Lazer','Transporte','Compras',
+  'GF','Higiene','Saúde','Carro','Moto','Taxes','Não Recorrentes',
+  'Medicamentos','Celular','Financeiro','Viagens','Outros',
+];
+function sortSecoes(entries) {
+  return entries.slice().sort((a, b) => {
+    const ia = SECAO_ORDER.indexOf(a[0]);
+    const ib = SECAO_ORDER.indexOf(b[0]);
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
 const SECAO_COLORS = {
   'Alimentação':'#f87171','Casa':'#4f8ef7','Família':'#ec4899','Life':'#06b6d4',
   'Lazer':'#38bdf8','Transporte':'#e879f9','Compras':'#f97316','GF':'#ff6b9d',
