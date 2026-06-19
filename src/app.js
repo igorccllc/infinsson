@@ -3308,6 +3308,10 @@ function renderExpenses() {
   const lastVal = byMonthMap[lastMonth] || 0;
   const prevVal = byMonthMap[prevMonth] || 0;
   const deltaPct = prevVal > 0 ? ((lastVal - prevVal) / prevVal * 100) : 0;
+  const prev5m = Array.from({length: 5}, (_, i) => addMonths(curMonthKey, i - 5));
+  const prev5withData = prev5m.filter(m => (byMonthMap[m] || 0) > 0);
+  const avg6m = prev5withData.length > 0 ? prev5withData.reduce((s, m) => s + (byMonthMap[m] || 0), 0) / prev5withData.length : 0;
+  const deltaVsAvg6 = avg6m > 0 ? (lastVal / avg6m - 1) * 100 : null;
 
   const prd = expFilter.period;
   let periodN = 6;
