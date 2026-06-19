@@ -3865,8 +3865,8 @@ function renderExpenses() {
             <div class="chart-wrap chart-med"><canvas id="ch-exp-pie"></canvas></div>
           </div>
           <div>
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:8px">Composição Mensal</div>
-            <div class="chart-wrap chart-med"><canvas id="ch-exp-stacked"></canvas></div>
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:8px">Ranking de Seções (total)</div>
+            <div class="chart-wrap chart-med"><canvas id="ch-exp-bar"></canvas></div>
           </div>
         </div>
         <div>
