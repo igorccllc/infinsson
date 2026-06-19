@@ -4511,7 +4511,7 @@ function renderExpenses() {
   const months = Object.keys(byMonthMap).sort();
   const numMonths = months.length;
   const avgMensal = totalGastos / Math.max(1, numMonths);
-  const secEntries = Object.entries(bySecMap).sort((a, b) => b[1] - a[1]);
+  const secEntries = sortSecoes(Object.entries(bySecMap));
   const secNames = secEntries.map(e => e[0]);
 
   const now = new Date();
