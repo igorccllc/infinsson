@@ -3814,6 +3814,11 @@ function renderExpenses() {
       <div class="chart-wrap chart-med"><canvas id="ch-exp-main-trend"></canvas></div>
     </div>
 
+    <div class="card mb-16">
+      <div class="card-title">Composição por Seção — ${periodN} Meses</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="ch-exp-stacked"></canvas></div>
+    </div>
+
     <div class="mb-16">
       <div class="flex-between mb-8" style="padding:0 24px">
         <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted)">Seções de Gasto <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim);font-size:11px">· clique para expandir</span></div>
