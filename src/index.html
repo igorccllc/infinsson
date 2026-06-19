@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinPlan Pro — Planejamento Financeiro</title>
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#6395ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FinPlan">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<button id="menu-btn" class="menu-btn" onclick="toggleSidebar()" aria-label="Menu">
+  <span></span><span></span><span></span>
+</button>
+<div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebar()"></div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-gem">&#9670;</span>
+      <span class="brand-name">FinPlan<em>Pro</em></span>
+    </div>
+    <nav class="nav">
+      <a class="nav-item active" data-page="dashboard" href="#" onclick="navigate('dashboard');return false;">
+        <span class="nav-icon">&#8862;</span><span>Dashboard</span>
+      </a>
+      <a class="nav-item" data-page="timeline" href="#" onclick="navigate('timeline');return false;">
+        <span class="nav-icon">&#8767;</span><span>Linha da Vida</span>
+      </a>
+      <a class="nav-item" data-page="scenarios" href="#" onclick="navigate('scenarios');return false;">
+        <span class="nav-icon">&#9655;</span><span>Cen&aacute;rios</span>
+      </a>
+      <a class="nav-item" data-page="portfolio" href="#" onclick="navigate('portfolio');return false;">
+        <span class="nav-icon">&#9673;</span><span>Patrim&ocirc;nio</span>
+      </a>
+      <a class="nav-item" data-page="cashflow" href="#" onclick="navigate('cashflow');return false;">
+        <span class="nav-icon">&#8644;</span><span>Fluxo de Caixa</span>
+      </a>
+      <a class="nav-item" data-page="expenses" href="#" onclick="navigate('expenses');return false;">
+        <span class="nav-icon">&#9638;</span><span>An&aacute;lise de Gastos</span>
+      </a>
+      <a class="nav-item" data-page="fi" href="#" onclick="navigate('fi');return false;">
+        <span class="nav-icon">&#9733;</span><span>Independ&ecirc;ncia FI</span>
+      </a>
+      <a class="nav-item" data-page="history" href="#" onclick="navigate('history');return false;">
+        <span class="nav-icon">&#9636;</span><span>Hist&oacute;rico</span>
+      </a>
+      <a class="nav-item" data-page="simulador" href="#" onclick="navigate('simulador');return false;">
+        <span class="nav-icon">&#128202;</span><span>Simulador</span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <button id="sync-btn" class="btn-ghost btn-sm sync-btn" onclick="event.shiftKey ? promptSyncUrl() : syncFromSheets()" title="Clique para sincronizar · Shift+clique para trocar a URL">&#8635; Sync Sheets</button>
+      <div class="sidebar-footer-row">
+        <button class="btn-ghost btn-sm" onclick="exportData()">&#8593; Exportar</button>
+        <button class="btn-ghost btn-sm" onclick="triggerImport()">&#8595; Importar</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
+      </div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="page-dashboard"   class="page active"></div>
+    <div id="page-timeline"    class="page"></div>
+    <div id="page-scenarios"   class="page"></div>
+    <div id="page-portfolio"   class="page"></div>
+    <div id="page-cashflow"    class="page"></div>
+    <div id="page-assumptions" class="page"></div>
+    <div id="page-expenses"    class="page"></div>
+    <div id="page-fi"          class="page"></div>
+    <div id="page-history"     class="page"></div>
+    <div id="page-simulador"   class="page"></div>
+  </main>
+</div>
+
+<div id="modal-overlay" class="modal-overlay hidden" onclick="overlayClick(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="app.js"></script>
+<script>
+function toggleSidebar() {
+  document.querySelector('.sidebar').classList.toggle('open');
+  document.getElementById('sidebar-backdrop').classList.toggle('open');
+}
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebar-backdrop').classList.remove('open');
+}
+document.addEventListener('click', function(e) {
+  if (e.target.closest('.nav-item') && window.innerWidth <= 600) closeSidebar();
+});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(function(){});
+}
+</script>
+</body>
+</html>

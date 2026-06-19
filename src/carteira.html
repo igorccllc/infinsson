@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Extrator de Posição XP</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75,500..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F2F4F3; --surface:#FFFFFF; --ink:#11201B; --ink-soft:#5A6B64;
+  --line:#D8DEDB; --line-soft:#E8ECEA;
+  --green:#0E5A3C; --green-soft:#E4EFE9; --rust:#9A3412;
+  --mono:'IBM Plex Mono',monospace; --disp:'Archivo',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--disp);font-size:14px;line-height:1.45;padding:32px 20px 80px}
+.wrap{max-width:1060px;margin:0 auto}
+
+/* ── header ── */
+header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;border-bottom:3px solid var(--ink);padding-bottom:14px;margin-bottom:22px}
+h1{font-size:26px;font-weight:800;font-stretch:75%;letter-spacing:-.01em;text-transform:uppercase}
+h1 span{color:var(--green)}
+.meta{font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+
+/* ── dropzone ── */
+#drop{border:2px dashed var(--line);border-radius:8px;background:var(--surface);padding:42px 20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+#drop.over{border-color:var(--green);background:var(--green-soft)}
+#drop strong{display:block;font-size:16px;font-weight:700;margin-bottom:4px}
+#drop em{font-style:normal;color:var(--ink-soft);font-size:13px}
+#file{display:none}
+
+/* ── summary strip ── */
+#summary{display:none}
+#summary,.summary{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:26px}
+.sum-cell{background:var(--surface);padding:14px 18px}
+.sum-cell .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);font-weight:600}
+.sum-cell .val{font-family:var(--mono);font-size:19px;font-weight:600;margin-top:3px}
+.sum-cell.hero .val{color:var(--green)}
+
+/* ── category cards ── */
+.cat{background:var(--surface);border:1px solid var(--line);border-radius:8px;margin-bottom:18px;overflow:hidden}
+.cat-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:13px 18px;border-bottom:1px solid var(--line);background:var(--ink);color:#F2F4F3;cursor:pointer}
+.cat-head h2{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-stretch:78%}
+.cat-head .tot{font-family:var(--mono);font-size:15px;font-weight:600}
+.cat-head .chev{font-family:var(--mono);font-size:12px;opacity:.6;margin-left:8px}
+.cat.extra .cat-head{background:#33433C}
+.cat-body{padding:6px 0 12px}
+.cat.closed .cat-body{display:none}
+
+/* ── ledger table ── */
+table{width:100%;border-collapse:collapse}
+.tbl-wrap{overflow-x:auto}
+th{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);font-weight:600;text-align:right;padding:10px 10px 6px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+th:first-child{text-align:left;padding-left:18px}
+td{font-family:var(--mono);font-size:12.5px;padding:5px 10px;text-align:right;white-space:nowrap;border-bottom:1px dotted var(--line-soft)}
+td.name{text-align:left;padding-left:18px;font-family:var(--disp);font-size:13px;max-width:340px;overflow:hidden;text-overflow:ellipsis}
+tr.sec td{font-family:var(--disp);font-weight:700;font-size:13px;background:var(--green-soft);border-bottom:1px solid var(--line);padding-top:8px;padding-bottom:8px}
+tr.sec td.name{text-transform:uppercase;letter-spacing:.03em;color:var(--green)}
+tr.sub td{font-weight:600;background:#FAFBFA;border-bottom:1px solid var(--line-soft)}
+tr.sub td.name{padding-left:34px;font-family:var(--disp);color:var(--ink);font-size:12.5px;text-transform:uppercase;letter-spacing:.05em}
+tr.asset td.name{padding-left:50px;color:var(--ink)}
+tr.asset.flat td.name{padding-left:34px}
+td .dim{color:var(--ink-soft)}
+td.mes{color:var(--green);font-weight:600}
+td.mes.zero{color:var(--line);font-weight:400}
+tfoot td{font-weight:600;border-top:2px solid var(--ink);border-bottom:none;padding-top:9px;background:var(--surface)}
+.note{font-size:11.5px;color:var(--ink-soft);padding:10px 18px 0;font-family:var(--disp)}
+.tag{display:inline-block;font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:3px;padding:1px 5px;margin-left:8px;color:var(--ink-soft);vertical-align:1px}
+
+/* ── actions ── */
+#actions{display:none;gap:10px;margin-bottom:22px}
+button{font-family:var(--disp);font-weight:700;font-size:13px;border:1px solid var(--ink);background:var(--ink);color:#fff;border-radius:6px;padding:9px 16px;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink)}
+button:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.opt{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-soft);font-weight:600;margin-left:auto;cursor:pointer}
+.opt select{font-family:var(--disp);font-size:12.5px;font-weight:600;color:var(--ink);border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:7px 8px;cursor:pointer}
+.opt select:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+.cp{font-family:var(--mono);font-size:10px;font-weight:500;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);border-radius:4px;padding:2px 7px;margin-left:10px;cursor:pointer;vertical-align:1px}
+.cp:hover{border-color:var(--green);color:var(--green)}
+.cp.ok{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+tr.sec .cp{background:transparent}
+tfoot .cp{vertical-align:0}
+#err{display:none;background:#FBEAE3;border:1px solid var(--rust);color:var(--rust);border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:13px}
+
+/* ── resultado pos/neg ── */
+td.pos,.val.pos,.tot.pos{color:var(--green)}
+td.neg,.val.neg,.tot.neg{color:var(--rust)}
+td.bench{color:var(--ink-soft)}
+td.idx{text-align:left;font-size:11.5px;color:var(--ink);white-space:nowrap}
+.cat-head button{background:#F2F4F3;color:var(--ink);border-color:#F2F4F3}
+.cat-head button.ghost{background:transparent;color:#F2F4F3;border-color:rgba(242,244,243,.45)}
+
+/* ── alocação: donut + legenda ── */
+.cat-body.alloc{display:flex;flex-wrap:wrap;align-items:center;gap:28px;padding:20px 18px}
+.donut-wrap{flex:0 0 auto}
+.donut circle{transition:none}
+.legend{list-style:none;flex:1 1 280px;min-width:240px}
+.legend li{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px dotted var(--line-soft);font-size:13px}
+.legend li:last-child{border-bottom:none}
+.legend .sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto}
+.legend .lg-name{flex:1 1 auto;font-weight:600}
+.legend .lg-val{font-family:var(--mono);font-size:12.5px}
+.legend .lg-pct{font-family:var(--mono);font-size:12px;color:var(--ink-soft);min-width:48px;text-align:right}
+
+/* ── evolução: gráfico de barras ── */
+.histbars{display:flex;align-items:stretch;gap:10px;height:180px;padding:14px 18px 0}
+.histbars .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;min-width:0;cursor:default}
+.histbars .barwrap{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center}
+.histbars .bar{width:100%;max-width:46px;background:var(--green-soft);border:1px solid var(--green);border-bottom:none;border-radius:4px 4px 0 0;min-height:2px}
+.histbars .col.cur .bar{background:var(--green)}
+.histbars .blab{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.del-snap{color:var(--ink-soft);padding:1px 7px}
+.del-snap:hover{border-color:var(--rust);color:var(--rust)}
+
+/* ── tabs ── */
+#tabs{display:none;gap:4px;border-bottom:2px solid var(--line);margin-bottom:22px}
+.tab{font-family:var(--disp);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--ink-soft);border-radius:0;padding:8px 14px;margin-bottom:-2px;cursor:pointer}
+.tab[aria-selected="true"]{color:var(--green);border-bottom-color:var(--green)}
+.tab:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+
+/* ── liquidez / calendário de vencimentos ── */
+th.liq-conc,td.liq-conc{text-align:left;padding-left:18px}
+.liq-bar{display:inline-block;width:90px;height:7px;background:var(--line-soft);border-radius:4px;overflow:hidden;vertical-align:middle}
+.liq-bar span{display:block;height:100%;background:var(--green);border-radius:4px}
+.liq-pct{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-left:8px;vertical-align:middle}
+tr.liq-month{cursor:pointer}
+tr.liq-month:hover td{background:var(--green-soft)}
+tr.liq-month .chev{font-family:var(--mono);font-size:11px;opacity:.55;margin-left:6px}
+tr.liq-month td.name{font-family:var(--mono);font-size:12.5px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.liq-day{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--green);font-weight:600;min-width:78px;margin-right:6px}
+
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Extrator de Posição <span>XP</span></h1>
+    <div class="meta" id="posdate">aguardando arquivo</div>
+  </header>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Carregar planilha de posição">
+    <strong>Solte aqui a Posição Detalhada Histórica (.xlsx)</strong>
+    <em>ou clique para selecionar — tudo roda local, nada sai do navegador</em>
+  </div>
+  <input type="file" id="file" accept=".xlsx,.xls">
+  <div id="err"></div>
+
+  <div id="summary" style="margin-top:22px"></div>
+
+  <nav id="tabs">
+    <button class="tab" data-view="carteira" aria-selected="true">Carteira</button>
+    <button class="tab" data-view="liquidez" aria-selected="false">Liquidez</button>
+    <button class="tab" data-view="rentab" aria-selected="false">Rentabilidade</button>
+    <button class="tab" data-view="alocacao" aria-selected="false">Alocação</button>
+    <button class="tab" data-view="concentracao" aria-selected="false">Concentração</button>
+    <button class="tab" data-view="evolucao" aria-selected="false">Evolução</button>
+  </nav>
+
+  <section class="view" data-view="carteira">
+    <div id="actions" style="display:none">
+      <button id="btn-export">Exportar consolidado (.xlsx)</button>
+      <button id="btn-reset" class="ghost">Carregar outro arquivo</button>
+      <label class="opt">formato da cópia
+        <select id="opt-fmt">
+          <option value="formula" selected>fórmula =a+b+c (uma célula)</option>
+          <option value="lista">lista (um valor por linha)</option>
+          <option value="nomes">nome + valor (duas colunas)</option>
+        </select>
+      </label>
+    </div>
+    <div id="report"></div>
+  </section>
+
+  <section class="view" data-view="liquidez" hidden>
+    <div id="liquidez"></div>
+  </section>
+
+  <section class="view" data-view="rentab" hidden>
+    <div id="rentab"></div>
+  </section>
+
+  <section class="view" data-view="alocacao" hidden>
+    <div id="alocacao"></div>
+  </section>
+
+  <section class="view" data-view="concentracao" hidden>
+    <div id="concentracao"></div>
+  </section>
+
+  <section class="view" data-view="evolucao" hidden>
+    <div id="evolucao"></div>
+  </section>
+</div>
+
+<script>
+'use strict';
+const BANCARIO = ['LCI','LCA','CDB'];
+const PRIVADO  = ['DEB','CRI','CRA'];
+const ORDEM_PRINCIPAL = ['Fundos de Investimentos','Tesouro Direto','Renda Fixa'];
+let parsed = null;
+
+/* ── helpers ── */
+const blank = v => v == null || String(v).trim() === '';
+function brl(v){
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s.startsWith('R$')) return null;
+  const n = parseFloat(s.replace('R$','').replace(/\./g,'').replace(',','.').trim());
+  return isNaN(n) ? null : n;
+}
+const fmt = n => n == null ? '—' :
+  n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function parseVenc(s){
+  if (blank(s)) return null;
+  const m = String(s).match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? { d:m[1], m:m[2], y:m[3], key: m[3] + '-' + m[2] } : null;
+}
+
+const TIPOS = ['CDB','LCI','LCA','CRI','CRA','DEB','LC','LF','LIG','RDB','LFSN','LFSC','CDCA'];
+const FGC_LIMITE = 250000;
+
+/* Conglomerados: emissores com CNPJs diferentes que pertencem à mesma instituição
+   (o FGC vale por conglomerado, não por entidade). Para agrupar mais, adicione
+   { nome:'Como exibir', match:/regex/i } aqui — o 1º que casar define o grupo. */
+const CONGLOMERADOS = [
+  { nome: 'C6 Bank',         match: /\bc6\b/i },
+  { nome: 'Banco Inter',     match: /\binter\b/i },
+  { nome: 'Banco BMG',       match: /\bbmg\b/i },
+  { nome: 'Banco Master',    match: /\bmaster\b/i },
+  { nome: 'Banco Pan',       match: /\bpan\b/i },
+  { nome: 'Banco Original',  match: /\boriginal\b/i },
+  { nome: 'BTG Pactual',     match: /\bbtg\b/i },
+  { nome: 'Banco Daycoval',  match: /\bdaycoval\b/i },
+  { nome: 'Banco ABC',       match: /\babc\b/i },
+  { nome: 'Itaú',            match: /\bita[úu]\b/i },
+  { nome: 'Bradesco',        match: /\bbradesco\b/i },
+  { nome: 'Santander',       match: /\bsantander\b/i },
+  { nome: 'Banco do Brasil', match: /\bbanco do brasil\b/i },
+  { nome: 'Caixa',           match: /\bcaixa\b/i },
+];
+
+function parseEmissor(nome){
+  let s = String(nome).split(/\s[-–—]\s/)[0].trim();   // tudo antes do " - "
+  const up = s.toUpperCase();
+  for (const t of TIPOS){
+    if (up.startsWith(t + ' ')){ s = s.slice(t.length).trim(); break; }
+  }
+  return s || String(nome).trim();
+}
+
+/* mapeia o emissor bruto para o conglomerado; sem regra, só limpa o sufixo S/A */
+function conglomerado(raw){
+  for (const c of CONGLOMERADOS) if (c.match.test(raw)) return c.nome;
+  return raw.replace(/\s+S\/?\.?A\.?\.?$/i,'').replace(/\s+/g,' ').trim() || raw;
+}
+
+function classifica(nome){
+  const up = String(nome).trim().toUpperCase();
+  if (BANCARIO.some(p => up.startsWith(p))) return 'Bancário';
+  if (PRIVADO.some(p => up.startsWith(p)))  return 'Privado';
+  return 'Outros';
+}
+
+/* ── parser ── */
+function parseSheet(rows){
+  let posDate = null;
+  for (const row of rows) for (const cell of row){
+    const m = String(cell ?? '').match(/Data da Posi[çc][ãa]o Hist[óo]rica:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+    if (m){ posDate = {d:m[1], m:m[2], y:m[3]}; break; }
+  }
+
+  const cats = [];   // {nome, total, secoes:[{nome, hdr, cols, items}]}
+  let cat = null, sec = null;
+
+  for (const row of rows){
+    const a = row[0];
+    if (blank(a)){ sec = null; continue; }
+    const name = String(a).trim();
+
+    const mSec = name.match(/^[\d.,]+%\s*\|\s*(.+)$/);
+    if (mSec && cat){
+      const hdr = row.map(x => String(x ?? '').trim());
+      const idx = (...ns) => { for (const n of ns){ const i = hdr.indexOf(n); if (i >= 0) return i; } return -1; };
+      sec = {
+        nome: mSec[1].trim(), items: [],
+        cols: {
+          liq:  idx('Valor Líquido','Valor líquido'),
+          pos:  idx('Posição','Posição a mercado'),
+          apl:  idx('Valor aplicado','Total aplicado'),
+          dapl: idx('Data aplicação'),
+          venc: idx('Data vencimento','Vencimento'),
+          taxa: idx('Taxa a mercado','Taxa'),
+        }
+      };
+      cat.secoes.push(sec);
+      continue;
+    }
+
+    // category row: col B empty + col G has an R$ total
+    if (blank(row[1]) && brl(row[6]) != null){
+      cat = { nome: name, total: brl(row[6]), secoes: [] };
+      cats.push(cat); sec = null; continue;
+    }
+
+    if (cat && sec){
+      const c = sec.cols;
+      const get = i => i >= 0 ? row[i] : null;
+      const liq = brl(get(c.liq));
+      const pos = brl(get(c.pos));
+      const apl = brl(get(c.apl));
+      const dapl = blank(get(c.dapl)) ? null : String(get(c.dapl)).trim();
+      let aplMes = null;
+      if (posDate && c.dapl >= 0){
+        aplMes = (dapl && dapl.endsWith('/' + posDate.m + '/' + posDate.y)) ? (apl ?? 0) : 0;
+      }
+      sec.items.push({
+        nome: name,
+        liquido: liq ?? pos,           // SEMPRE valor líquido; posição só quando o relatório não traz a coluna
+        liqProxy: liq == null,
+        aplicado: apl,
+        dataApl: dapl,
+        venc: blank(get(c.venc)) ? null : String(get(c.venc)).trim(),
+        taxa: blank(get(c.taxa)) ? null : String(get(c.taxa)).trim(),
+        aplMes,
+        grupo: classifica(name),
+      });
+    }
+  }
+  return { posDate, cats };
+}
+
+/* ── aggregation ── */
+const soma = (items, k) => items.reduce((s,i) => s + (i[k] ?? 0), 0);
+
+/* ── render ── */
+function render(data){
+  const posTxt = data.posDate ? `${data.posDate.d}/${data.posDate.m}/${data.posDate.y}` : '—';
+  document.getElementById('posdate').textContent = 'posição em ' + posTxt;
+
+  const all = data.cats.flatMap(c => c.secoes.flatMap(s => s.items));
+  const totLiq = soma(all,'liquido');
+  const totMes = soma(all,'aplMes');
+  let venc12 = null;
+  if (data.posDate){
+    const base = (+data.posDate.y) * 12 + (+data.posDate.m);
+    venc12 = soma(all.filter(i => {
+      const v = parseVenc(i.venc); if (!v) return false;
+      const t = (+v.y) * 12 + (+v.m);
+      return t > base && t <= base + 12;
+    }), 'liquido');
+  }
+  document.getElementById('summary').style.display = 'grid';
+  document.getElementById('summary').innerHTML = `
+    <div class="sum-cell hero"><div class="lbl">Patrimônio (valor líquido)</div><div class="val">${fmt(totLiq)}</div></div>
+    <div class="sum-cell"><div class="lbl">Aplicado no mês da posição</div><div class="val">${fmt(totMes)}</div></div>
+    <div class="sum-cell"><div class="lbl">Vence nos próx. 12 meses</div><div class="val">${venc12 == null ? '—' : fmt(venc12)}</div></div>
+    <div class="sum-cell"><div class="lbl">Ativos</div><div class="val">${all.length}</div></div>`;
+  document.getElementById('actions').style.display = 'flex';
+  document.getElementById('tabs').style.display = 'flex';
+
+  const ordered = [
+    ...ORDEM_PRINCIPAL.map(n => data.cats.find(c => c.nome === n)).filter(Boolean),
+    ...data.cats.filter(c => !ORDEM_PRINCIPAL.includes(c.nome)),
+  ];
+
+  copyGroups = [];
+  let html = '';
+  for (const cat of ordered){
+    const extra = !ORDEM_PRINCIPAL.includes(cat.nome);
+    const items = cat.secoes.flatMap(s => s.items);
+    const catLiq = soma(items,'liquido');
+    const proxy = items.some(i => i.liqProxy);
+
+    let body = `<div class="tbl-wrap"><table>
+      <thead><tr><th>Ativo</th><th>Aplicação</th><th>Vencimento</th>
+      <th>Valor aplicado</th><th>Aplicado no mês</th><th>Valor líquido</th></tr></thead><tbody>`;
+
+    for (const s of cat.secoes){
+      body += rowTotal('sec', s.nome, s.items);
+      if (cat.nome === 'Renda Fixa'){
+        for (const g of ['Privado','Bancário','Outros']){
+          const gi = s.items.filter(i => i.grupo === g);
+          if (!gi.length) continue;
+          body += rowTotal('sub', g, gi);
+          gi.forEach(i => body += rowAsset(i, false));
+        }
+      } else {
+        s.items.forEach(i => body += rowAsset(i, true));
+      }
+    }
+    body += `</tbody><tfoot>${rowFoot('Total ' + cat.nome, items)}</tfoot></table></div>`;
+    if (proxy) body += `<div class="note">° relatório não traz coluna de valor líquido nesta categoria — exibido o valor de posição.</div>`;
+
+    html += `<section class="cat${extra ? ' extra' : ''}">
+      <div class="cat-head" role="button" tabindex="0" aria-expanded="true">
+        <h2>${esc(cat.nome)}${extra ? '<span class="tag">fora da estrutura-alvo</span>' : ''}</h2>
+        <div><span class="tot">${fmt(catLiq)}</span><span class="chev">▾</span></div>
+      </div>
+      <div class="cat-body">${body}</div></section>`;
+  }
+  document.getElementById('report').innerHTML = html;
+  document.querySelectorAll('.cp').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); copyGroup(+b.dataset.cp, b); }));
+  document.querySelectorAll('.cat-head').forEach(h => {
+    const toggle = () => {
+      const c = h.parentElement.classList.toggle('closed');
+      h.setAttribute('aria-expanded', String(!c));
+      h.querySelector('.chev').textContent = c ? '▸' : '▾';
+    };
+    h.addEventListener('click', toggle);
+    h.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  });
+
+  renderLiquidez(data);
+  renderRentabilidade(data);
+  renderAlocacao(data);
+  renderConcentracao(data);
+  renderHistorico(data);
+  loadBenchmarks(data);
+}
+
+function bindRowToggles(cont){
+  cont.querySelectorAll('.liq-month').forEach(r => {
+    const toggle = () => {
+      const open = r.classList.toggle('open');
+      r.querySelector('.chev').textContent = open ? '▾' : '▸';
+      let n = r.nextElementSibling;
+      while (n && n.classList.contains('liq-detail')){ n.hidden = !open; n = n.nextElementSibling; }
+    };
+    r.addEventListener('click', toggle);
+    r.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  });
+}
+
+/* ── liquidez: calendário de vencimentos ── */
+const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function renderLiquidez(data){
+  const cont = document.getElementById('liquidez');
+  const all = data.cats.flatMap(c => c.secoes.flatMap(s => s.items));
+  const com = [], sem = [];
+  for (const i of all){
+    const v = parseVenc(i.venc);
+    if (v) com.push(Object.assign({}, i, { _venc: v }));
+    else sem.push(i);
+  }
+  if (!com.length){ cont.innerHTML = ''; return; }
+
+  const map = new Map();
+  for (const i of com){
+    if (!map.has(i._venc.key)) map.set(i._venc.key, []);
+    map.get(i._venc.key).push(i);
+  }
+  const keys = [...map.keys()].sort();
+  const totCom = soma(com,'liquido');
+  const totSem = soma(sem,'liquido');
+  const maxMonth = Math.max(...keys.map(k => soma(map.get(k),'liquido')), 1);
+  const monthLabel = key => { const [y,m] = key.split('-'); return MESES[+m - 1] + '/' + y; };
+
+  let body = `<div class="tbl-wrap"><table>
+    <thead><tr><th>Vencimento</th><th>Ativos</th><th class="liq-conc">Concentração</th><th>Valor líquido</th><th>Acumulado</th></tr></thead><tbody>`;
+  let acc = 0, curYear = null;
+  for (const key of keys){
+    const y = key.split('-')[0];
+    if (y !== curYear){
+      curYear = y;
+      const yItems = com.filter(i => i._venc.y === y);
+      body += `<tr class="sec"><td class="name">${y}</td><td>${yItems.length}</td><td class="liq-conc"></td><td>${fmt(soma(yItems,'liquido'))}</td><td></td></tr>`;
+    }
+    const items = map.get(key);
+    const val = soma(items,'liquido');
+    acc += val;
+    const pct = totCom ? (val / totCom * 100) : 0;
+    const barW = (val / maxMonth * 100).toFixed(1);
+    body += `<tr class="liq-month" tabindex="0"><td class="name">${monthLabel(key)}<span class="chev">▸</span></td>
+      <td>${items.length}</td>
+      <td class="liq-conc"><span class="liq-bar"><span style="width:${barW}%"></span></span><span class="liq-pct">${pct.toFixed(1)}%</span></td>
+      <td>${fmt(val)}</td><td class="dim">${fmt(acc)}</td></tr>`;
+    let run = acc - val;
+    items.slice().sort((a,b) => (+a._venc.d) - (+b._venc.d)).forEach(i => {
+      run += (i.liquido ?? 0);
+      body += `<tr class="asset liq-detail" hidden><td class="name" title="${esc(i.nome)}"><span class="liq-day">${i._venc.d}/${i._venc.m}/${i._venc.y}</span>${esc(i.nome)}</td><td></td><td class="liq-conc"></td><td>${fmt(i.liquido)}</td><td class="dim">${fmt(run)}</td></tr>`;
+    });
+  }
+  body += `</tbody><tfoot><tr><td class="name">Total com vencimento</td><td>${com.length}</td><td class="liq-conc"></td><td>${fmt(totCom)}</td><td></td></tr></tfoot></table></div>`;
+  if (sem.length)
+    body += `<div class="note">+ ${fmt(totSem)} em ${sem.length} ativo(s) sem data de vencimento (fundos / liquidez diária).</div>`;
+
+  cont.innerHTML = `<section class="cat">
+    <div class="cat-head">
+      <h2>Calendário de Vencimentos</h2>
+      <span class="tot">${fmt(totCom)}</span>
+    </div>
+    <div class="cat-body">${body}</div></section>`;
+
+  bindRowToggles(cont);
+}
+
+/* ── concentração por emissor / FGC ── */
+function renderConcentracao(data){
+  const cont = document.getElementById('concentracao');
+  const rf = data.cats.find(c => c.nome === 'Renda Fixa');
+  if (!rf){ cont.innerHTML = '<div class="note" style="padding:18px 0">Sem renda fixa na carteira — nada a concentrar por emissor.</div>'; return; }
+  const items = rf.secoes.flatMap(s => s.items);
+  const totalPat = soma(data.cats.flatMap(c => c.secoes.flatMap(s => s.items)),'liquido');
+
+  const map = new Map();
+  for (const i of items){
+    const em = conglomerado(parseEmissor(i.nome));
+    if (!map.has(em)) map.set(em, []);
+    map.get(em).push(i);
+  }
+  const grupos = [...map.entries()].map(([em, its]) => {
+    const valor = soma(its,'liquido');
+    const fgcVal = soma(its.filter(x => x.grupo === 'Bancário'),'liquido');
+    return { em, its, valor, fgcVal, exced: Math.max(0, fgcVal - FGC_LIMITE), fgc: fgcVal > 0 };
+  }).sort((a,b) => b.valor - a.valor);
+
+  const maxV = Math.max(...grupos.map(g => g.valor), 1);
+  const totFgc = grupos.reduce((s,g) => s + g.fgcVal, 0);
+  const totExc = grupos.reduce((s,g) => s + g.exced, 0);
+  const maior = grupos.length && totalPat ? grupos[0].valor / totalPat * 100 : 0;
+  const nExced = grupos.filter(g => g.exced > 0).length;
+
+  let rows = '';
+  for (const g of grupos){
+    const pct = totalPat ? g.valor / totalPat * 100 : 0;
+    const barW = (g.valor / maxV * 100).toFixed(1);
+    const fgcCell = g.fgc
+      ? (g.exced > 0 ? `<td class="neg">acima em ${fmt(g.exced)}</td>` : `<td class="pos">dentro do limite</td>`)
+      : `<td class="dim">fora do FGC</td>`;
+    rows += `<tr class="liq-month" tabindex="0"><td class="name">${esc(g.em)}<span class="chev">▸</span></td>
+      <td class="liq-conc"><span class="liq-bar"><span style="width:${barW}%"></span></span><span class="liq-pct">${pct.toFixed(1)}%</span></td>
+      <td>${fmt(g.valor)}</td>${fgcCell}</tr>`;
+    g.its.slice().sort((a,b) => b.liquido - a.liquido).forEach(i => {
+      rows += `<tr class="asset liq-detail" hidden><td class="name" title="${esc(i.nome)}">${esc(i.nome)}</td><td class="liq-conc"></td><td>${fmt(i.liquido)}</td><td class="dim">${i.grupo}</td></tr>`;
+    });
+  }
+
+  cont.innerHTML = `
+    <div class="summary" style="display:grid">
+      <div class="sum-cell"><div class="lbl">Emissores (renda fixa)</div><div class="val">${grupos.length}</div></div>
+      <div class="sum-cell"><div class="lbl">Maior concentração</div><div class="val">${maior.toFixed(1)}%</div></div>
+      <div class="sum-cell"><div class="lbl">Coberto pelo FGC</div><div class="val">${fmt(totFgc)}</div></div>
+      <div class="sum-cell"><div class="lbl">Acima do limite FGC</div><div class="val ${totExc > 0 ? 'neg' : 'pos'}">${fmt(totExc)}</div></div>
+    </div>
+    <section class="cat"><div class="cat-head"><h2>Exposição por Emissor</h2><span class="tot">${fmt(soma(items,'liquido'))}</span></div>
+      <div class="cat-body"><div class="tbl-wrap"><table>
+        <thead><tr><th>Emissor</th><th class="liq-conc">Concentração (% do patrimônio)</th><th>Valor líquido</th><th>FGC (R$ 250 mil/emissor)</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="note">FGC aplica-se só a emissores bancários (CDB/LCI/LCA). Limite considerado: R$ 250 mil por instituição/CPF — não inclui o teto global de R$ 1 mi a cada 4 anos, nem co-titularidade. Tesouro e fundos ficam fora desta análise.</div>
+      </div></section>`;
+
+  bindRowToggles(cont);
+}
+
+/* ── evolução: histórico mês a mês (localStorage) ── */
+const HIST_KEY = 'fechamento_hist_v1';
+const monthKeyLabel = key => { const [y,m] = key.split('-'); return MESES[+m - 1] + '/' + y; };
+function loadHist(){ try { return JSON.parse(localStorage.getItem(HIST_KEY)) || []; } catch(_){ return []; } }
+function writeHist(arr){ try { localStorage.setItem(HIST_KEY, JSON.stringify(arr)); } catch(_){} }
+function snapshotFrom(data){
+  const catLiq = c => soma(c.secoes.flatMap(s => s.items),'liquido');
+  const catApl = c => soma(c.secoes.flatMap(s => s.items),'aplicado');
+  const all = data.cats.flatMap(c => c.secoes.flatMap(s => s.items));
+  const p = data.posDate;
+  return {
+    key: p.y + '-' + p.m, dateStr: p.d + '/' + p.m + '/' + p.y,
+    totLiq: soma(all,'liquido'), totApl: soma(all,'aplicado'),
+    aplMes: soma(all,'aplMes'), nAtivos: all.length,
+    cats: data.cats.map(c => ({ nome: c.nome, liq: catLiq(c), apl: catApl(c) })),
+    savedAt: Date.now(),
+  };
+}
+function saveSnapshot(data){
+  if (!data.posDate) return loadHist();
+  const snap = snapshotFrom(data);
+  const arr = loadHist().filter(s => s.key !== snap.key);
+  arr.push(snap);
+  arr.sort((a,b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  writeHist(arr);
+  return arr;
+}
+function deltaCellHTML(v){
+  if (v == null) return '<td class="dim">—</td>';
+  return `<td class="${v >= 0 ? 'pos' : 'neg'}">${v > 0 ? '+' : ''}${fmt(v)}</td>`;
+}
+const SHEETS_URL_KEY = 'fechamento_sheets_url';
+async function enviarSheets(data){
+  const status = document.getElementById('sheets-status');
+  if (!data.posDate){ status.textContent = 'arquivo sem data de posição'; return; }
+  let url = localStorage.getItem(SHEETS_URL_KEY);
+  if (!url){
+    url = prompt('Cole a URL da Web App do Apps Script (termina em /exec):');
+    if (!url) return;
+    url = url.trim(); localStorage.setItem(SHEETS_URL_KEY, url);
+  }
+  const snap = snapshotFrom(data);
+  status.textContent = 'enviando…';
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // text/plain evita preflight CORS
+      body: JSON.stringify({ type: 'carteira-snapshot', snapshot: snap }),
+    });
+    let ok = true, err = null;
+    try { const j = await res.json(); ok = !!j.ok; err = j.error; } catch(_){ /* resposta opaca — assume enviado */ }
+    status.textContent = ok
+      ? '✓ ' + monthKeyLabel(snap.key) + ' enviado às ' + new Date().toLocaleTimeString('pt-BR').slice(0,5)
+      : '⚠ ' + (err || 'o Sheets recusou');
+  } catch(_){
+    status.textContent = '⚠ falha de conexão — confira a URL (clique de novo p/ recolar)';
+    localStorage.removeItem(SHEETS_URL_KEY);
+  }
+}
+
+function renderHistorico(data){
+  const cont = document.getElementById('evolucao');
+  const hist = saveSnapshot(data);
+  if (!hist.length || !data.posDate){
+    cont.innerHTML = '<div class="note" style="padding:18px 0">Arquivo sem Data da Posição — não foi possível registrar o fechamento no histórico.</div>';
+    return;
+  }
+  const curKey = data.posDate.y + '-' + data.posDate.m;
+  const idx = hist.findIndex(s => s.key === curKey);
+  const cur = hist[idx], prev = idx > 0 ? hist[idx - 1] : null;
+
+  let cards;
+  if (prev){
+    const dPat = cur.totLiq - prev.totLiq;
+    const rend = dPat - cur.aplMes;                    // rendimento ≈ Δpatrimônio − aporte
+    const rendPct = prev.totLiq ? rend / prev.totLiq * 100 : null;
+    cards = `
+      <div class="sum-cell hero"><div class="lbl">Patrimônio em ${monthKeyLabel(cur.key)}</div><div class="val">${fmt(cur.totLiq)}</div></div>
+      <div class="sum-cell"><div class="lbl">Δ vs ${monthKeyLabel(prev.key)}</div><div class="val ${dPat >= 0 ? 'pos' : 'neg'}">${dPat > 0 ? '+' : ''}${fmt(dPat)}</div></div>
+      <div class="sum-cell"><div class="lbl">Aporte no mês</div><div class="val">${fmt(cur.aplMes)}</div></div>
+      <div class="sum-cell"><div class="lbl">Rendimento estimado</div><div class="val ${rend >= 0 ? 'pos' : 'neg'}">${rend > 0 ? '+' : ''}${fmt(rend)}${rendPct == null ? '' : ' <span class="dim" style="font-size:12px">(' + (rendPct > 0 ? '+' : '') + rendPct.toFixed(2) + '%)</span>'}</div></div>`;
+  } else {
+    cards = `
+      <div class="sum-cell hero"><div class="lbl">Patrimônio em ${monthKeyLabel(cur.key)}</div><div class="val">${fmt(cur.totLiq)}</div></div>
+      <div class="sum-cell"><div class="lbl">Aporte no mês</div><div class="val">${fmt(cur.aplMes)}</div></div>
+      <div class="sum-cell"><div class="lbl">Fechamentos registrados</div><div class="val">${hist.length}</div></div>`;
+  }
+
+  const maxLiq = Math.max(...hist.map(s => s.totLiq), 1);
+  const bars = hist.map(s => {
+    const h = (s.totLiq / maxLiq * 100).toFixed(1);
+    return `<div class="col${s.key === curKey ? ' cur' : ''}" title="${monthKeyLabel(s.key)} — ${fmt(s.totLiq)}">
+      <div class="barwrap"><div class="bar" style="height:${h}%"></div></div>
+      <div class="blab">${monthKeyLabel(s.key)}</div></div>`;
+  }).join('');
+
+  let rows = '';
+  hist.forEach((s, i) => {
+    const p = i > 0 ? hist[i - 1] : null;
+    const dPat = p ? s.totLiq - p.totLiq : null;
+    const rend = p ? (s.totLiq - p.totLiq - s.aplMes) : null;
+    rows += `<tr${s.key === curKey ? ' class="sub"' : ''}>
+      <td class="name">${monthKeyLabel(s.key)}</td>
+      <td>${fmt(s.totLiq)}</td>${deltaCellHTML(dPat)}
+      <td>${fmt(s.aplMes)}</td>${deltaCellHTML(rend)}
+      <td>${s.nAtivos}</td>
+      <td><button class="cp del-snap" data-key="${s.key}" title="Remover este fechamento">✕</button></td></tr>`;
+  });
+
+  cont.innerHTML = `
+    <div class="summary" style="display:grid">${cards}</div>
+    <section class="cat"><div class="cat-head"><h2>Evolução do Patrimônio</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span id="sheets-status" class="meta" style="color:#C9D6D0"></span>
+        <button id="send-sheets" style="font-size:12px;padding:5px 10px">↑ Enviar pro Sheets</button>
+        <button class="ghost" id="clear-hist" style="font-size:12px;padding:5px 10px">Limpar histórico</button>
+      </div></div>
+      <div class="cat-body">
+        <div class="histbars">${bars}</div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Mês</th><th>Patrimônio</th><th>Δ patrimônio</th><th>Aporte</th><th>Rendimento est.</th><th>Ativos</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+        <div class="note">Rendimento estimado = Δ patrimônio − aporte do mês. É aproximação: resgates e vencimentos no período distorcem o número. Rentabilidade ponderada por fluxo virá depois.</div>
+      </div></section>`;
+
+  cont.querySelectorAll('.del-snap').forEach(b => b.addEventListener('click', () => {
+    writeHist(loadHist().filter(s => s.key !== b.dataset.key));
+    renderHistorico(data);
+  }));
+  cont.querySelector('#send-sheets').addEventListener('click', () => enviarSheets(data));
+  cont.querySelector('#clear-hist').addEventListener('click', () => {
+    if (confirm('Apagar todo o histórico de fechamentos? Esta ação não pode ser desfeita.')){
+      writeHist([]); renderHistorico(data);
+    }
+  });
+}
+
+/* ── rentabilidade: aplicado vs líquido ── */
+const orderedCats = data => [
+  ...ORDEM_PRINCIPAL.map(n => data.cats.find(c => c.nome === n)).filter(Boolean),
+  ...data.cats.filter(c => !ORDEM_PRINCIPAL.includes(c.nome)),
+];
+function resCellHTML(v){
+  if (v == null) return '<td class="dim">—</td>';
+  return `<td class="${v >= 0 ? 'pos' : 'neg'}">${v > 0 ? '+' : ''}${fmt(v)}</td>`;
+}
+function pctCellHTML(p){
+  if (p == null) return '<td class="dim">—</td>';
+  return `<td class="${p >= 0 ? 'pos' : 'neg'}">${p > 0 ? '+' : ''}${p.toFixed(2)}%</td>`;
+}
+const resPct = i => (i.aplicado) ? (i.liquido - i.aplicado) / i.aplicado * 100 : null;
+
+/* ── benchmarks: CDI (SGS 12) e IPCA (SGS 433) do Banco Central ── */
+let BENCH = { key: null, status: 'idle', cdiDates: [], cdiPrefix: [], ipca: [], posInt: 0, posYm: 0 };
+const ymdInt = (d,m,y) => (+y) * 10000 + (+m) * 100 + (+d);
+function dmyInt(str){ const m = String(str ?? '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? ymdInt(m[1],m[2],m[3]) : null; }
+
+async function loadBenchmarks(data){
+  if (!data.posDate) { BENCH.status = 'idle'; return; }
+  const all = data.cats.flatMap(c => c.secoes.flatMap(s => s.items));
+  const aplInts = all.map(i => dmyInt(i.dataApl)).filter(Boolean);
+  if (!aplInts.length) { BENCH = { ...BENCH, key: 'none', status: 'empty' }; renderRentabilidade(data); return; }
+  const minApl = Math.min(...aplInts);
+  const posInt = ymdInt(data.posDate.d, data.posDate.m, data.posDate.y);
+  const key = minApl + '_' + posInt;
+  if (BENCH.key === key && BENCH.status === 'ready') return;          // já em cache
+
+  BENCH = { key, status: 'loading', cdiDates: [], cdiPrefix: [], ipca: [], posInt, posYm: (+data.posDate.y) * 100 + (+data.posDate.m) };
+  renderRentabilidade(data);                                          // mostra "carregando…"
+
+  const pad = n => String(n).padStart(2,'0');
+  const fromStr = pad(minApl % 100) + '/' + pad(Math.floor(minApl/100) % 100) + '/' + Math.floor(minApl/10000);
+  const toStr = data.posDate.d + '/' + data.posDate.m + '/' + data.posDate.y;
+  const u = s => `https://api.bcb.gov.br/dados/serie/bcdata.sgs.${s}/dados?formato=json&dataInicial=${fromStr}&dataFinal=${toStr}`;
+  try {
+    const [cdiR, ipcaR] = await Promise.all([
+      fetch(u(12)).then(r => r.json()),
+      fetch(u(433)).then(r => r.json()),
+    ]);
+    if (BENCH.key !== key) return;                                    // upload mais novo substituiu
+    let cum = 1; const dates = [], prefix = [];
+    for (const row of cdiR){ const di = dmyInt(row.data); if (di == null) continue; cum *= 1 + parseFloat(row.valor) / 100; dates.push(di); prefix.push(cum); }
+    BENCH.cdiDates = dates; BENCH.cdiPrefix = prefix;
+    BENCH.ipca = ipcaR.map(row => { const m = String(row.data).match(/(\d{2})\/(\d{2})\/(\d{4})/); return { ym: (+m[3]) * 100 + (+m[2]), val: parseFloat(row.valor) }; });
+    BENCH.status = 'ready';
+  } catch(_){ if (BENCH.key === key) BENCH.status = 'error'; }
+  renderRentabilidade(data);
+}
+function cdiAt(intDate){
+  const ds = BENCH.cdiDates; if (!ds.length) return 1;
+  let lo = 0, hi = ds.length - 1, res = -1;
+  while (lo <= hi){ const mid = (lo + hi) >> 1; if (ds[mid] <= intDate){ res = mid; lo = mid + 1; } else hi = mid - 1; }
+  return res < 0 ? 1 : BENCH.cdiPrefix[res];
+}
+function cdiPeriodo(aplStr){
+  if (BENCH.status !== 'ready') return null;
+  const a = dmyInt(aplStr); if (!a) return null;
+  const f = cdiAt(a); if (!f) return null;
+  return (cdiAt(BENCH.posInt) / f - 1) * 100;
+}
+function ipcaPeriodo(aplStr){
+  if (BENCH.status !== 'ready') return null;
+  const a = dmyInt(aplStr); if (!a) return null;
+  const fromYm = Math.floor(a / 100);
+  let f = 1;
+  for (const r of BENCH.ipca) if (r.ym > fromYm && r.ym <= BENCH.posYm) f *= 1 + r.val / 100;
+  return (f - 1) * 100;
+}
+function benchCellHTML(p){
+  if (p != null) return `<td class="bench">${p > 0 ? '+' : ''}${p.toFixed(2)}%</td>`;
+  const txt = BENCH.status === 'loading' ? '…' : BENCH.status === 'error' ? 'n/d' : '—';
+  return `<td class="dim">${txt}</td>`;
+}
+
+function renderRentabilidade(data){
+  const cont = document.getElementById('rentab');
+  const all = data.cats.flatMap(c => c.secoes.flatMap(s => s.items));
+  const totApl = soma(all,'aplicado'), totLiq = soma(all,'liquido');
+  const totRes = totLiq - totApl, totPct = totApl ? totRes / totApl * 100 : null;
+
+  let rows = '';
+  for (const cat of orderedCats(data)){
+    const items = cat.secoes.flatMap(s => s.items);
+    const cApl = soma(items,'aplicado'), cLiq = soma(items,'liquido');
+    const cRes = cLiq - cApl, cPct = cApl ? cRes / cApl * 100 : null;
+    rows += `<tr class="sec"><td class="name">${esc(cat.nome)}</td><td></td><td>${fmt(cApl)}</td><td>${fmt(cLiq)}</td>${resCellHTML(cApl ? cRes : null)}${pctCellHTML(cPct)}<td></td><td></td></tr>`;
+    items.slice().sort((a,b) => (resPct(b) ?? -Infinity) - (resPct(a) ?? -Infinity)).forEach(i => {
+      const r = i.aplicado != null ? i.liquido - i.aplicado : null;
+      rows += `<tr class="asset flat"><td class="name" title="${esc(i.nome)}">${esc(i.nome)}</td>
+        <td class="idx">${i.taxa ? esc(i.taxa) : '<span class="dim">—</span>'}</td>
+        <td>${i.aplicado != null ? fmt(i.aplicado) : '<span class="dim">—</span>'}</td>
+        <td>${fmt(i.liquido)}</td>${resCellHTML(r)}${pctCellHTML(resPct(i))}${benchCellHTML(cdiPeriodo(i.dataApl))}${benchCellHTML(ipcaPeriodo(i.dataApl))}</tr>`;
+    });
+  }
+
+  cont.innerHTML = `
+    <div class="summary" style="display:grid">
+      <div class="sum-cell"><div class="lbl">Total aplicado</div><div class="val">${fmt(totApl)}</div></div>
+      <div class="sum-cell"><div class="lbl">Valor líquido atual</div><div class="val">${fmt(totLiq)}</div></div>
+      <div class="sum-cell"><div class="lbl">Resultado acumulado</div><div class="val ${totRes >= 0 ? 'pos' : 'neg'}">${totRes > 0 ? '+' : ''}${fmt(totRes)}</div></div>
+      <div class="sum-cell"><div class="lbl">Resultado %</div><div class="val ${totRes >= 0 ? 'pos' : 'neg'}">${totPct == null ? '—' : (totPct > 0 ? '+' : '') + totPct.toFixed(2) + '%'}</div></div>
+    </div>
+    <section class="cat"><div class="cat-head"><h2>Resultado por Ativo</h2><span class="tot ${totRes >= 0 ? 'pos' : 'neg'}">${totRes > 0 ? '+' : ''}${fmt(totRes)}</span></div>
+      <div class="cat-body"><div class="tbl-wrap"><table>
+        <thead><tr><th>Ativo</th><th>Índice</th><th>Aplicado</th><th>Líquido</th><th>Resultado</th><th>%</th><th>CDI no período</th><th>IPCA no período</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td class="name">Total</td><td></td><td>${fmt(totApl)}</td><td>${fmt(totLiq)}</td>${resCellHTML(totApl ? totRes : null)}${pctCellHTML(totPct)}<td></td><td></td></tr></tfoot>
+      </table></div>
+      <div class="note">Resultado = valor líquido atual − valor aplicado. Para fundos com aportes em datas diferentes, não é a rentabilidade pura do período — é o ganho/perda acumulado sobre o total investido.</div>
+      <div class="note">CDI/IPCA no período = quanto cada índice acumulou da <strong>data de aplicação</strong> do ativo até a data da posição (fonte: Banco Central, séries SGS 12 e 433). Compare a coluna <strong>%</strong> do ativo com elas. ${BENCH.status === 'error' ? '<span style="color:var(--rust)">Não consegui buscar os índices no Banco Central agora.</span>' : BENCH.status === 'loading' ? 'Buscando índices…' : ''}</div>
+      </div></section>`;
+}
+
+/* ── alocação: distribuição por categoria/grupo ── */
+const PALETTE = ['#0E5A3C','#3E8E6B','#7FB89B','#C4A35A','#9A3412','#33433C','#A9BDB3','#5A6B64'];
+function donutSVG(segs, total){
+  const r = 70, C = 2 * Math.PI * r; let off = 0, circles = '';
+  for (const s of segs){
+    const len = total ? s.value / total * C : 0;
+    circles += `<circle r="${r}" cx="90" cy="90" fill="none" stroke="${s.color}" stroke-width="26"
+      stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}"
+      transform="rotate(-90 90 90)"></circle>`;
+    off += len;
+  }
+  return `<svg viewBox="0 0 180 180" width="180" height="180" class="donut">${circles}</svg>`;
+}
+function allocBlock(titulo, segs, total){
+  segs = segs.filter(s => s.value > 0).sort((a,b) => b.value - a.value);
+  segs.forEach((s,idx) => s.color = PALETTE[idx % PALETTE.length]);
+  const legend = segs.map(s => `<li><span class="sw" style="background:${s.color}"></span>
+    <span class="lg-name">${esc(s.label)}</span>
+    <span class="lg-val">${fmt(s.value)}</span>
+    <span class="lg-pct">${total ? (s.value / total * 100).toFixed(1) : '0'}%</span></li>`).join('');
+  return `<section class="cat"><div class="cat-head"><h2>${esc(titulo)}</h2><span class="tot">${fmt(total)}</span></div>
+    <div class="cat-body alloc"><div class="donut-wrap">${donutSVG(segs, total)}</div>
+    <ul class="legend">${legend}</ul></div></section>`;
+}
+function renderAlocacao(data){
+  const cont = document.getElementById('alocacao');
+  const all = data.cats.flatMap(c => c.secoes.flatMap(s => s.items));
+  const total = soma(all,'liquido');
+
+  const catSegs = orderedCats(data).map(c => ({ label: c.nome, value: soma(c.secoes.flatMap(s => s.items),'liquido') }));
+  let html = allocBlock('Por Categoria', catSegs, total);
+
+  const rf = data.cats.find(c => c.nome === 'Renda Fixa');
+  if (rf){
+    const items = rf.secoes.flatMap(s => s.items);
+    const rfTot = soma(items,'liquido');
+    const grpSegs = ['Privado','Bancário','Outros'].map(g => ({ label: g, value: soma(items.filter(i => i.grupo === g),'liquido') }));
+    html += allocBlock('Renda Fixa por Tipo de Emissor', grpSegs, rfTot);
+  }
+  cont.innerHTML = html;
+}
+
+function rowAsset(i, flat){
+  const mes = i.aplMes == null ? '<td class="dim">—</td>'
+    : `<td class="mes${i.aplMes ? '' : ' zero'}">${i.aplMes ? fmt(i.aplMes) : '·'}</td>`;
+  return `<tr class="asset${flat ? ' flat' : ''}"><td class="name" title="${esc(i.nome)}">${esc(i.nome)}</td>
+    <td>${i.dataApl ?? '<span class="dim">—</span>'}</td>
+    <td>${i.venc ?? '<span class="dim">—</span>'}</td>
+    <td>${i.aplicado != null ? fmt(i.aplicado) : '<span class="dim">—</span>'}</td>${mes}
+    <td>${fmt(i.liquido)}${i.liqProxy ? '<span class="dim">°</span>' : ''}</td></tr>`;
+}
+let copyGroups = [];
+function cpBtn(items){
+  copyGroups.push(items);
+  return `<button class="cp" data-cp="${copyGroups.length - 1}" title="Copiar valores líquidos deste grupo">⧉ copiar</button>`;
+}
+function rowTotal(cls, nome, items){
+  const mes = items.some(i => i.aplMes != null) ? fmt(soma(items,'aplMes')) : '—';
+  return `<tr class="${cls}"><td class="name">${esc(nome)}${cpBtn(items)}</td><td></td><td></td>
+    <td>${fmt(soma(items,'aplicado'))}</td><td>${mes}</td><td>${fmt(soma(items,'liquido'))}</td></tr>`;
+}
+function rowFoot(nome, items){
+  const mes = items.some(i => i.aplMes != null) ? fmt(soma(items,'aplMes')) : '—';
+  return `<tr><td class="name">${esc(nome)}${cpBtn(items)}</td><td></td><td></td>
+    <td>${fmt(soma(items,'aplicado'))}</td><td>${mes}</td><td>${fmt(soma(items,'liquido'))}</td></tr>`;
+}
+
+/* ── copy to spreadsheet ── */
+const num  = n => n == null ? '' : n.toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2});
+const numF = n => n == null ? '0' : n.toFixed(2).replace('.', ',');  // sem separador de milhar: válido dentro de fórmula
+async function copyGroup(idx, btn){
+  const items = copyGroups[idx];
+  const modo = document.getElementById('opt-fmt').value;
+  let text;
+  if (modo === 'formula')    text = '=' + items.map(i => numF(i.liquido)).join('+');
+  else if (modo === 'nomes') text = items.map(i => i.nome + '\t' + num(i.liquido)).join('\n');
+  else                       text = items.map(i => num(i.liquido)).join('\n');
+  try{ await navigator.clipboard.writeText(text); }
+  catch(_){
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  btn.classList.add('ok');
+  btn.textContent = modo === 'formula' ? '✓ fórmula (' + items.length + ')' : '✓ ' + items.length + (items.length === 1 ? ' valor' : ' valores');
+  setTimeout(() => { btn.classList.remove('ok'); btn.textContent = '⧉ copiar'; }, 1800);
+}
+
+/* ── export ── */
+function exportXlsx(){
+  if (!parsed) return;
+  const aoa = [['Categoria','Seção','Grupo','Ativo','Data aplicação','Vencimento','Valor aplicado','Aplicado no mês','Valor líquido']];
+  for (const cat of parsed.cats)
+    for (const s of cat.secoes)
+      for (const i of s.items)
+        aoa.push([cat.nome, s.nome, cat.nome === 'Renda Fixa' ? i.grupo : '', i.nome,
+          i.dataApl ?? '', i.venc ?? '', i.aplicado, i.aplMes, i.liquido]);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:24},{wch:16},{wch:10},{wch:42},{wch:12},{wch:12},{wch:14},{wch:14},{wch:14}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Posição consolidada');
+
+  // ── aba: calendário de liquidez ──
+  const all = parsed.cats.flatMap(c => c.secoes.flatMap(s => s.items));
+  const com = [];
+  for (const i of all){ const v = parseVenc(i.venc); if (v) com.push(Object.assign({}, i, { _venc: v })); }
+  if (com.length){
+    const map = new Map();
+    for (const i of com){ if (!map.has(i._venc.key)) map.set(i._venc.key, []); map.get(i._venc.key).push(i); }
+    const keys = [...map.keys()].sort();
+    const totCom = soma(com,'liquido');
+    const laoa = [['Mês de vencimento','Ativos','Valor líquido','% do total','Acumulado']];
+    let acc = 0;
+    for (const key of keys){
+      const items = map.get(key);
+      const val = soma(items,'liquido'); acc += val;
+      const [y,m] = key.split('-');
+      laoa.push([MESES[+m-1] + '/' + y, items.length, val, totCom ? val/totCom : 0, acc]);
+    }
+    laoa.push(['Total com vencimento', com.length, totCom, 1, '']);
+    const lws = XLSX.utils.aoa_to_sheet(laoa);
+    lws['!cols'] = [{wch:20},{wch:8},{wch:16},{wch:11},{wch:16}];
+    // formato R$ nas colunas de valor e % na coluna de concentração
+    const range = XLSX.utils.decode_range(lws['!ref']);
+    for (let r = 1; r <= range.e.r; r++){
+      for (const col of [2,4]){ const c = lws[XLSX.utils.encode_cell({r,c:col})]; if (c && typeof c.v === 'number') c.z = '#,##0.00'; }
+      const pc = lws[XLSX.utils.encode_cell({r,c:3})]; if (pc && typeof pc.v === 'number') pc.z = '0.0%';
+    }
+    XLSX.utils.book_append_sheet(wb, lws, 'Calendário de liquidez');
+  }
+
+  const p = parsed.posDate;
+  XLSX.writeFile(wb, `posicao-consolidada${p ? '_' + p.y + '-' + p.m : ''}.xlsx`);
+}
+
+/* ── file handling ── */
+function handleFile(file){
+  const err = document.getElementById('err');
+  err.style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:null});
+      parsed = parseSheet(rows);
+      if (!parsed.cats.length) throw new Error('Nenhuma categoria reconhecida — confira se é o relatório "Posição Detalhada Histórica" da XP.');
+      render(parsed);
+      document.getElementById('drop').style.display = 'none';
+    }catch(ex){
+      err.textContent = 'Não consegui ler o arquivo: ' + ex.message;
+      err.style.display = 'block';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+const drop = document.getElementById('drop'), input = document.getElementById('file');
+drop.addEventListener('click', () => input.click());
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+input.addEventListener('change', () => input.files[0] && handleFile(input.files[0]));
+['dragover','dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => e.dataTransfer.files[0] && handleFile(e.dataTransfer.files[0]));
+function showView(name){
+  document.querySelectorAll('.tab').forEach(t =>
+    t.setAttribute('aria-selected', String(t.dataset.view === name)));
+  document.querySelectorAll('.view').forEach(v =>
+    v.hidden = v.dataset.view !== name);
+}
+document.querySelectorAll('.tab').forEach(t =>
+  t.addEventListener('click', () => showView(t.dataset.view)));
+
+document.getElementById('btn-export').addEventListener('click', exportXlsx);
+document.getElementById('btn-reset').addEventListener('click', () => {
+  parsed = null;
+  document.getElementById('report').innerHTML = '';
+  document.getElementById('liquidez').innerHTML = '';
+  document.getElementById('rentab').innerHTML = '';
+  document.getElementById('alocacao').innerHTML = '';
+  document.getElementById('concentracao').innerHTML = '';
+  document.getElementById('evolucao').innerHTML = '';
+  document.getElementById('tabs').style.display = 'none';
+  showView('carteira');
+  document.getElementById('summary').style.display = 'none';
+  document.getElementById('actions').style.display = 'none';
+  document.getElementById('drop').style.display = 'block';
+  document.getElementById('posdate').textContent = 'aguardando arquivo';
+  input.value = '';
+});
+</script>
+</body>
+</html>
