@@ -3796,7 +3796,7 @@ function renderExpenses() {
         <div class="kpi-value">${fmt(lastVal)}</div>
         <div class="kpi-sub">
           <span class="${deltaPct <= 0 ? 'badge-up' : 'badge-down'}">${deltaPct <= 0 ? '↓' : '↑'} ${deltaPct > 0 ? '+' : ''}${fmtPct(deltaPct)}</span> vs ${monthLabel(prevMonth)}
-          ${(() => { const avg6 = last6m.slice(0,-1).reduce((s,m)=>s+(byMonthMap[m]||0),0)/Math.max(1,last6m.slice(0,-1).filter(m=>byMonthMap[m]>0).length); const d6 = avg6>0?(lastVal/avg6-1)*100:0; return avg6>0?` · <span class="${d6<=0?'badge-up':'badge-down'}">${d6<=0?'↓':'↑'} ${d6>0?'+':''}${fmtPct(d6)}</span> vs média 6m`:''; })()}
+          ${deltaVsAvg6 !== null ? ` · <span class="${deltaVsAvg6 <= 0 ? 'badge-up' : 'badge-down'}">${deltaVsAvg6 <= 0 ? '↓' : '↑'} ${deltaVsAvg6 > 0 ? '+' : ''}${fmtPct(deltaVsAvg6)}</span> vs média 6m` : ''}
         </div>
       </div>
       <div class="kpi">
