@@ -3878,6 +3878,39 @@ function renderExpenses() {
   `;
 
   requestAnimationFrame(() => {
+    // Stacked bar chart — composição por seção
+    const stackCtx = document.getElementById('ch-exp-stacked');
+    if (stackCtx) {
+      activeCharts.expStacked = new Chart(stackCtx, {
+        type: 'bar',
+        data: {
+          labels: chartMonths.map(m => monthLabel(m)),
+          datasets: secNames.map(sec => ({
+            label: sec,
+            data: chartMonths.map(m => bySecMonthMap[sec + '|' + m] || 0),
+            backgroundColor: SECAO_COLORS[sec] || '#475569',
+            borderRadius: 2,
+          }))
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#8ca3c1', font: { size: 10 }, boxWidth: 12 } },
+            tooltip: {
+              callbacks: {
+                label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}`,
+                footer: items => ` Total: ${fmt(items.reduce((s, i) => s + i.parsed.y, 0))}`
+              }
+            }
+          },
+          scales: {
+            x: { stacked: true, grid: { color: '#1e2d4220' }, ticks: { color: '#8ca3c1', font: { size: 10 } } },
+            y: { stacked: true, grid: { color: '#1e2d4240' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } }
+          }
+        }
+      });
+    }
+
     // Main trend chart (bar + line overlay)
     const mainCtx = document.getElementById('ch-exp-main-trend');
     if (mainCtx) {
