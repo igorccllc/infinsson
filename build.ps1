@@ -67,10 +67,14 @@ $out = Join-Path $PSScriptRoot 'index.html'
 $kb = [Math]::Round((Get-Item $out).Length / 1KB)
 Write-Output "Gerado: $out  ($kb KB)"
 
-# ── 6) Copia manifest.json e sw.js ────────────────────────────────────────
+# ── 6) Copia manifest.json e gera sw.js com versão do build ───────────────
 Copy-Item (Join-Path $src 'manifest.json') (Join-Path $PSScriptRoot 'manifest.json') -Force
-Copy-Item (Join-Path $src 'sw.js')         (Join-Path $PSScriptRoot 'sw.js')         -Force
-Write-Output "Copiados: manifest.json, sw.js"
+
+$buildVersion = (Get-Date -Format 'yyyyMMddHHmmss')
+$swContent = Get-Content (Join-Path $src 'sw.js') -Raw -Encoding UTF8
+$swContent = $swContent.Replace("const CACHE = 'finplan-v1'", "const CACHE = 'finplan-$buildVersion'")
+[System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'sw.js'), $swContent, $enc)
+Write-Output "Copiados: manifest.json, sw.js (cache: finplan-$buildVersion)"
 
 # ── 7) Gera ícones PNG (192 e 512) ────────────────────────────────────────
 function New-FinPlanIcon($size, $outPath) {
