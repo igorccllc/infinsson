@@ -1476,6 +1476,9 @@ function loadState() {
     S.amort.pctCDI = 105; S.amort.cdi = 13.65;
     saveState();
   }
+  // Migração: modo de SWR (regra dos 4% vs perpetuidade real).
+  if (S.fi.mode === undefined)     { S.fi.mode = 'swr'; saveState(); }
+  if (S.fi.realRate === undefined) { S.fi.realRate = 5.0; saveState(); }
 }
 
 function saveState() {
