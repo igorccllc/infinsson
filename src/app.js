@@ -593,7 +593,7 @@ function projectionStart() {
 }
 
 function findFIDate(path) {
-  const fiNum = (S.fi.targetMonthlyIncome * 12) / (S.fi.withdrawalRate / 100);
+  const fiNum = fiNumber();
   const today = projectionStart().date;
   for (const p of path) {
     if (p.w >= fiNum) {
