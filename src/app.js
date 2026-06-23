@@ -4477,6 +4477,11 @@ function renderFI() {
       <div class="card">
         <div class="card-title">Meta FI</div>
 
+        <div class="fi-mode-toggle">
+          <button class="fi-mode-btn ${S.fi.mode==='swr'?'active':''}" onclick="fiSetMode('swr')">Regra dos 4%</button>
+          <button class="fi-mode-btn ${S.fi.mode==='perpetuidade'?'active':''}" onclick="fiSetMode('perpetuidade')">Perpetuidade real</button>
+        </div>
+
         <div class="slider-group mb-8">
           <div class="slider-label-row">
             <span class="slider-lbl">Renda mensal almejada</span>
@@ -4487,6 +4492,7 @@ function renderFI() {
             oninput="fiSliderInput(this,'income')" onchange="fiSliderCommit()">
         </div>
 
+        ${S.fi.mode === 'swr' ? `
         <div class="slider-group">
           <div class="slider-label-row">
             <span class="slider-lbl">Taxa de retirada segura</span>
@@ -4495,7 +4501,20 @@ function renderFI() {
           <input type="range" class="sc-slider" min="1" max="8" step="0.1"
             value="${S.fi.withdrawalRate}"
             oninput="fiSliderInput(this,'rate')" onchange="fiSliderCommit()">
+          <div class="fi-mode-note">Saca uma fração fixa por ano. Em valores de hoje, o principal pode se esgotar em ~30 anos num cenário de retornos ruins.</div>
         </div>
+        ` : `
+        <div class="slider-group">
+          <div class="slider-label-row">
+            <span class="slider-lbl">Juro real esperado</span>
+            <span class="slider-val" id="fi-rate-val">${fmtPct(S.fi.realRate)}</span>
+          </div>
+          <input type="range" class="sc-slider" min="2" max="9" step="0.1"
+            value="${S.fi.realRate}"
+            oninput="fiSliderInput(this,'realrate')" onchange="fiSliderCommit()">
+          <div class="fi-mode-note">Vive só do juro real: o principal se preserva em valor de hoje, indefinidamente. Sua carteira rende <b>${fmtPct(weightedReturnReal())} real</b> hoje. Risco: o juro real pode cair e forçar reinvestir a menos.</div>
+        </div>
+        `}
 
         <hr class="sep">
 
