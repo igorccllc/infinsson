@@ -1782,7 +1782,7 @@ function _buildReturnsCard() {
 
 function renderDashboard() {
   const el  = document.getElementById('page-dashboard');
-  const w   = totalWealth();
+  const w   = investableWealth();
   const fin = fiNumber();
   const pct = Math.min(100, (w / fin) * 100);
   const last = HISTORICAL[HISTORICAL.length-1];
