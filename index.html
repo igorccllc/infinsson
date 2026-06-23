@@ -1720,9 +1720,16 @@ function currentWealth() {
   return S.portfolio.reduce((s,a) => s + a.value, 0) || HISTORICAL[HISTORICAL.length-1].pl;
 }
 
-// Patrimônio Total (inclui imóveis e ativos não investíveis) — usado para FI
+// Patrimônio Total (inclui imóveis e ativos não investíveis)
 function totalWealth() {
   return HISTORICAL[HISTORICAL.length-1].pat;
+}
+
+// Patrimônio Investível (carteira financeira, exclui imóvel) — base da FI.
+// Soma o portfólio sem a categoria 'imovel' (= Patrimônio Líquido); cai pro PL histórico se a carteira estiver vazia.
+function investableWealth() {
+  const port = S.portfolio.reduce((s,a) => s + (a.cat === 'imovel' ? 0 : a.value), 0);
+  return port || HISTORICAL[HISTORICAL.length-1].pl;
 }
 
 function projectPath(months, startWealth, annualReturn, incDelta, expDelta) {
