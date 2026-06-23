@@ -578,7 +578,7 @@ function projectPath(months, startWealth, annualReturn, incDelta, expDelta) {
 
 function buildScenarioPaths(months) {
   const base = weightedReturnReal();   // projeção em valores de hoje (real)
-  const w0   = totalWealth();
+  const w0   = investableWealth();     // FI parte do patrimônio investível (exclui imóvel)
   return S.scenarios.map(sc => ({
     ...sc,
     path: projectPath(months, w0, base + sc.retDelta, sc.incDelta, sc.expDelta),
