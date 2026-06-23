@@ -162,6 +162,8 @@ const DEFAULT_STATE = {
   fi: {
     targetMonthlyIncome: 25000,
     withdrawalRate:      4.0,
+    mode:                'swr',  // 'swr' = regra dos 4% | 'perpetuidade' = vive do juro real (principal preservado)
+    realRate:            5.0,    // juro real esperado (% a.a.) para o modo perpetuidade
   },
 
   budgets: {},
@@ -191,6 +193,21 @@ const DEFAULT_STATE = {
     taxaFin:  18.0,
     prazo:    60,
     pctCDI:   100,
+  },
+
+  amort: {
+    saldo:      370000,
+    parcelas:   169,
+    taxaMes:    0.97,
+    aporte:     50000,
+    prazoMeses: 36,
+    tipoInv:    'cdi',
+    pctCDI:     105,
+    cdi:        13.65,
+    taxaInv:    14.0,
+    spread:     8.5,
+    selic:      14.0,
+    ipca:       5.5,
   },
 };
 
@@ -251,6 +268,15 @@ function loadState() {
   // Migração: bloco quitar vs investir.
   if (!S.quitar) {
     S.quitar = { valor: 100000, saldo: 100000, taxaFin: 18.0, prazo: 60, pctCDI: 100 };
+    saveState();
+  }
+  // Migração: simulador de amortização SAC.
+  if (!S.amort) {
+    S.amort = { saldo: 370000, parcelas: 169, taxaMes: 0.97, aporte: 50000, prazoMeses: 36, tipoInv: 'cdi', pctCDI: 105, cdi: 13.65, taxaInv: 14.0, spread: 8.5, selic: 14.0, ipca: 5.5 };
+    saveState();
+  }
+  if (S.amort && S.amort.pctCDI === undefined) {
+    S.amort.pctCDI = 105; S.amort.cdi = 13.65;
     saveState();
   }
 }
@@ -934,6 +960,7 @@ function _simProductRow(key, label, sub, inputKey, inputVal, unit) {
 const SIM_TABS = [
   { id: 'rentabilidade', label: 'Rentabilidade Real' },
   { id: 'quitar',        label: 'Quitar vs Investir' },
+  { id: 'amort',         label: 'Amortizar vs Investir (SAC)' },
 ];
 
 function _simTabBar() {
@@ -954,6 +981,7 @@ function switchSimTab(id) {
   saveState();
   if (activeCharts.sim)   { activeCharts.sim.destroy();   delete activeCharts.sim; }
   if (activeCharts.quitar){ activeCharts.quitar.destroy(); delete activeCharts.quitar; }
+  if (activeCharts.amort) { activeCharts.amort.destroy();  delete activeCharts.amort; }
   const bar = document.getElementById('sim-tab-bar');
   if (bar) bar.innerHTML = _simTabBar();
   renderSimTabContent(id);
@@ -965,6 +993,9 @@ function renderSimTabContent(id) {
   if (id === 'rentabilidade') {
     el.innerHTML = _buildRentabilidadeTab();
     setTimeout(_simDrawChart, 0);
+  } else if (id === 'amort') {
+    el.innerHTML = _buildAmortTab();
+    setTimeout(_amortDrawChart, 0);
   } else {
     el.innerHTML = _buildQuitarTab();
     setTimeout(_simDrawQuitarChart, 0);
@@ -1346,6 +1377,352 @@ function _simDrawQuitarChart() {
     datasets.push({ label: 'Amortizar parcela — jrs. econ.', data: r.pathEconParc, borderColor: '#a78bfa', backgroundColor: '#a78bfa15', tension: 0.3, pointRadius: 0, borderWidth: 2 });
   }
   activeCharts.quitar = makeLineChart('ch-quitar', { labels, datasets });
+}
+
+// ── AMORTIZAR VS INVESTIR (SAC) — ENGINE ─────────────────────
+
+function simAmort() {
+  const a = S.amort;
+  const N  = a.prazoMeses;   // horizonte = prazo do investimento
+  const jm = a.taxaMes / 100;
+
+  // Taxa mensal do investimento
+  let gm;
+  if (a.tipoInv === 'cdi') {
+    gm = Math.pow(1 + (a.cdi * a.pctCDI / 100) / 100, 1 / 12) - 1;
+  } else if (a.tipoInv === 'selic') {
+    gm = Math.pow(1 + a.selic / 100, 1 / 12) - 1;
+  } else if (a.tipoInv === 'pre') {
+    gm = Math.pow(1 + a.taxaInv / 100, 1 / 12) - 1;
+  } else {
+    // IPCA+: taxa real composta com IPCA mensal
+    const ipcaMes = Math.pow(1 + a.ipca / 100, 1 / 12) - 1;
+    const realMes = Math.pow(1 + a.spread / 100, 1 / 12) - 1;
+    gm = (1 + ipcaMes) * (1 + realMes) - 1;
+  }
+
+  // Parcela SAC original: amortização fixa + juros sobre saldo
+  const amortFixa = a.saldo / a.parcelas;
+
+  // ── CENÁRIO A: Investir ───────────────────────────────────
+  // Aplica o aporte X, não amortiza nada extra.
+  // Resultado = rendimento líquido (após IR) ao fim de N meses.
+  let invA = a.aporte, basisA = a.aporte;
+  const pathInvestir = [];
+
+  // ── CENÁRIO B: Amortizar Prazo ────────────────────────────
+  // Abate o aporte no saldo devedor (SAC), recalcula quantas parcelas
+  // foram eliminadas. Mede apenas os juros economizados no período N.
+  // Sem reinvestimento de parcelas liberadas.
+  let saldoB = Math.max(0, a.saldo - a.aporte);
+  let jurosOrigAcum = 0, jurosBPrazoAcum = 0;
+  let parcelasElim = 0;
+  {
+    // Conta parcelas eliminadas: parcelas do SAC original que sobram
+    // além do saldo pós-amortização (saldo cai mais rápido pois amortização fixa é a mesma mas sobre saldo menor)
+    // Nova amortização fixa: saldoB / parcelas restantes efetivas
+    // Como SAC: amort fixa = saldo/n remanescente. Após aporte, o saldo cai mais depressa.
+    // Para simplificar: comparamos o número de parcelas até o saldo zerar.
+    let sSimOrig = a.saldo;
+    let sSimB    = saldoB;
+    let nOrig = 0, nB = 0;
+    const amortFixaOrig = a.saldo / a.parcelas;
+    for (let m = 0; m < a.parcelas * 2; m++) {
+      if (sSimOrig > 0) { sSimOrig = Math.max(0, sSimOrig - amortFixaOrig); nOrig = m + 1; }
+      if (sSimB > 0)    { sSimB    = Math.max(0, sSimB    - amortFixaOrig); nB    = m + 1; }
+      if (sSimOrig <= 0 && sSimB <= 0) break;
+    }
+    parcelasElim = Math.max(0, nOrig - nB);
+  }
+  const pathPrazo = [];
+
+  // ── CENÁRIO C: Amortizar Parcela ──────────────────────────
+  // Abate o aporte no saldo, mantém o prazo (a.parcelas).
+  // Nova amortização fixa = saldoC / a.parcelas (mesma quantidade de parcelas).
+  const saldoC     = Math.max(0, a.saldo - a.aporte);
+  const amortFixaC = saldoC > 0 ? saldoC / a.parcelas : 0;
+  let   sSimC      = saldoC;
+  // Parcela SAC mês 1: amort fixa + juros sobre saldo inicial.
+  const parcelaOrigM1 = amortFixa  + a.saldo * jm;
+  const parcelaNovM1  = amortFixaC + saldoC  * jm;
+
+  // Reinvestimento mensal do delta liberado (cada aporte tem prazo diferente → IR individual)
+  const aportesMensais = [];
+  let invC = 0, basisC = 0;
+  let jurosCParcAcum = 0; // juros pagos no cenário C (para calcular economia)
+
+  const pathParcela = [];
+
+  // Simula os N meses (sOrig compartilhado entre B e C — mesma tabela original)
+  let sOrig   = a.saldo;
+  let sBprazo = saldoB;
+  for (let m = 0; m < N; m++) {
+    // A: aporte rende — chart mostra só o lucro líquido (sem incluir o capital X)
+    invA *= (1 + gm);
+    const aliqM = irRate((m + 1) * 30);
+    pathInvestir.push(+((invA - basisA) * (1 - aliqM)).toFixed(2));
+
+    // Juros originais acumulados (SAC) — compartilhado entre B e C
+    const jurosOrigMes = sOrig > 0 ? sOrig * jm : 0;
+    if (sOrig > 0) {
+      jurosOrigAcum += jurosOrigMes;
+      sOrig = Math.max(0, sOrig - amortFixa);
+    }
+
+    // B: juros do cenário pós-amortização prazo
+    if (sBprazo > 0) {
+      jurosBPrazoAcum += sBprazo * jm;
+      sBprazo = Math.max(0, sBprazo - amortFixa);
+    }
+    pathPrazo.push(+(jurosOrigAcum - jurosBPrazoAcum).toFixed(2));
+
+    // C: acumula juros pagos no novo schedule
+    const jurosNovoMes = sSimC > 0 ? sSimC * jm : 0;
+    if (sSimC > 0) {
+      jurosCParcAcum += jurosNovoMes;
+      sSimC = Math.max(0, sSimC - amortFixaC);
+    }
+
+    // Delta liberado = diferença entre parcelas SAC deste mês → reinvestido
+    const deltaReal = (amortFixa + jurosOrigMes) - (amortFixaC + jurosNovoMes);
+    if (deltaReal > 0) {
+      aportesMensais.push({ valor: deltaReal, mes: m });
+      invC   += deltaReal;
+      basisC += deltaReal;
+    }
+    invC *= (1 + gm);
+
+    // IR individual por prazo de cada aporte no portfólio C
+    let irTotalC = 0;
+    aportesMensais.forEach(ap => {
+      const meses = m - ap.mes + 1;
+      irTotalC += ap.valor * (Math.pow(1 + gm, meses) - 1) * irRate(meses * 30);
+    });
+
+    // Ganho C = juros economizados (saldo menor) + rendimento líquido do reinvestimento
+    const econParcAcumM = jurosOrigAcum - jurosCParcAcum;
+    const rendInvCM     = (invC - basisC) - irTotalC;
+    pathParcela.push(+(econParcAcumM + rendInvCM).toFixed(2));
+  }
+
+  // Resultados finais
+  const aliqFinal    = irRate(N * 30);
+  const rendLiqA     = (invA - basisA) * (1 - aliqFinal);
+  const econPrazoFinal   = pathPrazo[N - 1] || 0;
+  const econParcelaFinal = jurosOrigAcum - jurosCParcAcum;
+
+  let irTotalCFinal = 0;
+  aportesMensais.forEach(ap => {
+    const meses = N - ap.mes;
+    irTotalCFinal += ap.valor * (Math.pow(1 + gm, meses) - 1) * irRate(meses * 30);
+  });
+  const rendInvC = (invC - basisC) - irTotalCFinal;
+  const rendLiqC = econParcelaFinal + rendInvC; // ganho total do cenário C
+
+  // Saldo devedor ao fim do período N (cenário original e amortizados)
+  let saldoFimOrig = a.saldo, saldoFimB = saldoB, saldoFimC2 = saldoC;
+  const afB = amortFixa, afC2 = amortFixaC;
+  for (let m2 = 0; m2 < N; m2++) {
+    saldoFimOrig = Math.max(0, saldoFimOrig - amortFixa);
+    saldoFimB    = Math.max(0, saldoFimB    - afB);
+    saldoFimC2   = Math.max(0, saldoFimC2   - afC2);
+  }
+
+  // Veredito: compara rendimento líquido de cada cenário
+  const scores = { investir: rendLiqA, prazo: econPrazoFinal, parcela: rendLiqC };
+  const winner = Object.entries(scores).sort((x, y) => y[1] - x[1])[0][0];
+  const sorted = Object.values(scores).sort((x, y) => y - x);
+  const diff   = sorted[0] - sorted[1];
+
+  return {
+    rendLiqA, econPrazoFinal, econParcelaFinal, rendInvC, rendLiqC,
+    parcelasElim,
+    parcelaOrigM1, parcelaNovM1,
+    saldoFimOrig, saldoFimB, saldoFimC2,
+    pathInvestir, pathPrazo, pathParcela,
+    winner, diff,
+    gm, N,
+  };
+}
+
+// Handler dos inputs da aba amort.
+function amortInput(el) {
+  const key = el.dataset.aKey;
+  const val = el.type === 'select-one' ? el.value : parseFloat(el.value);
+  if (!key || (el.type !== 'select-one' && isNaN(val))) return;
+  S.amort[key] = val;
+  saveState();
+  if (key === 'tipoInv') {
+    const show = (id, visible) => { const d = document.getElementById(id); if (d) d.style.display = visible ? '' : 'none'; };
+    show('amort-inv-cdi',    val === 'cdi');
+    show('amort-inv-selic',  val === 'selic');
+    show('amort-inv-pre',    val === 'pre');
+    show('amort-inv-spread', val === 'ipca');
+    show('amort-inv-ipca',   val === 'ipca');
+  }
+  _amortRefresh();
+}
+
+function _amortRefresh() {
+  const wrap = document.getElementById('amort-results');
+  if (wrap) wrap.innerHTML = _buildAmortResults();
+  _amortDrawChart();
+}
+
+function _amortParamInput(key, label, val, min, max, step, unit) {
+  return `
+    <div class="sim-param-row">
+      <span class="sim-param-label">${label}</span>
+      <div class="sim-param-field">
+        <input type="number" class="sim-num-input" value="${val}" min="${min}" max="${max}" step="${step}"
+          data-a-key="${key}" oninput="amortInput(this)">
+        <span class="sim-prod-unit">${unit}</span>
+      </div>
+    </div>`;
+}
+
+function _buildAmortTab() {
+  const a = S.amort;
+  const tipoOpts = ['cdi','selic','pre','ipca'].map(t => {
+    const labels = { cdi: 'CDI (%)', selic: 'Selic', pre: 'Pré-fixado', ipca: 'IPCA+' };
+    return `<option value="${t}" ${a.tipoInv === t ? 'selected' : ''}>${labels[t]}</option>`;
+  }).join('');
+
+  const showCDI      = a.tipoInv === 'cdi';
+  const showInvRate  = a.tipoInv === 'pre';
+  const showSpread   = a.tipoInv === 'ipca';
+  const showIpca     = a.tipoInv === 'ipca';
+  const showSelic    = a.tipoInv === 'selic';
+
+  return `
+    <div class="sim-layout">
+      <div class="sim-params-panel card">
+        <div class="sim-section-title">FINANCIAMENTO (SAC)</div>
+        ${_amortParamInput('saldo',    'Saldo devedor',     a.saldo,    1000, 5000000, 1000, 'R$')}
+        ${_amortParamInput('parcelas', 'Parcelas restantes', a.parcelas, 1,   600,     1,    'meses')}
+        ${_amortParamInput('taxaMes',  'Taxa mensal (CET)',  a.taxaMes,  0.1,  5,      0.01, '% a.m.')}
+        ${_amortParamInput('aporte',   'Valor do aporte',   a.aporte,   1000, 5000000, 1000, 'R$')}
+
+        <div class="sim-section-title" style="margin-top:18px">INVESTIMENTO</div>
+        <div class="sim-param-row">
+          <span class="sim-param-label">Tipo</span>
+          <div class="sim-param-field">
+            <select class="sim-num-input" data-a-key="tipoInv" onchange="amortInput(this)" style="padding:4px 8px;cursor:pointer">
+              ${tipoOpts}
+            </select>
+          </div>
+        </div>
+        <div id="amort-inv-cdi" ${!showCDI ? 'style="display:none"' : ''}>
+          ${_amortParamInput('pctCDI', '% do CDI', a.pctCDI, 50, 200, 1, '% CDI')}
+          ${_amortParamInput('cdi', 'CDI anual', a.cdi, 0.5, 30, 0.25, '% a.a.')}
+        </div>
+        <div id="amort-inv-selic" ${!showSelic ? 'style="display:none"' : ''}>
+          ${_amortParamInput('selic', 'Selic', a.selic, 0.5, 30, 0.25, '% a.a.')}
+        </div>
+        <div id="amort-inv-pre" ${!showInvRate ? 'style="display:none"' : ''}>
+          ${_amortParamInput('taxaInv', 'Taxa pré', a.taxaInv, 0.5, 30, 0.25, '% a.a.')}
+        </div>
+        <div id="amort-inv-spread" ${!showSpread ? 'style="display:none"' : ''}>
+          ${_amortParamInput('spread', 'Spread (IPCA+)', a.spread, 0, 20, 0.25, '% a.a.')}
+        </div>
+        <div id="amort-inv-ipca" ${!showIpca ? 'style="display:none"' : ''}>
+          ${_amortParamInput('ipca', 'IPCA projetado', a.ipca, 0, 20, 0.25, '% a.a.')}
+        </div>
+
+        <div class="sim-section-title" style="margin-top:18px">HORIZONTE</div>
+        ${_amortParamInput('prazoMeses', 'Prazo da comparação', a.prazoMeses, 1, 360, 1, 'meses')}
+
+        <div class="sim-footer-note" style="margin-top:12px">
+          Sistema SAC · IR regressivo sobre rendimentos.<br>
+          Cenário C reinveste o delta mensal liberado pela queda na parcela.
+        </div>
+      </div>
+      <div class="sim-results-panel">
+        <div id="amort-results">
+          ${_buildAmortResults()}
+        </div>
+        <div class="card mt-16">
+          <div class="card-title">Evolução mês a mês — ganho/economia acumulada (R$)</div>
+          <div class="chart-wrap chart-med"><canvas id="ch-amort"></canvas></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _buildAmortResults() {
+  const r = simAmort();
+  const a = S.amort;
+
+  const row = (label, val, cls) =>
+    `<div class="qi-row"><span class="qi-label">${label}</span><span class="qi-val ${cls||''}">${val}</span></div>`;
+
+  const winLabels = { investir: 'Investir', prazo: 'Amortizar (prazo)', parcela: 'Amortizar (parcela)' };
+  const winIcons  = { investir: '📈', prazo: '🏦', parcela: '🏦' };
+  const isAmort   = r.winner !== 'investir';
+
+  const tipoLabel = { cdi: `${a.pctCDI}% CDI (CDI ${a.cdi}% a.a.)`, selic: `Selic ${a.selic}% a.a.`, pre: `Pré ${a.taxaInv}% a.a.`, ipca: `IPCA+${a.spread}% (IPCA ${a.ipca}%)` }[a.tipoInv];
+
+  const cardInvestir = `
+    <div class="sim-result-card ${r.winner === 'investir' ? 'card-winner' : ''}">
+      <div class="src-label">📈 Investir</div>
+      ${row('Aporte aplicado',      fmt(a.aporte))}
+      ${row('Rendimento líquido',   fmt(r.rendLiqA), 'green')}
+      ${row('Saldo devedor (fim)',   fmt(r.saldoFimOrig), 'red')}
+      <div class="qi-divider"></div>
+      ${row('Ganho líquido',        fmt(r.rendLiqA), r.winner === 'investir' ? 'accent bold' : 'bold')}
+    </div>`;
+
+  const cardPrazo = `
+    <div class="sim-result-card ${r.winner === 'prazo' ? 'card-winner' : ''}">
+      <div class="src-label">🏦 Amortizar — Reduz Prazo</div>
+      ${row('Aporte abatido',       fmt(Math.min(a.aporte, a.saldo)))}
+      ${row('Parcelas eliminadas',  r.parcelasElim > 0 ? r.parcelasElim + ' parcelas' : '—')}
+      ${row('Juros economizados',   fmt(r.econPrazoFinal), 'green')}
+      ${row('Saldo devedor (fim)',   fmt(r.saldoFimB), 'red')}
+      <div class="qi-divider"></div>
+      ${row('Ganho líquido',        fmt(r.econPrazoFinal), r.winner === 'prazo' ? 'accent bold' : 'bold')}
+    </div>`;
+
+  const cardParcela = `
+    <div class="sim-result-card ${r.winner === 'parcela' ? 'card-winner' : ''}">
+      <div class="src-label">🏦 Amortizar — Reduz Parcela</div>
+      ${row('Aporte abatido',       fmt(Math.min(a.aporte, a.saldo)))}
+      ${row('Nova parcela (mês 1)', fmt(r.parcelaNovM1) + '/mês')}
+      ${row('Juros economizados',   fmt(r.econParcelaFinal), 'green')}
+      ${row('Rendim. reinvestido',  fmt(r.rendInvC), 'green')}
+      ${row('Saldo devedor (fim)',   fmt(r.saldoFimC2), 'red')}
+      <div class="qi-divider"></div>
+      ${row('Ganho líquido',        fmt(r.rendLiqC), r.winner === 'parcela' ? 'accent bold' : 'bold')}
+    </div>`;
+
+  return `
+    <div class="sim-verdict ${isAmort ? 'verdict-quitar' : 'verdict-investir'}">
+      <div class="verdict-icon">${winIcons[r.winner]}</div>
+      <div class="verdict-body">
+        <div class="verdict-title">${winLabels[r.winner]} é melhor por <strong>${fmt(r.diff)}</strong></div>
+        <div class="verdict-detail">${tipoLabel} · horizonte ${a.prazoMeses} meses · CET ${a.taxaMes}% a.m.</div>
+      </div>
+    </div>
+    <div class="sim-result-cards">${cardInvestir}${cardPrazo}${cardParcela}</div>
+    <div class="sim-footer-note" style="margin-top:8px">
+      Cenário B: juros economizados no período. Cenário C: inclui reinvestimento do delta mensal da parcela (IR por prazo de cada aporte).
+    </div>`;
+}
+
+function _amortDrawChart() {
+  if (activeCharts.amort) { activeCharts.amort.destroy(); delete activeCharts.amort; }
+  const ctx = document.getElementById('ch-amort');
+  if (!ctx) return;
+  const r = simAmort();
+  const N = r.N;
+  const step = Math.max(1, Math.floor(N / 24));
+  const labels = r.pathInvestir.map((_, i) => (i + 1) % step === 0 || i === N - 1 ? `M${i + 1}` : '');
+  const datasets = [
+    { label: 'Investir — rendim. líquido',        data: r.pathInvestir, borderColor: '#22c55e', backgroundColor: '#22c55e15', tension: 0.3, pointRadius: 0, borderWidth: 2 },
+    { label: 'Amortizar prazo — jrs. econ.',       data: r.pathPrazo,    borderColor: '#4f8ef7', backgroundColor: '#4f8ef715', tension: 0.3, pointRadius: 0, borderWidth: 2 },
+    { label: 'Amortizar parcela — rendim. líq.',   data: r.pathParcela,  borderColor: '#a78bfa', backgroundColor: '#a78bfa15', tension: 0.3, pointRadius: 0, borderWidth: 2 },
+  ];
+  activeCharts.amort = makeLineChart('ch-amort', { labels, datasets });
 }
 
 // Card "Rentabilidade Mensal": matriz mês×ano (heatmap) + resumo de meses +/−.
