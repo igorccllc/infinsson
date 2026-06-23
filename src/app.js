@@ -4424,7 +4424,7 @@ function buildPivotRows(secEntries, last6m, bySecMonthMap, natsBySecao, byNatMon
 // ── 13. INDEPENDÊNCIA FINANCEIRA ─────────────────────────
 function renderFI() {
   const el    = document.getElementById('page-fi');
-  const w     = totalWealth();
+  const w     = investableWealth();
   const fin   = fiNumber();
   const pct   = Math.min(100, (w / fin) * 100);
   const base  = buildScenarioPaths(S.assumptions.projectionYears * 12).find(s=>s.id==='base');
