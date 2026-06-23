@@ -1979,7 +1979,7 @@ function randn() {
 function monteCarloFI(nSims = 500, maxYears = 40) {
   const months = maxYears * 12;
   const fiNum = fiNumber();
-  const w0 = totalWealth();
+  const w0 = investableWealth();
   const muM = Math.pow(1 + weightedReturnReal() / 100, 1/12) - 1;
   const volM = (portfolioVol() / 100) / Math.sqrt(12);
 
