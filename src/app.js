@@ -619,8 +619,12 @@ function addMonths(dateStr, n) {
   const d = new Date(y, m-1+n, 1);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 }
+// Taxa ativa do modelo FI: regra dos 4% (SWR) ou juro real (perpetuidade).
+function fiRate() {
+  return S.fi.mode === 'perpetuidade' ? (S.fi.realRate || 5) : (S.fi.withdrawalRate || 4);
+}
 function fiNumber() {
-  return (S.fi.targetMonthlyIncome * 12) / (S.fi.withdrawalRate / 100);
+  return (S.fi.targetMonthlyIncome * 12) / (fiRate() / 100);
 }
 function currentAge() {
   return 2026 - S.profile.birthYear;
