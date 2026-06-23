@@ -2037,7 +2037,7 @@ function runwayMonths() {
 function coastFIYears() {
   const ipca = S.assumptions.ipca || 5.5;
   const rReal = (1 + weightedReturn()/100) / (1 + ipca/100) - 1;
-  const w0 = totalWealth(), fin = fiNumber();
+  const w0 = investableWealth(), fin = fiNumber();
   if (w0 >= fin) return 0;
   if (rReal <= 0) return null;
   return Math.log(fin / w0) / Math.log(1 + rReal);
