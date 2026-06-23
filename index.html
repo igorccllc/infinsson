@@ -5629,7 +5629,7 @@ function renderFI() {
 
   // Indicadores avançados
   // A projeção principal já é REAL (valores de hoje). Aqui calculamos a versão NOMINAL só p/ contraste.
-  const fiNominal = findFIDate(projectPath(40 * 12, totalWealth(), weightedReturn(), S.assumptions.ipca, S.assumptions.ipca));
+  const fiNominal = findFIDate(projectPath(40 * 12, investableWealth(), weightedReturn(), S.assumptions.ipca, S.assumptions.ipca));
   const mc      = monteCarloFI(500, 40);                     // distribuição estocástica
   const rwM     = runwayMonths();
   const coastY  = coastFIYears();
