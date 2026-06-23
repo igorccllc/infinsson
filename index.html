@@ -2022,7 +2022,7 @@ function monteCarloFI(nSims = 500, maxYears = 40) {
 function realBasePath(months) {
   const ipca = S.assumptions.ipca || 5.5;
   const realRet = ((1 + weightedReturn()/100) / (1 + ipca/100) - 1) * 100;
-  return projectPath(months, totalWealth(), realRet, -ipca, -ipca);
+  return projectPath(months, investableWealth(), realRet, -ipca, -ipca);
 }
 
 // Runway: meses de gastos cobertos pelos ativos líquidos (carteira investida)
