@@ -4128,9 +4128,9 @@ function renderExpenses() {
     });
     const n = win.length || 1;
     const fixoAvg = fixo / n, varAvg = variavel / n;
-    // Lean FI: patrimônio que cobre só os gastos fixos pela taxa de retirada
-    const leanFI = (fixoAvg * 12) / (S.fi.withdrawalRate / 100);
-    fixSplit = { fixoAvg, varAvg, pctFixo: (fixo + variavel) > 0 ? fixo / (fixo + variavel) * 100 : 0, leanFI, leanPct: Math.min(100, totalWealth() / leanFI * 100) };
+    // Lean FI: patrimônio que cobre só os gastos fixos pela taxa de retirada ativa
+    const leanFI = (fixoAvg * 12) / (fiRate() / 100);
+    fixSplit = { fixoAvg, varAvg, pctFixo: (fixo + variavel) > 0 ? fixo / (fixo + variavel) * 100 : 0, leanFI, leanPct: Math.min(100, investableWealth() / leanFI * 100) };
   }
 
   const advancedHtml = `
