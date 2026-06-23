@@ -4545,7 +4545,7 @@ function renderFI() {
             <div><div class="text-sm text-muted mb-4">Anos a partir de hoje</div><div style="font-size:22px;font-weight:700">${Math.floor(fiRes.months/12)} anos</div></div>
             <div><div class="text-sm text-muted mb-4">Sua idade na FI</div><div style="font-size:22px;font-weight:700">${fiRes.date.getFullYear() - S.profile.birthYear} anos</div></div>
             <div><div class="text-sm text-muted mb-4">Patrimônio na FI</div><div style="font-size:22px;font-weight:700;color:var(--accent)">${fmtK(fiRes.wealth)}</div></div>
-            <div><div class="text-sm text-muted mb-4">Renda passiva mensal</div><div style="font-size:22px;font-weight:700;color:var(--green)">${fmt(fiRes.wealth * S.fi.withdrawalRate/100/12)}</div></div>
+            <div><div class="text-sm text-muted mb-4">Renda passiva mensal</div><div style="font-size:22px;font-weight:700;color:var(--green)">${fmt(fiRes.wealth * fiRate()/100/12)}</div></div>
           </div>
         ` : `<div style="color:var(--text-muted);padding:20px 0">FI não atingida no horizonte de ${S.assumptions.projectionYears} anos. Aumente a poupança ou o horizonte.</div>`}
       </div>
