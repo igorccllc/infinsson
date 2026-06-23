@@ -4151,7 +4151,7 @@ function renderExpenses() {
       <div class="kpi">
         <div class="kpi-label">Lean FI — só os fixos</div>
         <div class="kpi-value" style="color:${fixSplit.leanPct >= 100 ? 'var(--green)' : 'var(--accent)'}">${fixSplit.leanPct >= 100 ? 'Atingido ✓' : fmtK(fixSplit.leanFI)}</div>
-        <div class="kpi-sub">${fmtPct(fixSplit.leanPct)} coberto — patrimônio que banca os gastos fixos a ${fmtPct(S.fi.withdrawalRate)}</div>
+        <div class="kpi-sub">${fmtPct(fixSplit.leanPct)} coberto — patrimônio que banca os gastos fixos a ${fmtPct(fiRate())}</div>
       </div>` : `
       <div class="kpi" style="grid-column:span 2">
         <div class="kpi-label">Fixo vs Variável</div>
