@@ -1846,7 +1846,7 @@ function renderDashboard() {
       </div>
       <div class="flex-between mt-8 text-sm text-muted">
         <span>${w >= fin ? '✓ meta atingida' : 'Faltam ' + fmt(fin - w)}</span>
-        <span>Meta FI: ${fmt(fin)} (${fmt(S.fi.targetMonthlyIncome)}/mês à ${fmtPct(S.fi.withdrawalRate)} a.a.)</span>
+        <span>Meta FI: ${fmt(fin)} (${fmt(S.fi.targetMonthlyIncome)}/mês à ${fmtPct(fiRate())} a.a.)</span>
       </div>
     </div>
 
