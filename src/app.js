@@ -4674,19 +4674,29 @@ function renderFI() {
   }
 }
 
+function fiSetMode(mode) {
+  S.fi.mode = mode;
+  saveState();
+  renderFI();
+}
+
 function fiSliderInput(el, type) {
   const val = +el.value;
   if (type === 'income') {
     S.fi.targetMonthlyIncome = val;
     const s = document.getElementById('fi-inc-val');
     if (s) s.textContent = fmt(val) + '/mês';
+  } else if (type === 'realrate') {
+    S.fi.realRate = val;
+    const s = document.getElementById('fi-rate-val');
+    if (s) s.textContent = fmtPct(val);
   } else {
     S.fi.withdrawalRate = val;
     const s = document.getElementById('fi-rate-val');
     if (s) s.textContent = fmtPct(val);
   }
   const fin = fiNumber();
-  const w   = totalWealth();
+  const w   = investableWealth();
   const pct = Math.min(100, (w / fin) * 100);
   const col = pct>=100?'var(--green)':pct>=50?'var(--accent)':'var(--yellow)';
   const nd = document.getElementById('fi-num-display');   if (nd) nd.textContent = fmtK(fin);
