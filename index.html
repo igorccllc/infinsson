@@ -4870,6 +4870,8 @@ function toggleExpSection(secId) {
 }
 
 let expFilter = { period: '6m', section: '' };
+let expTab = 'overview';
+let expGastosQuery = '';
 
 function togglePacingCat(cat, currentType) {
   if (!S.pacingOverrides) S.pacingOverrides = {};
@@ -4883,6 +4885,190 @@ function setExpFilter(key, val) {
   expFilter[key] = val;
   destroyCharts();
   renderExpenses();
+}
+
+function setExpTab(tab) {
+  expTab = tab;
+  destroyCharts();
+  renderExpenses();
+}
+
+function setGastosQuery(q) {
+  expGastosQuery = q;
+  destroyCharts();
+  renderExpenses();
+  const inp = document.getElementById('gastos-search-input');
+  if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+
+function buildGastosTabHtml() {
+  const allNaturezas = [...new Set(MOBILLS.map(r => r.cat || '').filter(Boolean))].sort();
+  const searchHtml = `<div class="card mb-16" style="padding:16px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <input type="text" id="gastos-search-input" class="form-input"
+          placeholder="Natureza… ex: Cabelereiro, Mercado, Uber"
+          value="${expGastosQuery.replace(/"/g, '&quot;')}"
+          list="gastos-nat-list"
+          oninput="setGastosQuery(this.value)"
+          style="width:100%;font-size:14px">
+        <datalist id="gastos-nat-list">
+          ${allNaturezas.map(n => `<option value="${n}">`).join('')}
+        </datalist>
+      </div>
+      ${expGastosQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosQuery('')">✕ Limpar</button>` : ''}
+    </div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:8px">${allNaturezas.length} naturezas disponíveis — busca parcial, ex: "bar" encontra "Bar", "Bar GF"</div>
+  </div>`;
+
+  const q = expGastosQuery.trim().toLowerCase();
+
+  if (!q) {
+    return {
+      html: searchHtml + `<div style="text-align:center;padding:60px 0;color:var(--text-muted)">
+        <div style="font-size:13px;color:var(--text-dim)">Digite uma natureza acima para ver o histórico, gráfico e insights</div>
+      </div>`,
+      chartData: null
+    };
+  }
+
+  const isExactNat = allNaturezas.some(n => n.toLowerCase() === q);
+  const matched = MOBILLS.filter(r => r.cat && (
+    isExactNat ? r.cat.toLowerCase() === q : r.cat.toLowerCase().includes(q)
+  ));
+
+  if (!matched.length) {
+    return {
+      html: searchHtml + `<div style="text-align:center;padding:60px 0;color:var(--text-muted)">
+        Nenhuma transação encontrada para "<strong>${expGastosQuery}</strong>"
+      </div>`,
+      chartData: null
+    };
+  }
+
+  const byMonthG = {};
+  matched.forEach(r => { byMonthG[r.d] = (byMonthG[r.d] || 0) + Math.abs(r.val); });
+  const sortedMonths = Object.keys(byMonthG).sort();
+  const totalAcc = matched.reduce((s, r) => s + Math.abs(r.val), 0);
+  const monthsWithData = sortedMonths.length;
+  const avgPerMonth = totalAcc / Math.max(1, monthsWithData);
+  const totalMobillsMonths = [...new Set(MOBILLS.map(r => r.d))].length;
+  const avgAllMonths = totalAcc / Math.max(1, totalMobillsMonths);
+  const matchedNats = [...new Set(matched.map(r => r.cat))].sort();
+  const sortedDesc = matched.slice().sort((a, b) => b.d.localeCompare(a.d));
+  const lastTx = sortedDesc[0];
+
+  const now = new Date();
+  const curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+  // Trend: last 3 months
+  const last3Keys = Array.from({length: 3}, (_, i) => addMonths(curKey, i - 2));
+  const last3Vals = last3Keys.map(m => byMonthG[m] || 0);
+  let trendHtml = '';
+  if (last3Vals[0] > 0 && last3Vals[1] > 0 && last3Vals[2] > 0) {
+    if (last3Vals[2] > last3Vals[1] && last3Vals[1] > last3Vals[0]) {
+      const pct = (last3Vals[2] - last3Vals[0]) / last3Vals[0] * 100;
+      trendHtml = `<div class="exp-insight-item" style="border-left:3px solid var(--yellow)">
+        <span style="color:var(--yellow);font-size:14px;flex-shrink:0">↗</span>
+        <span style="font-size:12px;color:var(--text)">Alta nos últimos 3 meses: ${monthLabel(last3Keys[0])} → ${monthLabel(last3Keys[2])} (+${fmtPct(pct)})</span>
+      </div>`;
+    } else if (last3Vals[2] < last3Vals[1] && last3Vals[1] < last3Vals[0]) {
+      const pct = (last3Vals[0] - last3Vals[2]) / last3Vals[0] * 100;
+      trendHtml = `<div class="exp-insight-item" style="border-left:3px solid var(--green)">
+        <span style="color:var(--green);font-size:14px;flex-shrink:0">↘</span>
+        <span style="font-size:12px;color:var(--text)">Queda nos últimos 3 meses: ${monthLabel(last3Keys[0])} → ${monthLabel(last3Keys[2])} (-${fmtPct(pct)})</span>
+      </div>`;
+    }
+  }
+
+  // Spike vs 5m avg
+  const last6Keys = Array.from({length: 6}, (_, i) => addMonths(curKey, i - 5));
+  const prev5Vals = last6Keys.slice(0, 5).filter(m => byMonthG[m]).map(m => byMonthG[m]);
+  const avg5 = prev5Vals.length ? prev5Vals.reduce((a, b) => a + b, 0) / prev5Vals.length : 0;
+  const lastMonthVal = byMonthG[last6Keys[5]] || 0;
+  let spikeHtml = '';
+  if (avg5 > 0 && lastMonthVal > avg5 * 1.4) {
+    spikeHtml = `<div class="exp-insight-item" style="border-left:3px solid var(--red)">
+      <span style="color:var(--red);font-size:14px;flex-shrink:0">⚠</span>
+      <span style="font-size:12px;color:var(--text)">${monthLabel(last6Keys[5])}: ${fmt(lastMonthVal)} — ${fmtPct((lastMonthVal / avg5 - 1) * 100)} acima da média dos 5 meses anteriores (${fmt(avg5)})</span>
+    </div>`;
+  }
+
+  // Seasonality: month-over-month same month last year
+  const sameMonthLastYear = addMonths(curKey, -12);
+  const lyVal = byMonthG[sameMonthLastYear] || 0;
+  let yoyHtml = '';
+  if (lyVal > 0 && lastMonthVal > 0) {
+    const pct = (lastMonthVal - lyVal) / lyVal * 100;
+    const cls = pct > 0 ? 'var(--red)' : 'var(--green)';
+    yoyHtml = `<div class="exp-insight-item" style="border-left:3px solid ${cls}">
+      <span style="color:${cls};font-size:14px;flex-shrink:0">${pct > 0 ? '↑' : '↓'}</span>
+      <span style="font-size:12px;color:var(--text)">Ano a ano: ${fmt(lastMonthVal)} em ${monthLabel(curKey)} vs ${fmt(lyVal)} em ${monthLabel(sameMonthLastYear)} (${pct > 0 ? '+' : ''}${fmtPct(pct)})</span>
+    </div>`;
+  }
+
+  const insightsHtml = (trendHtml || spikeHtml || yoyHtml) ? `
+    <div class="card mb-16">
+      <div class="card-title">Insights</div>
+      <div class="exp-insights-list">${trendHtml}${spikeHtml}${yoyHtml}</div>
+    </div>` : '';
+
+  const txRows = sortedDesc.map(r => `<tr>
+    <td style="color:var(--text-muted);font-size:12px">${monthLabel(r.d)}</td>
+    <td style="color:var(--text);font-size:12px">${r.cat || '—'}</td>
+    <td class="r" style="color:var(--red);font-weight:600">${fmt(Math.abs(r.val))}</td>
+  </tr>`).join('');
+
+  const html = searchHtml + `
+    <div class="kpi-grid mb-16" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi">
+        <div class="kpi-label">Total Acumulado</div>
+        <div class="kpi-value" style="color:var(--accent)">${fmt(totalAcc)}</div>
+        <div class="kpi-sub">${matched.length} lançamento${matched.length !== 1 ? 's' : ''} em ${monthsWithData} ${monthsWithData === 1 ? 'mês' : 'meses'}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Média (meses c/ gasto)</div>
+        <div class="kpi-value">${fmt(avgPerMonth)}</div>
+        <div class="kpi-sub">${monthsWithData} de ${totalMobillsMonths} meses</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Média Geral</div>
+        <div class="kpi-value" style="color:var(--text-muted)">${fmt(avgAllMonths)}</div>
+        <div class="kpi-sub">todos os ${totalMobillsMonths} meses do histórico</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Último Lançamento</div>
+        <div class="kpi-value" style="font-size:18px">${monthLabel(lastTx.d)}</div>
+        <div class="kpi-sub">${fmt(Math.abs(lastTx.val))} · ${lastTx.cat}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Natureza${matchedNats.length !== 1 ? 's' : ''}</div>
+        <div class="kpi-value" style="font-size:18px;color:var(--text-muted)">${matchedNats.length}</div>
+        <div class="kpi-sub" style="font-size:11px">${matchedNats.slice(0, 3).join(' · ')}${matchedNats.length > 3 ? '…' : ''}</div>
+      </div>
+    </div>
+
+    ${insightsHtml}
+
+    <div class="card mb-16">
+      <div class="card-title">Evolução Mensal</div>
+      <div class="chart-wrap chart-med"><canvas id="ch-gastos-trend"></canvas></div>
+    </div>
+
+    <div class="card mb-16">
+      <div class="card-title">Histórico — ${matched.length} lançamento${matched.length !== 1 ? 's' : ''}</div>
+      <div class="table-wrap">
+        <table class="history-table">
+          <thead><tr>
+            <th>Mês</th><th>Natureza</th><th class="r">Valor</th>
+          </tr></thead>
+          <tbody>${txRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  return { html, chartData: { sortedMonths, byMonthG, curKey } };
 }
 
 function renderExpenses() {
@@ -5375,6 +5561,10 @@ function renderExpenses() {
       </div>`}
     </div>`;
 
+  const gastosResult = expTab === 'gastos' ? buildGastosTabHtml() : null;
+  const gastosHtml = gastosResult ? gastosResult.html : '';
+  const gastosChartData = gastosResult ? gastosResult.chartData : null;
+
   el.innerHTML = `
     <div class="page-header">
       <div>
@@ -5386,6 +5576,12 @@ function renderExpenses() {
       </div>
     </div>
 
+    <div class="tabs" style="margin-bottom:16px">
+      <button class="tab-btn ${expTab === 'overview' ? 'active' : ''}" onclick="setExpTab('overview')">Visão Geral</button>
+      <button class="tab-btn ${expTab === 'gastos' ? 'active' : ''}" onclick="setExpTab('gastos')">Gastos</button>
+    </div>
+
+    ${expTab === 'gastos' ? gastosHtml : `
     ${(window._mobillsDivergences || []).length ? `
     <div class="card mb-16" style="border-left:3px solid var(--yellow);padding:12px 16px">
       <div style="font-size:13px;color:var(--yellow);font-weight:600;margin-bottom:4px">⚠ Divergência entre Mobills e Histórico</div>
@@ -5500,6 +5696,7 @@ function renderExpenses() {
         </div>
       </div>
     </details>
+    `}
   `;
 
   requestAnimationFrame(() => {
@@ -5607,6 +5804,37 @@ function renderExpenses() {
         }, 50);
       });
     });
+
+    // Gastos tab — evolução mensal da natureza buscada
+    if (gastosChartData) {
+      const { sortedMonths: gMonths, byMonthG, curKey: gCurKey } = gastosChartData;
+      const gastosCtx = document.getElementById('ch-gastos-trend');
+      if (gastosCtx) {
+        activeCharts.gastosTrack = new Chart(gastosCtx, {
+          type: 'bar',
+          data: {
+            labels: gMonths.map(m => monthLabel(m)),
+            datasets: [{
+              label: 'Valor',
+              data: gMonths.map(m => byMonthG[m] || 0),
+              backgroundColor: gMonths.map(m => m === gCurKey ? '#4f8ef7' : '#4f8ef744'),
+              borderColor: '#4f8ef7', borderWidth: 1, borderRadius: 4,
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` } }
+            },
+            scales: {
+              x: { grid: { color: '#1e2d4220' }, ticks: { color: '#8ca3c1', font: { size: 10 } } },
+              y: { grid: { color: '#1e2d4240' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) }, beginAtZero: true }
+            }
+          }
+        });
+      }
+    }
   });
 }
 
