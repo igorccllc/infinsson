@@ -1897,7 +1897,10 @@ function monthsSummary() {
     const d = HISTORICAL[i].pat - HISTORICAL[i - 1].pat;
     if (d > 0) pat.pos++; else if (d < 0) pat.neg++;
   }
-  for (const h of HISTORICAL) { if ((h.apo || 0) > 0) apo.pos++; else if ((h.apo || 0) < 0) apo.neg++; }
+  for (let i = 1; i < HISTORICAL.length; i++) {
+    const a = HISTORICAL[i].apo || 0;   // começa no i=1 p/ alinhar com rentabilidade/patrimônio (que são variação)
+    if (a > 0) apo.pos++; else if (a < 0) apo.neg++;
+  }
   return { rent, pat, apo };
 }
 
