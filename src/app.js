@@ -1054,6 +1054,7 @@ function _buildRentabilidadeTab() {
         ${_simParamInput('selic', 'Selic anual',         sim.selic, 0.5, 30,  0.25, '% a.a.')}
         <div class="sim-section-title" style="margin-top:18px">PRODUTOS PARA COMPARAR</div>
         ${_simProductRow('cdb',    'CDB / RDB',         null,        'pctCDB',     sim.pctCDB,     '% CDI')}
+        ${_simProductRow('pre',    'Pré-fixado',        null,        'preFixado',  sim.preFixado,  '% a.a.')}
         ${_simProductRow('lci',    'LCI / LCA',         'Isento IR', 'pctLCI',     sim.pctLCI,     '% CDI')}
         ${_simProductRow('tselic', 'Tesouro Selic',     null,        'pctTSelic',  sim.pctTSelic,  '% Selic')}
         ${_simProductRow('poupa',  'Poupança',          'Isento IR', null,          null,           '')}
