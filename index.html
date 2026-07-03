@@ -2229,6 +2229,8 @@ function renderSimTabContent(id) {
   if (id === 'rentabilidade') {
     el.innerHTML = _buildRentabilidadeTab();
     setTimeout(_simDrawChart, 0);
+  } else if (id === 'equivalente') {
+    el.innerHTML = _buildEquivalenteTab();
   } else if (id === 'amort') {
     el.innerHTML = _buildAmortTab();
     setTimeout(_amortDrawChart, 0);
