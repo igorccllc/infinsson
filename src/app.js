@@ -266,6 +266,7 @@ function loadState() {
     saveState();
   }
   if (S.simulator.tab === undefined) { S.simulator.tab = 'rentabilidade'; saveState(); }
+  if (S.simulator.preFixado === undefined) { S.simulator.preFixado = 13.5; saveState(); }
   // Migração: bloco quitar vs investir.
   if (!S.quitar) {
     S.quitar = { valor: 100000, saldo: 100000, taxaFin: 18.0, prazo: 60, pctCDI: 100 };
