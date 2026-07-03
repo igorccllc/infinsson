@@ -1950,15 +1950,16 @@ function poupancaRate(selic) {
   return selic > 8.5 ? (Math.pow(1.005, 12) - 1) * 100 : selic * 0.7;
 }
 
-// Calcula os 5 produtos e retorna array pronto para tabela/gráfico.
+// Calcula os produtos e retorna array pronto para tabela/gráfico.
 function simulate() {
-  const { valor, meses, cdi, ipca, selic, pctCDB, pctLCI, pctTSelic, spreadIPCA } = S.simulator;
+  const { valor, meses, cdi, ipca, selic, pctCDB, pctLCI, pctTSelic, spreadIPCA, preFixado } = S.simulator;
   const anos  = meses / 12;
   const dias  = meses * 30;
   const aliq  = irRate(dias);
 
   const produtos = [
     { key:'cdb',    nome:'CDB / RDB',        sub:`${pctCDB}% CDI`,          taxa: cdi * pctCDB / 100,                               isento: false },
+    { key:'pre',    nome:'Pré-fixado',        sub:`${fmtPct(preFixado)} a.a.`, taxa: preFixado,                                       isento: false },
     { key:'lci',    nome:'LCI / LCA',         sub:`${pctLCI}% CDI`,          taxa: cdi * pctLCI / 100,                               isento: true  },
     { key:'tselic', nome:'Tesouro Selic',      sub:`${pctTSelic}% Selic`,     taxa: selic * pctTSelic / 100,                          isento: false },
     { key:'poupa',  nome:'Poupança',           sub:'Regra 70% Selic',         taxa: poupancaRate(selic),                              isento: true  },
