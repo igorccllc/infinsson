@@ -2243,6 +2243,114 @@ function renderSimTabContent(id) {
   }
 }
 
+// ── RENTABILIDADE EQUIVALENTE — conversor de taxas + benchmark ──
+function _buildEquivalenteTab() {
+  const s = S.simulator;
+  const isAno = s.eqPeriod === 'ano';
+  return `
+    <div class="sim-layout">
+      <div class="sim-params-panel card">
+        <div class="sim-section-title">TAXA A CONVERTER</div>
+        <div class="fi-mode-toggle">
+          <button class="fi-mode-btn ${isAno?'active':''}" onclick="eqSetPeriod('ano')">Anual</button>
+          <button class="fi-mode-btn ${!isAno?'active':''}" onclick="eqSetPeriod('mes')">Mensal</button>
+        </div>
+        ${_eqInput('eqRate', isAno?'Taxa anual':'Taxa mensal', s.eqRate, 0.01, isAno?'% a.a.':'% a.m.')}
+        <div class="sim-section-title" style="margin-top:18px">BENCHMARKS</div>
+        ${_eqInput('cdi',   'CDI anual',   s.cdi,   0.25, '% a.a.')}
+        ${_eqInput('selic', 'Selic anual', s.selic, 0.25, '% a.a.')}
+        <div class="sim-footer-note">
+          Conversão por juro composto: mensal = (1 + anual)^(1/12) − 1.<br>
+          % do CDI compara a taxa anual equivalente contra o CDI.
+        </div>
+      </div>
+      <div class="sim-results-panel">
+        <div id="eq-results">${_buildEqResults()}</div>
+      </div>
+    </div>`;
+}
+
+function _eqInput(key, label, val, step, unit) {
+  return `
+    <div class="sim-param-row">
+      <span class="sim-param-label">${label}</span>
+      <div class="sim-param-field">
+        <input type="number" class="sim-num-input" value="${val}" step="${step}"
+          data-eq-key="${key}" oninput="eqInput(this)">
+        <span class="sim-prod-unit">${unit}</span>
+      </div>
+    </div>`;
+}
+
+function _buildEqResults() {
+  const { eqRate, eqPeriod, cdi, selic } = S.simulator;
+  const p2  = v => v.toFixed(2).replace('.', ',') + '%';
+  const toM = a => (Math.pow(1 + a/100, 1/12) - 1) * 100;   // anual → mensal
+  const toA = m => (Math.pow(1 + m/100, 12)   - 1) * 100;   // mensal → anual
+  const isAno = eqPeriod === 'ano';
+
+  const taxaAnual  = isAno ? eqRate : toA(eqRate);
+  const taxaMensal = isAno ? toM(eqRate) : eqRate;
+  const cdiM   = toM(cdi),  selicM = toM(selic);
+  const pctCDI      = cdi > 0 ? taxaAnual / cdi * 100 : 0;
+  const pctCDISelic = cdi > 0 ? selic / cdi * 100 : 0;
+
+  const origLbl = isAno ? 'ao ano' : 'ao mês';
+  const destLbl = isAno ? 'ao mês' : 'ao ano';
+  const destVal = isAno ? taxaMensal : taxaAnual;
+
+  const acimaSelic = taxaMensal > selicM + 1e-9;
+  const acimaCDI   = taxaAnual  > cdi + 1e-9;
+
+  const row = (nome, a, m, pc, hl) => `
+    <tr class="${hl ? 'sim-best' : ''}">
+      <td><strong>${nome}</strong></td>
+      <td class="r">${p2(a)}</td>
+      <td class="r">${p2(m)}</td>
+      <td class="r ${hl ? 'accent bold' : ''}">${pc.toFixed(0)}%</td>
+    </tr>`;
+
+  return `
+    <div class="card">
+      <div class="card-title">Conversão</div>
+      <div class="eq-headline">${p2(eqRate)} <span>${origLbl}</span> = <b>${p2(destVal)}</b> <span>${destLbl}</span></div>
+    </div>
+    <div class="sim-verdict ${acimaCDI ? 'verdict-investir' : 'verdict-quitar'}" style="margin-top:16px">
+      <div class="verdict-icon">${acimaCDI ? '📈' : '📉'}</div>
+      <div class="verdict-body">
+        <div class="verdict-title">Equivale a ${pctCDI.toFixed(0)}% do CDI</div>
+        <div class="verdict-detail">Sua taxa mensal (${p2(taxaMensal)}) está <strong>${acimaSelic ? 'acima' : 'abaixo'}</strong> da Selic mensal (${p2(selicM)}) e <strong>${acimaCDI ? 'acima' : 'abaixo'}</strong> do CDI (${p2(cdi)} a.a.).</div>
+      </div>
+    </div>
+    <div class="card mt-16">
+      <div class="card-title">Comparativo</div>
+      <table>
+        <thead><tr><th>Referência</th><th class="r">Anual</th><th class="r">Mensal</th><th class="r">% do CDI</th></tr></thead>
+        <tbody>
+          ${row('Sua taxa', taxaAnual, taxaMensal, pctCDI, true)}
+          ${row('CDI',   cdi,   cdiM,   100,          false)}
+          ${row('Selic', selic, selicM, pctCDISelic,  false)}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function eqInput(el) {
+  const key = el.dataset.eqKey;
+  const v = parseFloat(el.value);
+  if (!key || isNaN(v)) return;
+  S.simulator[key] = v;
+  saveState();
+  const w = document.getElementById('eq-results');
+  if (w) w.innerHTML = _buildEqResults();
+}
+
+function eqSetPeriod(p) {
+  S.simulator.eqPeriod = p;
+  saveState();
+  renderSimTabContent('equivalente');   // rebuild: muda o rótulo/unidade do input
+}
+
 function renderSimulador() {
   const el = document.getElementById('page-simulador');
   el.innerHTML = `
