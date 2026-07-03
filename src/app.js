@@ -186,6 +186,8 @@ const DEFAULT_STATE = {
     pctTSelic:  100,
     spreadIPCA: 6.0,
     preFixado:  13.5,   // taxa nominal fixa a.a. do pré-fixado
+    eqRate:     14.95,  // taxa a converter (aba Rentabilidade Equivalente)
+    eqPeriod:   'ano',  // período de entrada: 'ano' | 'mes'
   },
 
   quitar: {

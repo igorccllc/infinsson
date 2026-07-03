@@ -1,4 +1,4 @@
-const CACHE = 'finplan-20260703101840';
+const CACHE = 'finplan-20260703101846';
 const PRECACHE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
