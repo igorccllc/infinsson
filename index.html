@@ -2337,6 +2337,18 @@ function _buildEqResults() {
       <div class="card-title">Conversão</div>
       <div class="eq-headline">${p2(eqRate)} <span>${origLbl}</span> = <b>${p2(destVal)}</b> <span>${destLbl}</span></div>
     </div>
+    <div class="card mt-16">
+      <div class="card-title">Rentabilidade Líquida (IR) — ${meses} meses</div>
+      <div class="qi-row"><span class="qi-label">Alíquota de IR (${dias} dias)</span><span class="qi-val">${(aliq*100).toFixed(1).replace('.',',')}%</span></div>
+      <div class="qi-row"><span class="qi-label">Ganho bruto no período</span><span class="qi-val green">${p2(ganhoBrutoP)}</span></div>
+      <div class="qi-row"><span class="qi-label">IR sobre o ganho</span><span class="qi-val red">−${p2(irP)}</span></div>
+      <div class="qi-row"><span class="qi-label">Ganho líquido no período</span><span class="qi-val bold">${p2(ganhoLiqP)}</span></div>
+      <div class="qi-divider"></div>
+      <div class="qi-row"><span class="qi-label">Taxa líquida anual equiv.</span><span class="qi-val accent bold">${p2(liqAnual)}</span></div>
+      <div class="qi-row"><span class="qi-label">Taxa líquida mensal equiv.</span><span class="qi-val accent bold">${p2(liqMensal)}</span></div>
+      <div class="qi-row"><span class="qi-label">Líquida vs CDI</span><span class="qi-val">${liqPctCDI.toFixed(0)}% do CDI</span></div>
+      <div class="sim-footer-note" style="margin-top:8px">IR só incide em produtos tributados (CDB, pré, Tesouro). LCI/LCA e Poupança são isentos.</div>
+    </div>
     <div class="sim-verdict ${acimaCDI ? 'verdict-investir' : 'verdict-quitar'}" style="margin-top:16px">
       <div class="verdict-icon">${acimaCDI ? '📈' : '📉'}</div>
       <div class="verdict-body">
