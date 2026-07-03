@@ -188,6 +188,7 @@ const DEFAULT_STATE = {
     preFixado:  13.5,   // taxa nominal fixa a.a. do pré-fixado
     eqRate:     14.95,  // taxa a converter (aba Rentabilidade Equivalente)
     eqPeriod:   'ano',  // período de entrada: 'ano' | 'mes'
+    eqMeses:    25,     // prazo p/ cálculo do IR regressivo (líquido)
   },
 
   quitar: {
