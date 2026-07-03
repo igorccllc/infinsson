@@ -2263,6 +2263,7 @@ function _buildEquivalenteTab() {
           <button class="fi-mode-btn ${!isAno?'active':''}" onclick="eqSetPeriod('mes')">Mensal</button>
         </div>
         ${_eqInput('eqRate', isAno?'Taxa anual':'Taxa mensal', s.eqRate, 0.01, isAno?'% a.a.':'% a.m.')}
+        ${_eqInput('eqMeses', 'Prazo (p/ IR)', s.eqMeses, 1, 'meses')}
         <div class="sim-section-title" style="margin-top:18px">BENCHMARKS</div>
         ${_eqInput('cdi',   'CDI anual',   s.cdi,   0.25, '% a.a.')}
         ${_eqInput('selic', 'Selic anual', s.selic, 0.25, '% a.a.')}
