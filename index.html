@@ -2310,6 +2310,20 @@ function _buildEqResults() {
   const acimaSelic = taxaMensal > selicM + 1e-9;
   const acimaCDI   = taxaAnual  > cdi + 1e-9;
 
+  // ── Rentabilidade líquida (IR regressivo sobre o ganho no período) ──
+  const meses = Math.max(1, S.simulator.eqMeses || 25);
+  const anos  = meses / 12;
+  const dias  = meses * 30;
+  const aliq  = irRate(dias);
+  const fatorBruto  = Math.pow(1 + taxaAnual/100, anos);
+  const ganhoBrutoP = (fatorBruto - 1) * 100;               // ganho bruto no período (%)
+  const irP         = ganhoBrutoP * aliq;                   // IR sobre o ganho (%)
+  const ganhoLiqP   = ganhoBrutoP - irP;                    // ganho líquido no período (%)
+  const fatorLiq    = 1 + ganhoLiqP/100;
+  const liqAnual    = (Math.pow(fatorLiq, 1/anos)  - 1) * 100;
+  const liqMensal   = (Math.pow(fatorLiq, 1/meses) - 1) * 100;
+  const liqPctCDI   = cdi > 0 ? liqAnual / cdi * 100 : 0;
+
   const row = (nome, a, m, pc, hl) => `
     <tr class="${hl ? 'sim-best' : ''}">
       <td><strong>${nome}</strong></td>
