@@ -185,6 +185,7 @@ const DEFAULT_STATE = {
     pctLCI:     95,
     pctTSelic:  100,
     spreadIPCA: 6.0,
+    preFixado:  13.5,   // taxa nominal fixa a.a. do pré-fixado
   },
 
   quitar: {
