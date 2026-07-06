@@ -5802,7 +5802,8 @@ function renderExpenses() {
         <div class="page-title">Análise de Gastos</div>
         <div class="page-subtitle">${monthLabel(months[0])} — ${monthLabel(lastMonth)} · ${MOBILLS.length} lançamentos</div>
       </div>
-      <div class="page-actions">
+      <div class="page-actions" style="align-items:center">
+        ${monthSelectHtml}
         <button class="btn btn-ghost btn-sm" onclick="openBudgetModal()">⚙ Orçamento</button>
       </div>
     </div>
