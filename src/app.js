@@ -4110,7 +4110,9 @@ function renderExpenses() {
   const secNames = secEntries.map(e => e[0]);
 
   const now = new Date();
-  const curMonthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const realCurKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const curMonthKey = expFilter.refMonth || realCurKey;   // mês de referência escolhido pelo usuário
+  const isCurrentMonth = curMonthKey === realCurKey;
   const lastMonth = curMonthKey;
   const prevMonth = addMonths(curMonthKey, -1);
   const lastVal = byMonthMap[lastMonth] || 0;
