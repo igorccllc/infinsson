@@ -5583,11 +5583,17 @@ function renderExpenses() {
   // ── Filter bar ──
   const periods = [['3m','3M'],['6m','6M'],['12m','12M'],['ytd','YTD'],['all','Tudo']];
   const secOptions = secNames.map(s => `<option value="${s}" ${filteredSec === s ? 'selected' : ''}>${s}</option>`).join('');
+  const monthOptions = [...months].reverse()
+    .map(m => `<option value="${m}" ${curMonthKey === m && expFilter.refMonth ? 'selected' : ''}>${monthLabel(m)}</option>`).join('');
   const filterBarHtml = `<div class="flex-between mb-16" style="gap:12px;flex-wrap:wrap">
     <div class="flex gap-8" style="align-items:center">
       ${periods.map(([v, l]) => `<button class="btn ${prd === v ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="setExpFilter('period','${v}')">${l}</button>`).join('')}
     </div>
     <div class="flex gap-8" style="align-items:center">
+      <select class="ctrl-select" onchange="setExpFilter('refMonth',this.value)" style="font-size:12px" title="Mês de referência das análises">
+        <option value="">Mês atual (${monthLabel(realCurKey)})</option>
+        ${monthOptions}
+      </select>
       <select class="ctrl-select" onchange="setExpFilter('section',this.value)" style="font-size:12px">
         <option value="">Todas as seções</option>
         ${secOptions}
