@@ -1630,6 +1630,15 @@ async function syncFromSheets(silent = false) {
       }
     }
 
+    // ── Atualiza estrutura de Seções (aba Fluxo de Caixa, linha 23+) ──
+    if (Array.isArray(data.fluxo) && data.fluxo.length > 0) {
+      localStorage.setItem('finplan_fluxo_secoes', JSON.stringify(data.fluxo));
+      const dyn = buildSecoesFromFluxo(data.fluxo);
+      if (dyn) { SECAO_DYN = dyn; applySecaoColors(dyn.order); }
+      console.log('[Sync] fluxo rows:', data.fluxo.length, '→ seções:', dyn ? dyn.order.join(', ') : '(agrupamento falhou — usando mapa fixo)');
+      changed = true;
+    }
+
     // ── Atualiza Mobills ──────────────────────────────────
     if (Array.isArray(data.mobills) && data.mobills.length > 0) {
       MOBILLS_RAW = data.mobills;
