@@ -4837,9 +4837,10 @@ const SECAO_ORDER = [
   'Medicamentos','Celular','Financeiro','Viagens','Outros',
 ];
 function sortSecoes(entries) {
+  const ord = SECAO_DYN ? [...SECAO_DYN.order, 'Outros'] : SECAO_ORDER;
   return entries.slice().sort((a, b) => {
-    const ia = SECAO_ORDER.indexOf(a[0]);
-    const ib = SECAO_ORDER.indexOf(b[0]);
+    const ia = ord.indexOf(a[0]);
+    const ib = ord.indexOf(b[0]);
     if (ia === -1 && ib === -1) return 0;
     if (ia === -1) return 1;
     if (ib === -1) return -1;
