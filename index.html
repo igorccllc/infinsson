@@ -5523,7 +5523,7 @@ function renderExpenses() {
   const variablePendingAgg = aggList(variablePendingList);
 
   let pacingHtml = '';
-  if (dayOfMonth > 1 && dayOfMonth < daysInMonth - 1 && lastVal > 0) {
+  if (isCurrentMonth && dayOfMonth > 1 && dayOfMonth < daysInMonth - 1 && lastVal > 0) {   // projeção só faz sentido p/ mês em andamento
     const paceColor = paceBudgetPct > 110 ? 'var(--red)' : paceBudgetPct > 90 ? 'var(--yellow)' : 'var(--green)';
     const mainColor = paceVsAvg > 10 ? 'var(--red)' : paceVsAvg < -10 ? 'var(--green)' : 'var(--yellow)';
     const budgetNote = hasBudgets && totalBudget > 0
