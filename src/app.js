@@ -374,7 +374,11 @@ async function syncFromSheets(silent = false) {
     if (Array.isArray(data.historical) && data.historical.length > 0) {
       // Substitui o array global HISTORICAL
       HISTORICAL.length = 0;
-      data.historical.forEach(r => HISTORICAL.push(r));
+      data.historical.forEach(r => {
+        // Colunas de % vêm da planilha como fração (0,19) — normaliza p/ pontos percentuais (19,03).
+        ['cres','rent','txp'].forEach(k => { if (typeof r[k] === 'number') r[k] *= 100; });
+        HISTORICAL.push(r);
+      });
       changed = true;
     }
 
