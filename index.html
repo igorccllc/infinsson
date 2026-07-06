@@ -6430,22 +6430,35 @@ function renderHistory() {
             <th>Mês</th>
             <th class="r">Patrimônio</th>
             <th class="r">PL</th>
-            <th class="r">Receita</th>
-            <th class="r">Gastos</th>
+            <th class="r">Crescimento</th>
             <th class="r">Aporte</th>
+            <th class="r">Rentabilidade</th>
             <th class="r">Taxa de Poupança</th>
+            <th class="r">Receita</th>
+            <th class="r">Gastos Totais</th>
+            <th class="r">Gastos Recorrentes</th>
+            <th class="r">Gastos Não-Rec.</th>
+            <th class="r">Taxes</th>
           </tr></thead>
           <tbody>${[...HISTORICAL].reverse().map(h=>{
-            const apo = h.apo ?? (h.rec - h.gas);
-            const rate = savingsRate(h);
+            const apo  = h.apo ?? (h.rec - h.gas);
+            const rate = h.txp ?? savingsRate(h);                 // G: prefere a coluna da planilha
+            const pp   = v => (v==null||isNaN(v)) ? '<span class="muted">—</span>' : (v>=0?'+':'')+v.toFixed(2).replace('.',',')+'%';
+            const rr   = v => (v==null||isNaN(v)) ? '<span class="muted">—</span>' : fmt(v);
+            const sign = v => (v==null||isNaN(v)) ? '' : (v>=0?'green':'red');
             return `<tr>
               <td class="muted">${monthLabel(h.d)}</td>
               <td class="r accent">${fmt(h.pat)}</td>
               <td class="r">${fmt(h.pl)}</td>
+              <td class="r ${sign(h.cres)}">${pp(h.cres)}</td>
+              <td class="r ${apo>=0?'green':'red'}">${fmt(apo)}</td>
+              <td class="r ${sign(h.rent)}">${pp(h.rent)}</td>
+              <td class="r ${rate>=40?'green':rate>=20?'yellow':'red'}">${fmtPct(rate)}</td>
               <td class="r green">${fmt(h.rec)}</td>
               <td class="r red">${fmt(h.gas)}</td>
-              <td class="r ${apo>=0?'green':'red'}">${fmt(apo)}</td>
-              <td class="r ${rate>=40?'green':rate>=20?'yellow':'red'}">${fmtPct(rate)}</td>
+              <td class="r">${rr(h.gasRec)}</td>
+              <td class="r">${rr(h.gasNRec)}</td>
+              <td class="r">${rr(h.taxes)}</td>
             </tr>`;
           }).join('')}</tbody>
         </table>
