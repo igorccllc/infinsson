@@ -5397,9 +5397,10 @@ function renderExpenses() {
   const yoyMonth = addMonths(curMonthKey, -12);
   const yoyVal = byMonthMap[yoyMonth] || 0;
   const yoyDelta = yoyVal > 0 ? ((lastVal - yoyVal) / yoyVal * 100) : 0;
-  const curQ = Math.floor(now.getMonth() / 3);
-  const curQMonths = Array.from({length: 3}, (_, i) => now.getFullYear() + '-' + String(curQ * 3 + i + 1).padStart(2, '0'));
-  const prevQStart = curQ === 0 ? (now.getFullYear() - 1) + '-10' : now.getFullYear() + '-' + String((curQ - 1) * 3 + 1).padStart(2, '0');
+  const [refY, refM] = curMonthKey.split('-').map(Number);   // trimestre segue o mês de referência
+  const curQ = Math.floor((refM - 1) / 3);
+  const curQMonths = Array.from({length: 3}, (_, i) => refY + '-' + String(curQ * 3 + i + 1).padStart(2, '0'));
+  const prevQStart = curQ === 0 ? (refY - 1) + '-10' : refY + '-' + String((curQ - 1) * 3 + 1).padStart(2, '0');
   const prevQMonths = Array.from({length: 3}, (_, i) => addMonths(prevQStart, i));
   const curQTotal = curQMonths.reduce((s, m) => s + (byMonthMap[m] || 0), 0);
   const prevQTotal = prevQMonths.reduce((s, m) => s + (byMonthMap[m] || 0), 0);
