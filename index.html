@@ -4855,7 +4855,58 @@ const SECAO_COLORS = {
   'Viagens':'#2dd4bf','Não Recorrentes':'#a16207','Outros':'#475569',
 };
 
-function getSecao(natureza) { return SECAO_MAP[natureza] || 'Outros'; }
+/* ── Seções dinâmicas: espelham a aba "Fluxo de Caixa" da planilha (linha 23+) ──
+ * O sync manda as linhas cruas (nome + bold); linhas em negrito são seções,
+ * as demais são categorias da seção corrente. Se não houver dados (ou o
+ * agrupamento falhar), cai no SECAO_MAP hardcoded acima.                    */
+let SECAO_DYN = null;   // { map:{cat→sec}, order:[secs], normIdx:{catNormalizada→sec} }
+
+function normCat(s) {
+  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}
+
+function buildSecoesFromFluxo(rows) {
+  const map = {}, order = [], normIdx = {};
+  const skip = /^(total|totais|m[eé]dia|%|receita)/i;
+  let cur = null;
+  for (const row of rows || []) {
+    const name = String(row.name || '').trim();
+    if (!name || skip.test(name)) continue;
+    if (row.bold) {
+      cur = name;
+      if (!order.includes(name)) order.push(name);
+    } else if (cur) {
+      map[name] = cur;
+      normIdx[normCat(name)] = cur;
+    }
+  }
+  return order.length ? { map, order, normIdx } : null;
+}
+
+function applySecaoColors(order) {
+  const palette = ['#f87171','#4f8ef7','#ec4899','#06b6d4','#38bdf8','#e879f9','#f97316','#a78bfa',
+                   '#22c55e','#fbbf24','#94a3b8','#fb923c','#2dd4bf','#ff6b9d','#34d399','#818cf8','#a16207','#64748b'];
+  order.forEach((s, i) => { if (!SECAO_COLORS[s]) SECAO_COLORS[s] = palette[i % palette.length]; });
+}
+
+function loadSecoesDyn() {
+  try {
+    const raw = localStorage.getItem('finplan_fluxo_secoes');
+    if (!raw) return;
+    SECAO_DYN = buildSecoesFromFluxo(JSON.parse(raw));
+    if (SECAO_DYN) applySecaoColors(SECAO_DYN.order);
+  } catch (e) { SECAO_DYN = null; }
+}
+
+function getSecao(natureza) {
+  if (SECAO_DYN) {
+    return SECAO_DYN.map[natureza]
+        || SECAO_DYN.normIdx[normCat(natureza)]
+        || SECAO_MAP[natureza]
+        || 'Outros';
+  }
+  return SECAO_MAP[natureza] || 'Outros';
+}
 
 function detectInsights(bySecMonthMap, secNames, months, byMonthMap) {
   const insights = [];
