@@ -4128,7 +4128,7 @@ function renderExpenses() {
   if (prd === '3m') periodN = 3;
   else if (prd === '6m') periodN = 6;
   else if (prd === '12m') periodN = 12;
-  else if (prd === 'ytd') periodN = now.getMonth() + 1;
+  else if (prd === 'ytd') periodN = parseInt(curMonthKey.split('-')[1], 10);
   else if (prd === 'all') periodN = Math.max(months.length, 6);
 
   const last6m = Array.from({length: periodN}, (_, i) => addMonths(curMonthKey, i - periodN + 1));
