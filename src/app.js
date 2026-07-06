@@ -5539,6 +5539,7 @@ function importData(e) {
 // ── 21. INIT ──────────────────────────────────────────────
 function init() {
   loadState();
+  loadSecoesDyn();          // seções da aba Fluxo de Caixa (persistidas do último sync)
   refreshMobillsFilter();
   Chart.register(ChartAnnotation);
   renderPage('dashboard');
