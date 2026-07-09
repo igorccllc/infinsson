@@ -304,6 +304,7 @@ function processar(arrayBuffer, nomeArquivo) {
       valor,
       catId: cat.id,
       catNome: cat.nome,
+      indexador: (cat.id === 'juros' || cat.id === 'amort') ? detectarIndexador(desc) : null,
     });
   }
 
