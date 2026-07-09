@@ -1,4 +1,4 @@
-# Monta o FinPlan Pro + Carteira XP num unico HTML autocontido (index.html nesta pasta).
+# Monta o FinPlan Pro + Carteira XP + Extrato XP num unico HTML autocontido (index.html nesta pasta).
 # Também gera os assets PWA: manifest.json, sw.js, icon-192.png, icon-512.png.
 $ErrorActionPreference = 'Stop'
 $src = Join-Path $PSScriptRoot 'src'
@@ -9,6 +9,7 @@ $index    = Get-Content (Join-Path $src 'index.html')    -Raw -Encoding UTF8
 $css      = Get-Content (Join-Path $src 'style.css')     -Raw -Encoding UTF8
 $js       = Get-Content (Join-Path $src 'app.js')        -Raw -Encoding UTF8
 $fechHtml = Get-Content (Join-Path $src 'carteira.html') -Raw -Encoding UTF8
+$extrHtml = Get-Content (Join-Path $src 'extrato.html')  -Raw -Encoding UTF8
 
 # ── 2) Baixa / usa cache do Chart.js e plugin annotation ──────────────────
 $chartjsCache = Join-Path $src '_cache_chartjs.js'
@@ -27,6 +28,7 @@ $anno    = Get-Content $annoCache    -Raw -Encoding UTF8
 # ── 3) Inline: CSS, JS da app, Chart.js, annotation plugin ────────────────
 $enc = New-Object System.Text.UTF8Encoding($false)
 $b64 = [Convert]::ToBase64String($enc.GetBytes($fechHtml))
+$b64Extr = [Convert]::ToBase64String($enc.GetBytes($extrHtml))
 
 $index = $index.Replace('<link rel="stylesheet" href="style.css">',     "<style>`n$css`n</style>")
 $index = $index.Replace('<script src="app.js"></script>',               "<script>`n$js`n</script>")
@@ -60,6 +62,30 @@ function loadCarteira(){
 '@
 $loader = $loader.Replace('__B64__', $b64)
 $index = $index.Replace('</body>', $loader + "`n</body>")
+
+# ── 4b) Menu Extrato XP ────────────────────────────────────────────────────
+$navItemExtr = '      <a class="nav-item" data-page="extrato" href="#" onclick="navigate(''extrato'');loadExtrato();return false;"><span class="nav-icon">&#9776;</span><span>Extrato XP</span></a>'
+$index = $index.Replace('</nav>', $navItemExtr + "`n    </nav>")
+
+$pageDivExtr = '    <div id="page-extrato" class="page" style="padding:0"><iframe id="extrato-frame" title="Extrato XP" style="width:100%;height:100vh;border:0;display:block"></iframe></div>'
+$index = $index.Replace('</main>', $pageDivExtr + "`n  </main>")
+
+$loaderExtr = @'
+<script type="text/plain" id="extrato-b64">__B64__</script>
+<script>
+function loadExtrato(){
+  var f = document.getElementById('extrato-frame');
+  if (f.dataset.loaded) return;
+  var b64 = document.getElementById('extrato-b64').textContent.trim();
+  var bin = atob(b64);
+  var bytes = Uint8Array.from(bin, function(c){ return c.charCodeAt(0); });
+  f.srcdoc = new TextDecoder('utf-8').decode(bytes);
+  f.dataset.loaded = '1';
+}
+</script>
+'@
+$loaderExtr = $loaderExtr.Replace('__B64__', $b64Extr)
+$index = $index.Replace('</body>', $loaderExtr + "`n</body>")
 
 # ── 5) Grava index.html ────────────────────────────────────────────────────
 $out = Join-Path $PSScriptRoot 'index.html'
