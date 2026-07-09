@@ -365,8 +365,9 @@ function renderTabela() {
     <td class="data">${fmtData(l.data)}</td>
     <td>${l.descricao}</td>
     <td><span class="cat-tag">${l.catNome}</span></td>
+    <td>${l.indexador ? `<span class="cat-tag">${l.indexador}</span>` : ''}</td>
     <td class="num ${l.valor > 0 ? 'pos' : l.valor < 0 ? 'neg' : ''}">${brl(l.valor)}</td>
-  </tr>`).join('') || '<tr><td colspan="4" style="color:var(--ink-3)">Nenhum lançamento nesse filtro.</td></tr>';
+  </tr>`).join('') || '<tr><td colspan="5" style="color:var(--ink-3)">Nenhum lançamento nesse filtro.</td></tr>';
 
   const somaVisivel = visiveis.reduce((s, l) => s + l.valor, 0);
   document.getElementById('filtroInfo').textContent = filtroCat || busca
