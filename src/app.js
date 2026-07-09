@@ -909,6 +909,7 @@ function renderPage(p) {
     fi:          renderFI,
     history:     renderHistory,
     simulador:   renderSimulador,
+    insights:    renderInsights,
   };
   map[p]?.();
 }
@@ -5546,6 +5547,331 @@ function importData(e) {
     } catch(err) { alert('Arquivo inválido.'); }
   };
   r.readAsText(file);
+}
+
+// ── 20b. INSIGHTS ─────────────────────────────────────────
+// Motor de insights: regras determinísticas sobre HISTORICAL + estado atual.
+// Recalcula tudo a cada clique — sempre reflete o último sync.
+
+function _median(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// Meses até atingir `target` com aporte mensal fixo e retorno real (% a.a.). null = >50 anos.
+function _monthsToTarget(w0, sav, rAnnual, target) {
+  if (w0 >= target) return 0;
+  const rm = Math.pow(1 + rAnnual / 100, 1 / 12) - 1;
+  let w = w0;
+  for (let m = 1; m <= 600; m++) {
+    w = w * (1 + rm) + sav;
+    if (w >= target) return m;
+  }
+  return null;
+}
+
+function _fmtAnos(months) {
+  if (months === null) return 'mais de 50 anos';
+  if (months === 0) return 'já atingida';
+  const y = months / 12;
+  if (y < 1) return `${months} meses`;
+  return `~${(y < 3 ? y.toFixed(1) : String(Math.round(y))).replace('.', ',')} anos`;
+}
+
+function computeInsights() {
+  const ins = [];
+  const push = (sev, tag, title, body, action) => ins.push({ sev, tag, title, body, action });
+
+  const last12 = HISTORICAL.slice(-12);
+  const last24 = HISTORICAL.slice(-24);
+  const recMed = _median(last24.map(h => h.rec).filter(v => v > 0));
+  const isOutlier = h => recMed > 0 && h.rec > 1.8 * recMed;   // mês de receita atípica (bônus, venda...)
+
+  const rec12 = last12.reduce((s, h) => s + h.rec, 0);
+  const gas12 = last12.reduce((s, h) => s + h.gas, 0);
+  const apo12 = last12.reduce((s, h) => s + (h.apo || 0), 0);
+  const avgGas = gas12 / Math.max(1, last12.length);
+  const totalPort = S.portfolio.reduce((s, a) => s + a.value, 0);
+  const age = currentAge();
+
+  // ── Patrimônio: decomposição do crescimento em 12m (aporte vs rentabilidade)
+  const lastH = HISTORICAL[HISTORICAL.length - 1];
+  const yearAgo = HISTORICAL[HISTORICAL.length - 13];
+  if (lastH && yearAgo && yearAgo.pl > 0) {
+    const d = lastH.pl - yearAgo.pl;
+    const rentab = d - apo12;
+    const pctApo = d !== 0 ? Math.min(100, Math.max(0, apo12 / d * 100)) : 0;
+    push(rentab < 0 ? 'warn' : 'info', 'Patrimônio',
+      `Patrimônio investido: ${fmtK(lastH.pl)} (${d >= 0 ? '+' : '−'}${fmtK(Math.abs(d))} em 12 meses)`,
+      `Desse crescimento, <b>${fmtK(apo12)}</b> veio de aporte e <b>${rentab >= 0 ? '' : '−'}${fmtK(Math.abs(rentab))}</b> de rentabilidade` +
+      (d > 0 && pctApo >= 85
+        ? ` — ou seja, <b>${fmtPct(pctApo)}</b> do avanço foi você depositando dinheiro, não o dinheiro trabalhando. Em 12 meses a carteira rendeu abaixo da inflação.`
+        : '.'),
+      null);
+  }
+
+  // ── Taxa de poupança 12m
+  if (rec12 > 0) {
+    const sr = (rec12 - gas12) / rec12 * 100;
+    const norm = last12.filter(h => !isOutlier(h));
+    const recN = norm.reduce((s, h) => s + h.rec, 0);
+    const gasN = norm.reduce((s, h) => s + h.gas, 0);
+    const srEx = recN > 0 ? (recN - gasN) / recN * 100 : sr;
+    const sev = sr >= 50 ? 'good' : sr >= 30 ? 'warn' : 'bad';
+    push(sev, 'Poupança',
+      `Taxa de poupança de ${fmtPct(sr)} nos últimos 12 meses`,
+      `Você recebeu <b>${fmtK(rec12)}</b> e gastou <b>${fmtK(gas12)}</b> (média de ${fmt(avgGas)}/mês). ` +
+      (Math.abs(srEx - sr) > 1 ? `Tirando os meses atípicos de receita, a taxa segue em <b>${fmtPct(srEx)}</b>. ` : '') +
+      (sr >= 50
+        ? 'Nesse nível, quem constrói o patrimônio é o aporte — o retorno da carteira é coadjuvante e sua margem de erro é enorme.'
+        : sr >= 30
+          ? 'Bom patamar, mas cada ponto a mais de poupança encurta a data da independência mais que qualquer otimização de carteira.'
+          : 'Abaixo de 30%, o plano fica dependente do retorno da carteira — o lado da equação que você não controla.'),
+      sr < 50 ? 'Revisar os maiores grupos na Análise de Gastos e definir um teto mensal.' : null);
+  }
+
+  // ── Rentabilidade recente vs CDI
+  const rs = realizedReturns();
+  if (rs.length >= 6) {
+    let streak = 0;
+    for (let i = rs.length - 1; i >= 0 && rs[i].r < 0; i--) streak++;
+    let gain3 = 0;
+    const n3 = Math.min(3, HISTORICAL.length - 1);
+    for (let i = HISTORICAL.length - n3; i < HISTORICAL.length; i++) {
+      gain3 += HISTORICAL[i].pat - HISTORICAL[i - 1].pat - (HISTORICAL[i].apo || 0);
+    }
+    const t12 = twr(12), c12 = cdiAnnualized(12);
+    const rvPct = totalPort > 0
+      ? S.portfolio.filter(a => a.cat === 'rv' || a.cat === 'fii').reduce((s, a) => s + a.value, 0) / totalPort * 100
+      : 0;
+    if (streak >= 3) {
+      push('bad', 'Rentabilidade',
+        `Carteira no vermelho há ${streak} meses seguidos`,
+        `Resultado de mercado de <b>−${fmtK(Math.abs(gain3))}</b> no último trimestre. Nos 12 meses, a carteira rendeu <b>${fmtPct(t12)} a.a.</b> vs. CDI de ${fmtPct(c12)}. Com ${fmtPct(rvPct)} em renda variável + FIIs, meses negativos são o preço da posição — o erro seria mudar de estratégia por causa deles. O que merece olhar é o desvio vs. CDI se persistir por mais de 12 meses.`,
+        'Não vender posição em baixa; reavaliar a carteira só se o desvio vs. CDI persistir em janela de 12m+.');
+    } else if (t12 >= c12) {
+      push('good', 'Rentabilidade',
+        `Carteira bateu o CDI nos últimos 12 meses`,
+        `<b>${fmtPct(t12)} a.a.</b> vs. CDI de ${fmtPct(c12)} na mesma janela. Último trimestre: ${gain3 >= 0 ? '+' : '−'}${fmtK(Math.abs(gain3))} de resultado de mercado.`,
+        null);
+    } else {
+      push('warn', 'Rentabilidade',
+        `Carteira abaixo do CDI nos últimos 12 meses`,
+        `<b>${fmtPct(t12)} a.a.</b> vs. CDI de ${fmtPct(c12)}. Com ${fmtPct(rvPct)} em RV + FIIs, janelas curtas abaixo do CDI são esperadas — mas vale acompanhar se o gap fecha nos próximos trimestres.`,
+        null);
+    }
+  }
+
+  // ── Tendência de receita (ex-meses atípicos)
+  const recentR = last12.slice(-3).filter(h => !isOutlier(h) && h.rec > 0);
+  const beforeR = last12.slice(0, 9).filter(h => !isOutlier(h) && h.rec > 0);
+  if (recentR.length >= 2 && beforeR.length >= 4) {
+    const aR = recentR.reduce((s, h) => s + h.rec, 0) / recentR.length;
+    const aB = beforeR.reduce((s, h) => s + h.rec, 0) / beforeR.length;
+    const dPct = (aR - aB) / aB * 100;
+    if (dPct <= -10) {
+      push('bad', 'Receita',
+        `Receita recorrente em queda: ${fmtPct(Math.abs(dPct))} abaixo da média anterior`,
+        `Média de <b>${fmt(aR)}/mês</b> no último trimestre vs. ${fmt(aB)} nos meses anteriores (sem contar bônus/eventos). É a receita que sustenta o aporte — e o aporte é o motor do plano. Essa é a linha mais importante a atacar agora.`,
+        'Investigar e reverter a queda de receita recorrente — nenhuma otimização de carteira compensa essa linha.');
+    } else if (dPct >= 10) {
+      push('good', 'Receita',
+        `Receita recorrente em alta: +${fmtPct(dPct)} vs. média anterior`,
+        `Média de <b>${fmt(aR)}/mês</b> no último trimestre vs. ${fmt(aB)} antes. Se sustentar, vale atualizar a renda no Fluxo de Caixa para as projeções acompanharem.`,
+        null);
+    }
+  }
+
+  // ── Tendência de aportes
+  const avgApo3 = last12.slice(-3).reduce((s, h) => s + (h.apo || 0), 0) / 3;
+  const avgApo12 = apo12 / Math.max(1, last12.length);
+  if (avgApo12 > 0 && avgApo3 < avgApo12 * 0.6) {
+    push('warn', 'Aportes',
+      `Aportes desaceleraram: ${fmtK(avgApo3)}/mês no trimestre vs. ${fmtK(avgApo12)} na média de 12m`,
+      `Parte disso é natural (os aportes gordos vêm de meses de bônus), mas se a queda for estrutural, a data da FI estica. Acompanhe junto com a linha de receita.`,
+      null);
+  }
+
+  // ── Meta FI: calibragem vs. gasto real
+  const fin = fiNumber();
+  const w = investableWealth();
+  if (fin > 0 && w > 0) {
+    const pct = w / fin * 100;
+    const sav = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0)
+              - S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+    const rReal = weightedReturnReal();
+    const mCur = _monthsToTarget(w, sav, rReal, fin);
+    const ageAt = m => (m === null ? '—' : age + Math.round(m / 12));
+    if (avgGas > 0 && S.fi.targetMonthlyIncome > avgGas * 1.8) {
+      const altMonthly = Math.ceil(avgGas * 1.5 / 500) * 500;   // gasto real + 50% de folga
+      const altFin = altMonthly * 12 / (fiRate() / 100);
+      const mAlt = _monthsToTarget(w, sav, rReal, altFin);
+      push('warn', 'Meta FI',
+        `Sua meta de FI está ${fmtPct(S.fi.targetMonthlyIncome / avgGas * 100 - 100)} acima do seu gasto real`,
+        `A meta de <b>${fmt(S.fi.targetMonthlyIncome)}/mês</b> pede <b>${fmtK(fin)}</b> — você está em <b>${fmtPct(pct)}</b> e, no ritmo atual, chega em <b>${_fmtAnos(mCur)}</b> (idade ${ageAt(mCur)}). Mas seu gasto médio é ${fmt(avgGas)}/mês: uma meta com 50% de folga (<b>${fmt(altMonthly)}/mês</b>) pede ${fmtK(altFin)} e chegaria em <b>${_fmtAnos(mAlt)}</b> (idade ${ageAt(mAlt)}). A pergunta que o número não responde: ${fmt(S.fi.targetMonthlyIncome)} é plano de vida (casa, filhos, padrão) ou número redondo que ficou aí?`,
+        'Decidir se a renda-alvo da FI reflete o custo de vida planejado — ajustar na aba Independência FI.');
+    } else {
+      push('info', 'Meta FI',
+        `Progresso à independência: ${fmtPct(pct)} da meta de ${fmtK(fin)}`,
+        `No ritmo atual de poupança e retorno real de ${fmtPct(weightedReturnReal())} a.a., a meta chega em <b>${_fmtAnos(mCur)}</b> (idade ${ageAt(mCur)}).`,
+        null);
+    }
+  }
+
+  // ── Alocação vs. meta (bandas de rebalanceamento)
+  const targets = S.targetAllocation || {};
+  if (totalPort > 0 && Object.keys(targets).length) {
+    const band = S.rebalanceBand || { abs: 5, rel: 25 };
+    const rows = S.portfolio.filter(a => targets[a.id] != null && a.cat !== 'imovel').map(a => {
+      const cur = a.value / totalPort * 100, tgt = targets[a.id];
+      const dev = cur - tgt;
+      const out = Math.abs(dev) >= band.abs || (tgt > 0 && Math.abs(dev) / tgt * 100 >= band.rel);
+      return { a, cur, tgt, dev, out };
+    });
+    const outs = rows.filter(r => r.out);
+    if (outs.length && rows.length) {
+      const under = rows.reduce((m, r) => r.dev < m.dev ? r : m);
+      const over = rows.reduce((m, r) => r.dev > m.dev ? r : m);
+      const gap = Math.abs(under.dev) / 100 * totalPort;
+      push('warn', 'Alocação',
+        `${outs.length} classe${outs.length > 1 ? 's' : ''} fora da banda de rebalanceamento`,
+        outs.map(r => `<b>${r.a.name}</b>: ${fmtPct(r.cur)} vs. meta ${fmtPct(r.tgt)} (${r.dev > 0 ? '+' : ''}${r.dev.toFixed(1).replace('.', ',')}pp)`).join(' · ') +
+        `. O jeito barato de corrigir é com aporte novo, sem girar carteira nem pagar imposto: direcione os próximos aportes para <b>${under.a.name}</b> (faltam ~${fmtK(gap)} para a meta) e segure aportes novos em <b>${over.a.name}</b>. Se alguma meta nunca é perseguida (ex.: uma classe que você não pretende encher), ajuste o alvo — meta ignorada é só ruído no rebalanceador.`,
+        `Direcionar aportes para ${under.a.name} (~${fmtK(gap)}) e pausar aportes em ${over.a.name}.`);
+    } else if (rows.length) {
+      push('good', 'Alocação',
+        'Carteira dentro das bandas de rebalanceamento',
+        `Nenhuma classe desvia mais que ${band.abs}pp (ou ${band.rel}% relativo) da meta. Nada a fazer — mexer agora seria custo sem benefício.`,
+        null);
+    }
+  }
+
+  // ── Concentração em juros (sensibilidade à Selic)
+  if (totalPort > 0) {
+    const rfPct = S.portfolio.filter(a => a.cat === 'rf' || a.cat === 'cash')
+      .reduce((s, a) => s + a.value, 0) / totalPort * 100;
+    if (rfPct >= 55) {
+      push('info', 'Carteira',
+        `${fmtPct(rfPct)} da carteira indexada a juros`,
+        `Suas projeções assumem CDI a ${fmtPct(S.assumptions.cdi)} — se a Selic normalizar para 9–10%, o retorno de mais da metade da carteira cai junto e a data da FI estica. O plano está sensível a uma variável que você não controla.`,
+        'Rodar o cenário Pessimista com CDI ~10% e ver quanto a data da FI se move.');
+    }
+  }
+
+  // ── Financiamento: amortizar vs. investir
+  const am = S.amort;
+  if (am && am.saldo > 0 && am.taxaMes > 0) {
+    const finRate = (Math.pow(1 + am.taxaMes / 100, 12) - 1) * 100;
+    const cdi = am.cdi || S.assumptions.cdi || 13.65;
+    const cdbLiq = cdi * (am.pctCDI || 100) / 100 * 0.85;   // IR 15% (prazo longo)
+    const lciLiq = cdi * 0.95;                              // LCI ~95% CDI, isenta
+    const best = Math.max(cdbLiq, lciLiq);
+    const spread = best - finRate;
+    if (spread < 1.5) {
+      push('warn', 'Dívida',
+        'Amortizar o financiamento ganha do investimento em risco ajustado',
+        `Saldo de <b>${fmtK(am.saldo)}</b> a ${fmtPct(am.taxaMes)} a.m. (<b>${fmtPct(finRate)} a.a.</b>). A melhor renda fixa líquida comparável rende ~${fmtPct(best)} — spread de só ${fmtPct(spread)}. Amortizar é retorno garantido, isento e sem marcação a mercado; e a assimetria joga a favor: se a Selic cair, o CDI cai junto, mas o custo da dívida é fixo.`,
+        'Priorizar amortização SAC com caixa disponível — simular na aba Simulador (Amortização).');
+    } else {
+      push('info', 'Dívida',
+        'Manter o financiamento e investir ainda compensa',
+        `Custo da dívida de ${fmtPct(finRate)} a.a. vs. ~${fmtPct(best)} líquido na renda fixa — spread de ${fmtPct(spread)} a favor de investir. Reavalie a cada corte de Selic: o custo é fixo, o CDI não.`,
+        null);
+    }
+  }
+
+  // ── Colchão e cobertura do gasto
+  const run = runwayMonths();
+  if (run > 0 && avgGas > 0) {
+    const realMonthly = totalPort * (weightedReturnReal() / 100) / 12;
+    const covReal = realMonthly / avgGas * 100;
+    push(run >= 60 ? 'good' : run >= 24 ? 'info' : 'warn', 'Colchão',
+      `${Math.round(run)} meses de gasto cobertos pela carteira`,
+      `No gasto médio de ${fmt(avgGas)}/mês, a carteira líquida banca <b>${(run / 12).toFixed(1).replace('.', ',')} anos</b> sem nenhuma renda. Em termos reais (acima da inflação), o rendimento esperado da carteira já paga <b>${fmtPct(covReal)}</b> do seu gasto médio atual` +
+      (covReal >= 80 ? ' — pela régua da perpetuidade, você está muito perto da FI do seu padrão de vida de hoje.' : '.'),
+      null);
+  }
+
+  // ── Receita dependente de eventos
+  const outMonths = last24.filter(isOutlier);
+  const rec24 = last24.reduce((s, h) => s + h.rec, 0);
+  if (outMonths.length >= 2 && rec24 > 0) {
+    const share = outMonths.reduce((s, h) => s + h.rec, 0) / rec24 * 100;
+    if (share >= 20) {
+      push('info', 'Receita',
+        `${outMonths.length} meses atípicos concentram ${fmtPct(share)} da receita de 2 anos`,
+        `(${outMonths.map(h => monthLabel(h.d)).join(', ')}). Bônus e eventos bancam os aportes gordos — o plano funciona <i>se</i> eles continuarem. Vale olhar as projeções também num cenário sem esses eventos.`,
+        null);
+    }
+  }
+
+  return ins;
+}
+
+const INS_SEV = {
+  bad:  { labels: ['alerta', 'alertas'],                     color: '#f87171', icon: '&#9650;' },
+  warn: { labels: ['ponto de atenção', 'pontos de atenção'], color: '#fbbf24', icon: '&#9679;' },
+  good: { labels: ['ponto forte', 'pontos fortes'],          color: '#34d399', icon: '&#10003;' },
+  info: { labels: ['observação', 'observações'],             color: '#6395ff', icon: '&#9670;' },
+};
+
+function renderInsights() {
+  const el = document.getElementById('page-insights');
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Insights</div>
+        <div class="page-subtitle">Diagnóstico automático dos seus números — histórico, carteira, alocação e metas</div>
+      </div>
+    </div>
+    <div class="card insights-hero mb-16">
+      <div>
+        <div class="card-title" style="margin-bottom:4px">Relatório de insights</div>
+        <div class="text-sm text-muted">Analisa os mesmos dados do dashboard e aponta o que está forte, o que pede atenção e o que fazer. Tudo roda no navegador — nada sai daqui.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn btn-ghost" href="INSIGHTS.md" target="_blank" rel="noopener" title="Documentação das regras usadas para gerar os insights">&#128220; Manual</a>
+        <button class="btn btn-primary" onclick="generateInsights()">&#9889; Gerar insights</button>
+      </div>
+    </div>
+    <div id="insights-report"></div>`;
+}
+
+function generateInsights() {
+  const box = document.getElementById('insights-report');
+  if (!box) return;
+  const order = ['bad', 'warn', 'good', 'info'];
+  const ins = computeInsights().sort((a, b) => order.indexOf(a.sev) - order.indexOf(b.sev));
+  const counts = order.map(s => ({ s, n: ins.filter(i => i.sev === s).length })).filter(x => x.n);
+  const actions = ins.filter(i => i.action);
+  const ts = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  box.innerHTML = `
+    <div class="insights-summary">
+      ${counts.map(c => {
+        const sv = INS_SEV[c.s];
+        return `<span class="ins-chip" style="color:${sv.color};border-color:${sv.color}55;background:${sv.color}14">${sv.icon} ${c.n} ${sv.labels[c.n > 1 ? 1 : 0]}</span>`;
+      }).join('')}
+      <span class="ins-chip" style="color:var(--text-dim)">gerado em ${ts}</span>
+    </div>
+    ${ins.map(i => `
+      <div class="card insight-card" style="border-left-color:${INS_SEV[i.sev].color}">
+        <div class="insight-head">
+          <span class="insight-tag" style="color:${INS_SEV[i.sev].color};background:${INS_SEV[i.sev].color}1c">${i.tag}</span>
+          <span class="insight-title">${i.title}</span>
+        </div>
+        <div class="insight-body">${i.body}</div>
+      </div>`).join('')}
+    ${actions.length ? `
+      <div class="card insight-card" style="border-left-color:var(--accent-2)">
+        <div class="insight-head">
+          <span class="insight-tag" style="color:var(--accent-2);background:rgba(139,92,246,.14)">Plano de ação</span>
+          <span class="insight-title">Por onde começar</span>
+        </div>
+        <ol class="insight-actions">${actions.map(a => `<li>${a.action}</li>`).join('')}</ol>
+      </div>` : ''}`;
 }
 
 // ── 21. INIT ──────────────────────────────────────────────

@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Extrato XP — Categorias</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #101418;
+    --surface: #1a2027;
+    --surface-2: #222a33;
+    --border: #2e3844;
+    --ink: #e8edf2;
+    --ink-2: #9aa7b4;
+    --ink-3: #6b7885;
+    --pos: #3fb46f;
+    --neg: #e05d5d;
+    --accent: #4f8fdb;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    padding: 32px 24px 64px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 600; }
+  #meta { color: var(--ink-2); font-size: 13px; }
+
+  #dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 36px 20px;
+    text-align: center;
+    color: var(--ink-2);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    margin-bottom: 24px;
+  }
+  #dropzone:hover, #dropzone.drag { border-color: var(--accent); background: var(--surface); }
+  #dropzone strong { color: var(--ink); }
+  #dropzone .sub { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+  #dropzone.compact { padding: 12px 20px; font-size: 13px; }
+  #dropzone.compact .sub { display: none; }
+
+  #erro {
+    display: none;
+    background: rgba(224,93,93,.12);
+    border: 1px solid var(--neg);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+
+  #resultado { display: none; }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .card:hover { background: var(--surface-2); }
+  .card.ativo { border-color: var(--accent); background: var(--surface-2); }
+  .card .nome { font-size: 12.5px; color: var(--ink-2); margin-bottom: 6px; }
+  .card .valor { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .card .valor.pos { color: var(--pos); }
+  .card .valor.neg { color: var(--neg); }
+  .card .qtd { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+  .card.outros { opacity: .75; }
+
+  .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 20px 0 12px; }
+  .toolbar .info { color: var(--ink-2); font-size: 13px; flex: 1; }
+  .toolbar button {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 7px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--surface-2); border-color: var(--accent); }
+  #busca {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-radius: 7px;
+    padding: 7px 12px;
+    font-size: 13px;
+    width: 240px;
+  }
+  #busca:focus { outline: none; border-color: var(--accent); }
+
+  .tabela-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    color: var(--ink-3);
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+  }
+  td { padding: 8px 14px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  th.num { text-align: right; }
+  td.num.pos { color: var(--pos); }
+  td.num.neg { color: var(--neg); }
+  td .cat-tag {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 9px;
+    white-space: nowrap;
+  }
+  td.data { color: var(--ink-2); white-space: nowrap; }
+
+  #rodape { color: var(--ink-3); font-size: 12px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Extrato XP — separação por categoria</h1>
+    <div id="meta"></div>
+  </header>
+
+  <div id="dropzone">
+    <strong>Arraste o extrato (.xlsx) aqui</strong> ou clique para selecionar
+    <div class="sub">Extrato da conta XP · Lançamentos futuros são ignorados automaticamente</div>
+    <input type="file" id="arquivo" accept=".xlsx,.xls" hidden>
+  </div>
+
+  <div id="erro"></div>
+
+  <div id="resultado">
+    <div class="cards" id="cards"></div>
+
+    <div class="toolbar">
+      <div class="info" id="filtroInfo"></div>
+      <input type="text" id="busca" placeholder="Buscar lançamento...">
+      <button id="copiar">Copiar resumo</button>
+    </div>
+
+    <div class="tabela-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Movimentação</th>
+            <th>Lançamento</th>
+            <th>Categoria</th>
+            <th class="num">Valor (R$)</th>
+          </tr>
+        </thead>
+        <tbody id="linhas"></tbody>
+      </table>
+    </div>
+    <div id="rodape"></div>
+  </div>
+</div>
+
+<script>
+// Categorias na ordem de verificação — prefixos mais específicos primeiro
+// (IRRF AMORTIZAÇÃO precisa vir antes de AMORTIZAÇÃO)
+const CATEGORIAS = [
+  { id: 'irrf-td',  nome: 'IRRF Amortização - Tesouro Direto', prefixo: 'IRRF AMORTIZACAO - TESOURO' },
+  { id: 'amort-td', nome: 'Amortização - Tesouro Direto',      prefixo: 'AMORTIZACAO - TESOURO' },
+  { id: 'rend',     nome: 'Rendimentos',                        prefixo: 'RENDIMENTOS DE CLIENTES' },
+  { id: 'rend-ff',  nome: 'Rendimento Fundo Fechado',           prefixo: 'RENDIMENTO FUNDO FECHADO' },
+  { id: 'bolsa',    nome: 'Operações em bolsa',                 prefixo: 'OPERACOES EM BOLSA' },
+  { id: 'juros',    nome: 'Pgto Juros',                         prefixo: 'PGTO JUROS' },
+  { id: 'amort',    nome: 'Pgto Amortização',                   prefixo: 'PGTO AMORTIZA' },
+];
+const OUTROS = { id: 'outros', nome: 'Outros' };
+
+// Ordem de exibição dos cards (a pedida pelo usuário)
+const ORDEM_CARDS = ['rend', 'rend-ff', 'bolsa', 'juros', 'amort', 'amort-td', 'irrf-td', 'outros'];
+
+const norm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+const brl = v => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtData = d => d instanceof Date
+  ? d.toLocaleDateString('pt-BR')
+  : String(d).slice(0, 10).split('-').reverse().join('/');
+
+let lancamentos = [];   // {data, descricao, valor, catId, catNome}
+let futurosIgnorados = 0;
+let filtroCat = null;
+
+function categorizar(descricao) {
+  const n = norm(descricao);
+  for (const c of CATEGORIAS) if (n.startsWith(c.prefixo)) return c;
+  return OUTROS;
+}
+
+function parseValor(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = parseFloat(v.replace(/\./g, '').replace(',', '.'));
+    return isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+function processar(arrayBuffer, nomeArquivo) {
+  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const grid = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  // localiza a linha de cabeçalho da tabela de movimentações
+  let colunas = null, inicioDados = -1, metaPeriodo = '', metaConta = '';
+  for (let i = 0; i < grid.length; i++) {
+    const row = grid[i] || [];
+    for (const cel of row) {
+      if (cel == null) continue;
+      const t = String(cel);
+      if (/^De: .*At/i.test(t)) metaPeriodo = t;
+      if (/^Conta XP/i.test(t)) metaConta = t;
+    }
+    const normRow = row.map(c => c == null ? '' : norm(c));
+    const iMov = normRow.indexOf('MOVIMENTACAO');
+    if (iMov !== -1) {
+      const iLanc = normRow.findIndex(c => c === 'LANCAMENTO');
+      const iVal = normRow.findIndex(c => c.startsWith('VALOR'));
+      if (iLanc !== -1 && iVal !== -1) {
+        colunas = { mov: iMov, lanc: iLanc, val: iVal };
+        inicioDados = i + 1;
+        break;
+      }
+    }
+  }
+  if (!colunas) throw new Error('Não encontrei a tabela de movimentações (colunas Movimentação / Lançamento / Valor). O arquivo é um extrato da conta XP?');
+
+  lancamentos = [];
+  futurosIgnorados = 0;
+  let emFuturos = false;
+
+  for (let i = inicioDados; i < grid.length; i++) {
+    const row = grid[i] || [];
+    const textoLinha = row.filter(c => c != null).map(c => norm(c)).join(' ');
+    if (textoLinha.includes('LANCAMENTOS FUTUROS')) { emFuturos = true; continue; }
+
+    const desc = row[colunas.lanc];
+    const valor = parseValor(row[colunas.val]);
+    if (desc == null || String(desc).trim() === '' || valor == null) continue;
+    if (norm(desc) === 'LANCAMENTO') continue; // cabeçalho repetido (seção de futuros)
+
+    if (emFuturos) { futurosIgnorados++; continue; }
+
+    const cat = categorizar(desc);
+    lancamentos.push({
+      data: row[colunas.mov],
+      descricao: String(desc).trim(),
+      valor,
+      catId: cat.id,
+      catNome: cat.nome,
+    });
+  }
+
+  if (lancamentos.length === 0) throw new Error('Nenhum lançamento encontrado no arquivo.');
+
+  document.getElementById('meta').textContent =
+    [metaConta, metaPeriodo].filter(Boolean).join(' · ') || nomeArquivo;
+  filtroCat = null;
+  document.getElementById('busca').value = '';
+  render();
+}
+
+function totaisPorCategoria() {
+  const t = {};
+  for (const id of ORDEM_CARDS) t[id] = { soma: 0, qtd: 0 };
+  for (const l of lancamentos) { t[l.catId].soma += l.valor; t[l.catId].qtd++; }
+  return t;
+}
+
+function render() {
+  const totais = totaisPorCategoria();
+  const nomes = Object.fromEntries([...CATEGORIAS, OUTROS].map(c => [c.id, c.nome]));
+
+  document.getElementById('cards').innerHTML = ORDEM_CARDS.map(id => {
+    const { soma, qtd } = totais[id];
+    const cls = soma > 0 ? 'pos' : soma < 0 ? 'neg' : '';
+    return `<div class="card ${id === 'outros' ? 'outros' : ''} ${filtroCat === id ? 'ativo' : ''}" data-cat="${id}">
+      <div class="nome">${nomes[id]}</div>
+      <div class="valor ${cls}">${brl(soma)}</div>
+      <div class="qtd">${qtd} lançamento${qtd === 1 ? '' : 's'}</div>
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('.card').forEach(c => c.addEventListener('click', () => {
+    filtroCat = filtroCat === c.dataset.cat ? null : c.dataset.cat;
+    render();
+  }));
+
+  renderTabela();
+
+  document.getElementById('rodape').textContent =
+    `${lancamentos.length} lançamentos processados` +
+    (futurosIgnorados ? ` · ${futurosIgnorados} lançamento${futurosIgnorados === 1 ? '' : 's'} futuro${futurosIgnorados === 1 ? '' : 's'} ignorado${futurosIgnorados === 1 ? '' : 's'}` : '');
+
+  document.getElementById('resultado').style.display = 'block';
+  document.getElementById('dropzone').classList.add('compact');
+}
+
+function renderTabela() {
+  const busca = norm(document.getElementById('busca').value || '');
+  const visiveis = lancamentos.filter(l =>
+    (!filtroCat || l.catId === filtroCat) &&
+    (!busca || norm(l.descricao).includes(busca))
+  );
+
+  document.getElementById('linhas').innerHTML = visiveis.map(l => `<tr>
+    <td class="data">${fmtData(l.data)}</td>
+    <td>${l.descricao}</td>
+    <td><span class="cat-tag">${l.catNome}</span></td>
+    <td class="num ${l.valor > 0 ? 'pos' : l.valor < 0 ? 'neg' : ''}">${brl(l.valor)}</td>
+  </tr>`).join('') || '<tr><td colspan="4" style="color:var(--ink-3)">Nenhum lançamento nesse filtro.</td></tr>';
+
+  const somaVisivel = visiveis.reduce((s, l) => s + l.valor, 0);
+  document.getElementById('filtroInfo').textContent = filtroCat || busca
+    ? `Filtro: ${visiveis.length} lançamentos · soma ${brl(somaVisivel)} — clique no card de novo para limpar`
+    : `Todos os lançamentos (${lancamentos.length})`;
+}
+
+function copiarResumo() {
+  const totais = totaisPorCategoria();
+  const nomes = Object.fromEntries([...CATEGORIAS, OUTROS].map(c => [c.id, c.nome]));
+  const linhas = ORDEM_CARDS.map(id =>
+    `${nomes[id]}: ${brl(totais[id].soma)} (${totais[id].qtd} lançamentos)`);
+  navigator.clipboard.writeText(linhas.join('\n')).then(() => {
+    const b = document.getElementById('copiar');
+    b.textContent = 'Copiado!';
+    setTimeout(() => b.textContent = 'Copiar resumo', 1500);
+  });
+}
+
+// upload
+const dropzone = document.getElementById('dropzone');
+const inputArquivo = document.getElementById('arquivo');
+
+function lerArquivo(file) {
+  document.getElementById('erro').style.display = 'none';
+  const reader = new FileReader();
+  reader.onload = e => {
+    try { processar(e.target.result, file.name); }
+    catch (err) {
+      const el = document.getElementById('erro');
+      el.textContent = err.message;
+      el.style.display = 'block';
+      document.getElementById('resultado').style.display = 'none';
+      dropzone.classList.remove('compact');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+dropzone.addEventListener('click', () => inputArquivo.click());
+inputArquivo.addEventListener('change', () => inputArquivo.files[0] && lerArquivo(inputArquivo.files[0]));
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('drag');
+  e.dataTransfer.files[0] && lerArquivo(e.dataTransfer.files[0]);
+});
+document.getElementById('busca').addEventListener('input', renderTabela);
+document.getElementById('copiar').addEventListener('click', copiarResumo);
+
+// hook para testes automatizados
+window.__processar = processar;
+</script>
+</body>
+</html>

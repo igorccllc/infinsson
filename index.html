@@ -1106,6 +1106,66 @@ tr.fi-row td:first-child { font-weight: 700; }
   .grid-2, .grid-3 { grid-template-columns: 1fr !important; }
 }
 
+/* ── Insights ─────────────────────────────────────────────── */
+.insights-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.insights-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.ins-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-2);
+}
+.insight-card {
+  border-left: 3px solid var(--border-2);
+  margin-bottom: 12px;
+}
+.insight-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.insight-tag {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.insight-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.insight-body {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.insight-body b { color: var(--text); font-weight: 700; }
+.insight-actions {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.9;
+}
+
 </style>
 </head>
 <body>
@@ -1122,6 +1182,9 @@ tr.fi-row td:first-child { font-weight: 700; }
     <nav class="nav">
       <a class="nav-item active" data-page="dashboard" href="#" onclick="navigate('dashboard');return false;">
         <span class="nav-icon">&#8862;</span><span>Dashboard</span>
+      </a>
+      <a class="nav-item" data-page="insights" href="#" onclick="navigate('insights');return false;">
+        <span class="nav-icon">&#128161;</span><span>Insights</span>
       </a>
       <a class="nav-item" data-page="timeline" href="#" onclick="navigate('timeline');return false;">
         <span class="nav-icon">&#8767;</span><span>Linha da Vida</span>
@@ -1148,6 +1211,7 @@ tr.fi-row td:first-child { font-weight: 700; }
         <span class="nav-icon">&#128202;</span><span>Simulador</span>
       </a>
           <a class="nav-item" data-page="carteira" href="#" onclick="navigate('carteira');loadCarteira();return false;"><span class="nav-icon">&#9673;</span><span>Carteira XP</span></a>
+          <a class="nav-item" data-page="extrato" href="#" onclick="navigate('extrato');loadExtrato();return false;"><span class="nav-icon">&#9776;</span><span>Extrato XP</span></a>
     </nav>
     <div class="sidebar-footer">
       <button id="sync-btn" class="btn-ghost btn-sm sync-btn" onclick="event.shiftKey ? promptSyncUrl() : syncFromSheets()" title="Clique para sincronizar · Shift+clique para trocar a URL">&#8635; Sync Sheets</button>
@@ -1161,6 +1225,7 @@ tr.fi-row td:first-child { font-weight: 700; }
 
   <main id="main">
     <div id="page-dashboard"   class="page active"></div>
+    <div id="page-insights"    class="page"></div>
     <div id="page-timeline"    class="page"></div>
     <div id="page-scenarios"   class="page"></div>
     <div id="page-portfolio"   class="page"></div>
@@ -1171,6 +1236,7 @@ tr.fi-row td:first-child { font-weight: 700; }
     <div id="page-history"     class="page"></div>
     <div id="page-simulador"   class="page"></div>
       <div id="page-carteira" class="page" style="padding:0"><iframe id="carteira-frame" title="Carteira XP" style="width:100%;height:100vh;border:0;display:block"></iframe></div>
+      <div id="page-extrato" class="page" style="padding:0"><iframe id="extrato-frame" title="Extrato XP" style="width:100%;height:100vh;border:0;display:block"></iframe></div>
   </main>
 </div>
 
@@ -2129,6 +2195,7 @@ function renderPage(p) {
     fi:          renderFI,
     history:     renderHistory,
     simulador:   renderSimulador,
+    insights:    renderInsights,
   };
   map[p]?.();
 }
@@ -6768,6 +6835,331 @@ function importData(e) {
   r.readAsText(file);
 }
 
+// ── 20b. INSIGHTS ─────────────────────────────────────────
+// Motor de insights: regras determinísticas sobre HISTORICAL + estado atual.
+// Recalcula tudo a cada clique — sempre reflete o último sync.
+
+function _median(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+// Meses até atingir `target` com aporte mensal fixo e retorno real (% a.a.). null = >50 anos.
+function _monthsToTarget(w0, sav, rAnnual, target) {
+  if (w0 >= target) return 0;
+  const rm = Math.pow(1 + rAnnual / 100, 1 / 12) - 1;
+  let w = w0;
+  for (let m = 1; m <= 600; m++) {
+    w = w * (1 + rm) + sav;
+    if (w >= target) return m;
+  }
+  return null;
+}
+
+function _fmtAnos(months) {
+  if (months === null) return 'mais de 50 anos';
+  if (months === 0) return 'já atingida';
+  const y = months / 12;
+  if (y < 1) return `${months} meses`;
+  return `~${(y < 3 ? y.toFixed(1) : String(Math.round(y))).replace('.', ',')} anos`;
+}
+
+function computeInsights() {
+  const ins = [];
+  const push = (sev, tag, title, body, action) => ins.push({ sev, tag, title, body, action });
+
+  const last12 = HISTORICAL.slice(-12);
+  const last24 = HISTORICAL.slice(-24);
+  const recMed = _median(last24.map(h => h.rec).filter(v => v > 0));
+  const isOutlier = h => recMed > 0 && h.rec > 1.8 * recMed;   // mês de receita atípica (bônus, venda...)
+
+  const rec12 = last12.reduce((s, h) => s + h.rec, 0);
+  const gas12 = last12.reduce((s, h) => s + h.gas, 0);
+  const apo12 = last12.reduce((s, h) => s + (h.apo || 0), 0);
+  const avgGas = gas12 / Math.max(1, last12.length);
+  const totalPort = S.portfolio.reduce((s, a) => s + a.value, 0);
+  const age = currentAge();
+
+  // ── Patrimônio: decomposição do crescimento em 12m (aporte vs rentabilidade)
+  const lastH = HISTORICAL[HISTORICAL.length - 1];
+  const yearAgo = HISTORICAL[HISTORICAL.length - 13];
+  if (lastH && yearAgo && yearAgo.pl > 0) {
+    const d = lastH.pl - yearAgo.pl;
+    const rentab = d - apo12;
+    const pctApo = d !== 0 ? Math.min(100, Math.max(0, apo12 / d * 100)) : 0;
+    push(rentab < 0 ? 'warn' : 'info', 'Patrimônio',
+      `Patrimônio investido: ${fmtK(lastH.pl)} (${d >= 0 ? '+' : '−'}${fmtK(Math.abs(d))} em 12 meses)`,
+      `Desse crescimento, <b>${fmtK(apo12)}</b> veio de aporte e <b>${rentab >= 0 ? '' : '−'}${fmtK(Math.abs(rentab))}</b> de rentabilidade` +
+      (d > 0 && pctApo >= 85
+        ? ` — ou seja, <b>${fmtPct(pctApo)}</b> do avanço foi você depositando dinheiro, não o dinheiro trabalhando. Em 12 meses a carteira rendeu abaixo da inflação.`
+        : '.'),
+      null);
+  }
+
+  // ── Taxa de poupança 12m
+  if (rec12 > 0) {
+    const sr = (rec12 - gas12) / rec12 * 100;
+    const norm = last12.filter(h => !isOutlier(h));
+    const recN = norm.reduce((s, h) => s + h.rec, 0);
+    const gasN = norm.reduce((s, h) => s + h.gas, 0);
+    const srEx = recN > 0 ? (recN - gasN) / recN * 100 : sr;
+    const sev = sr >= 50 ? 'good' : sr >= 30 ? 'warn' : 'bad';
+    push(sev, 'Poupança',
+      `Taxa de poupança de ${fmtPct(sr)} nos últimos 12 meses`,
+      `Você recebeu <b>${fmtK(rec12)}</b> e gastou <b>${fmtK(gas12)}</b> (média de ${fmt(avgGas)}/mês). ` +
+      (Math.abs(srEx - sr) > 1 ? `Tirando os meses atípicos de receita, a taxa segue em <b>${fmtPct(srEx)}</b>. ` : '') +
+      (sr >= 50
+        ? 'Nesse nível, quem constrói o patrimônio é o aporte — o retorno da carteira é coadjuvante e sua margem de erro é enorme.'
+        : sr >= 30
+          ? 'Bom patamar, mas cada ponto a mais de poupança encurta a data da independência mais que qualquer otimização de carteira.'
+          : 'Abaixo de 30%, o plano fica dependente do retorno da carteira — o lado da equação que você não controla.'),
+      sr < 50 ? 'Revisar os maiores grupos na Análise de Gastos e definir um teto mensal.' : null);
+  }
+
+  // ── Rentabilidade recente vs CDI
+  const rs = realizedReturns();
+  if (rs.length >= 6) {
+    let streak = 0;
+    for (let i = rs.length - 1; i >= 0 && rs[i].r < 0; i--) streak++;
+    let gain3 = 0;
+    const n3 = Math.min(3, HISTORICAL.length - 1);
+    for (let i = HISTORICAL.length - n3; i < HISTORICAL.length; i++) {
+      gain3 += HISTORICAL[i].pat - HISTORICAL[i - 1].pat - (HISTORICAL[i].apo || 0);
+    }
+    const t12 = twr(12), c12 = cdiAnnualized(12);
+    const rvPct = totalPort > 0
+      ? S.portfolio.filter(a => a.cat === 'rv' || a.cat === 'fii').reduce((s, a) => s + a.value, 0) / totalPort * 100
+      : 0;
+    if (streak >= 3) {
+      push('bad', 'Rentabilidade',
+        `Carteira no vermelho há ${streak} meses seguidos`,
+        `Resultado de mercado de <b>−${fmtK(Math.abs(gain3))}</b> no último trimestre. Nos 12 meses, a carteira rendeu <b>${fmtPct(t12)} a.a.</b> vs. CDI de ${fmtPct(c12)}. Com ${fmtPct(rvPct)} em renda variável + FIIs, meses negativos são o preço da posição — o erro seria mudar de estratégia por causa deles. O que merece olhar é o desvio vs. CDI se persistir por mais de 12 meses.`,
+        'Não vender posição em baixa; reavaliar a carteira só se o desvio vs. CDI persistir em janela de 12m+.');
+    } else if (t12 >= c12) {
+      push('good', 'Rentabilidade',
+        `Carteira bateu o CDI nos últimos 12 meses`,
+        `<b>${fmtPct(t12)} a.a.</b> vs. CDI de ${fmtPct(c12)} na mesma janela. Último trimestre: ${gain3 >= 0 ? '+' : '−'}${fmtK(Math.abs(gain3))} de resultado de mercado.`,
+        null);
+    } else {
+      push('warn', 'Rentabilidade',
+        `Carteira abaixo do CDI nos últimos 12 meses`,
+        `<b>${fmtPct(t12)} a.a.</b> vs. CDI de ${fmtPct(c12)}. Com ${fmtPct(rvPct)} em RV + FIIs, janelas curtas abaixo do CDI são esperadas — mas vale acompanhar se o gap fecha nos próximos trimestres.`,
+        null);
+    }
+  }
+
+  // ── Tendência de receita (ex-meses atípicos)
+  const recentR = last12.slice(-3).filter(h => !isOutlier(h) && h.rec > 0);
+  const beforeR = last12.slice(0, 9).filter(h => !isOutlier(h) && h.rec > 0);
+  if (recentR.length >= 2 && beforeR.length >= 4) {
+    const aR = recentR.reduce((s, h) => s + h.rec, 0) / recentR.length;
+    const aB = beforeR.reduce((s, h) => s + h.rec, 0) / beforeR.length;
+    const dPct = (aR - aB) / aB * 100;
+    if (dPct <= -10) {
+      push('bad', 'Receita',
+        `Receita recorrente em queda: ${fmtPct(Math.abs(dPct))} abaixo da média anterior`,
+        `Média de <b>${fmt(aR)}/mês</b> no último trimestre vs. ${fmt(aB)} nos meses anteriores (sem contar bônus/eventos). É a receita que sustenta o aporte — e o aporte é o motor do plano. Essa é a linha mais importante a atacar agora.`,
+        'Investigar e reverter a queda de receita recorrente — nenhuma otimização de carteira compensa essa linha.');
+    } else if (dPct >= 10) {
+      push('good', 'Receita',
+        `Receita recorrente em alta: +${fmtPct(dPct)} vs. média anterior`,
+        `Média de <b>${fmt(aR)}/mês</b> no último trimestre vs. ${fmt(aB)} antes. Se sustentar, vale atualizar a renda no Fluxo de Caixa para as projeções acompanharem.`,
+        null);
+    }
+  }
+
+  // ── Tendência de aportes
+  const avgApo3 = last12.slice(-3).reduce((s, h) => s + (h.apo || 0), 0) / 3;
+  const avgApo12 = apo12 / Math.max(1, last12.length);
+  if (avgApo12 > 0 && avgApo3 < avgApo12 * 0.6) {
+    push('warn', 'Aportes',
+      `Aportes desaceleraram: ${fmtK(avgApo3)}/mês no trimestre vs. ${fmtK(avgApo12)} na média de 12m`,
+      `Parte disso é natural (os aportes gordos vêm de meses de bônus), mas se a queda for estrutural, a data da FI estica. Acompanhe junto com a linha de receita.`,
+      null);
+  }
+
+  // ── Meta FI: calibragem vs. gasto real
+  const fin = fiNumber();
+  const w = investableWealth();
+  if (fin > 0 && w > 0) {
+    const pct = w / fin * 100;
+    const sav = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0)
+              - S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+    const rReal = weightedReturnReal();
+    const mCur = _monthsToTarget(w, sav, rReal, fin);
+    const ageAt = m => (m === null ? '—' : age + Math.round(m / 12));
+    if (avgGas > 0 && S.fi.targetMonthlyIncome > avgGas * 1.8) {
+      const altMonthly = Math.ceil(avgGas * 1.5 / 500) * 500;   // gasto real + 50% de folga
+      const altFin = altMonthly * 12 / (fiRate() / 100);
+      const mAlt = _monthsToTarget(w, sav, rReal, altFin);
+      push('warn', 'Meta FI',
+        `Sua meta de FI está ${fmtPct(S.fi.targetMonthlyIncome / avgGas * 100 - 100)} acima do seu gasto real`,
+        `A meta de <b>${fmt(S.fi.targetMonthlyIncome)}/mês</b> pede <b>${fmtK(fin)}</b> — você está em <b>${fmtPct(pct)}</b> e, no ritmo atual, chega em <b>${_fmtAnos(mCur)}</b> (idade ${ageAt(mCur)}). Mas seu gasto médio é ${fmt(avgGas)}/mês: uma meta com 50% de folga (<b>${fmt(altMonthly)}/mês</b>) pede ${fmtK(altFin)} e chegaria em <b>${_fmtAnos(mAlt)}</b> (idade ${ageAt(mAlt)}). A pergunta que o número não responde: ${fmt(S.fi.targetMonthlyIncome)} é plano de vida (casa, filhos, padrão) ou número redondo que ficou aí?`,
+        'Decidir se a renda-alvo da FI reflete o custo de vida planejado — ajustar na aba Independência FI.');
+    } else {
+      push('info', 'Meta FI',
+        `Progresso à independência: ${fmtPct(pct)} da meta de ${fmtK(fin)}`,
+        `No ritmo atual de poupança e retorno real de ${fmtPct(weightedReturnReal())} a.a., a meta chega em <b>${_fmtAnos(mCur)}</b> (idade ${ageAt(mCur)}).`,
+        null);
+    }
+  }
+
+  // ── Alocação vs. meta (bandas de rebalanceamento)
+  const targets = S.targetAllocation || {};
+  if (totalPort > 0 && Object.keys(targets).length) {
+    const band = S.rebalanceBand || { abs: 5, rel: 25 };
+    const rows = S.portfolio.filter(a => targets[a.id] != null && a.cat !== 'imovel').map(a => {
+      const cur = a.value / totalPort * 100, tgt = targets[a.id];
+      const dev = cur - tgt;
+      const out = Math.abs(dev) >= band.abs || (tgt > 0 && Math.abs(dev) / tgt * 100 >= band.rel);
+      return { a, cur, tgt, dev, out };
+    });
+    const outs = rows.filter(r => r.out);
+    if (outs.length && rows.length) {
+      const under = rows.reduce((m, r) => r.dev < m.dev ? r : m);
+      const over = rows.reduce((m, r) => r.dev > m.dev ? r : m);
+      const gap = Math.abs(under.dev) / 100 * totalPort;
+      push('warn', 'Alocação',
+        `${outs.length} classe${outs.length > 1 ? 's' : ''} fora da banda de rebalanceamento`,
+        outs.map(r => `<b>${r.a.name}</b>: ${fmtPct(r.cur)} vs. meta ${fmtPct(r.tgt)} (${r.dev > 0 ? '+' : ''}${r.dev.toFixed(1).replace('.', ',')}pp)`).join(' · ') +
+        `. O jeito barato de corrigir é com aporte novo, sem girar carteira nem pagar imposto: direcione os próximos aportes para <b>${under.a.name}</b> (faltam ~${fmtK(gap)} para a meta) e segure aportes novos em <b>${over.a.name}</b>. Se alguma meta nunca é perseguida (ex.: uma classe que você não pretende encher), ajuste o alvo — meta ignorada é só ruído no rebalanceador.`,
+        `Direcionar aportes para ${under.a.name} (~${fmtK(gap)}) e pausar aportes em ${over.a.name}.`);
+    } else if (rows.length) {
+      push('good', 'Alocação',
+        'Carteira dentro das bandas de rebalanceamento',
+        `Nenhuma classe desvia mais que ${band.abs}pp (ou ${band.rel}% relativo) da meta. Nada a fazer — mexer agora seria custo sem benefício.`,
+        null);
+    }
+  }
+
+  // ── Concentração em juros (sensibilidade à Selic)
+  if (totalPort > 0) {
+    const rfPct = S.portfolio.filter(a => a.cat === 'rf' || a.cat === 'cash')
+      .reduce((s, a) => s + a.value, 0) / totalPort * 100;
+    if (rfPct >= 55) {
+      push('info', 'Carteira',
+        `${fmtPct(rfPct)} da carteira indexada a juros`,
+        `Suas projeções assumem CDI a ${fmtPct(S.assumptions.cdi)} — se a Selic normalizar para 9–10%, o retorno de mais da metade da carteira cai junto e a data da FI estica. O plano está sensível a uma variável que você não controla.`,
+        'Rodar o cenário Pessimista com CDI ~10% e ver quanto a data da FI se move.');
+    }
+  }
+
+  // ── Financiamento: amortizar vs. investir
+  const am = S.amort;
+  if (am && am.saldo > 0 && am.taxaMes > 0) {
+    const finRate = (Math.pow(1 + am.taxaMes / 100, 12) - 1) * 100;
+    const cdi = am.cdi || S.assumptions.cdi || 13.65;
+    const cdbLiq = cdi * (am.pctCDI || 100) / 100 * 0.85;   // IR 15% (prazo longo)
+    const lciLiq = cdi * 0.95;                              // LCI ~95% CDI, isenta
+    const best = Math.max(cdbLiq, lciLiq);
+    const spread = best - finRate;
+    if (spread < 1.5) {
+      push('warn', 'Dívida',
+        'Amortizar o financiamento ganha do investimento em risco ajustado',
+        `Saldo de <b>${fmtK(am.saldo)}</b> a ${fmtPct(am.taxaMes)} a.m. (<b>${fmtPct(finRate)} a.a.</b>). A melhor renda fixa líquida comparável rende ~${fmtPct(best)} — spread de só ${fmtPct(spread)}. Amortizar é retorno garantido, isento e sem marcação a mercado; e a assimetria joga a favor: se a Selic cair, o CDI cai junto, mas o custo da dívida é fixo.`,
+        'Priorizar amortização SAC com caixa disponível — simular na aba Simulador (Amortização).');
+    } else {
+      push('info', 'Dívida',
+        'Manter o financiamento e investir ainda compensa',
+        `Custo da dívida de ${fmtPct(finRate)} a.a. vs. ~${fmtPct(best)} líquido na renda fixa — spread de ${fmtPct(spread)} a favor de investir. Reavalie a cada corte de Selic: o custo é fixo, o CDI não.`,
+        null);
+    }
+  }
+
+  // ── Colchão e cobertura do gasto
+  const run = runwayMonths();
+  if (run > 0 && avgGas > 0) {
+    const realMonthly = totalPort * (weightedReturnReal() / 100) / 12;
+    const covReal = realMonthly / avgGas * 100;
+    push(run >= 60 ? 'good' : run >= 24 ? 'info' : 'warn', 'Colchão',
+      `${Math.round(run)} meses de gasto cobertos pela carteira`,
+      `No gasto médio de ${fmt(avgGas)}/mês, a carteira líquida banca <b>${(run / 12).toFixed(1).replace('.', ',')} anos</b> sem nenhuma renda. Em termos reais (acima da inflação), o rendimento esperado da carteira já paga <b>${fmtPct(covReal)}</b> do seu gasto médio atual` +
+      (covReal >= 80 ? ' — pela régua da perpetuidade, você está muito perto da FI do seu padrão de vida de hoje.' : '.'),
+      null);
+  }
+
+  // ── Receita dependente de eventos
+  const outMonths = last24.filter(isOutlier);
+  const rec24 = last24.reduce((s, h) => s + h.rec, 0);
+  if (outMonths.length >= 2 && rec24 > 0) {
+    const share = outMonths.reduce((s, h) => s + h.rec, 0) / rec24 * 100;
+    if (share >= 20) {
+      push('info', 'Receita',
+        `${outMonths.length} meses atípicos concentram ${fmtPct(share)} da receita de 2 anos`,
+        `(${outMonths.map(h => monthLabel(h.d)).join(', ')}). Bônus e eventos bancam os aportes gordos — o plano funciona <i>se</i> eles continuarem. Vale olhar as projeções também num cenário sem esses eventos.`,
+        null);
+    }
+  }
+
+  return ins;
+}
+
+const INS_SEV = {
+  bad:  { labels: ['alerta', 'alertas'],                     color: '#f87171', icon: '&#9650;' },
+  warn: { labels: ['ponto de atenção', 'pontos de atenção'], color: '#fbbf24', icon: '&#9679;' },
+  good: { labels: ['ponto forte', 'pontos fortes'],          color: '#34d399', icon: '&#10003;' },
+  info: { labels: ['observação', 'observações'],             color: '#6395ff', icon: '&#9670;' },
+};
+
+function renderInsights() {
+  const el = document.getElementById('page-insights');
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Insights</div>
+        <div class="page-subtitle">Diagnóstico automático dos seus números — histórico, carteira, alocação e metas</div>
+      </div>
+    </div>
+    <div class="card insights-hero mb-16">
+      <div>
+        <div class="card-title" style="margin-bottom:4px">Relatório de insights</div>
+        <div class="text-sm text-muted">Analisa os mesmos dados do dashboard e aponta o que está forte, o que pede atenção e o que fazer. Tudo roda no navegador — nada sai daqui.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn btn-ghost" href="INSIGHTS.md" target="_blank" rel="noopener" title="Documentação das regras usadas para gerar os insights">&#128220; Manual</a>
+        <button class="btn btn-primary" onclick="generateInsights()">&#9889; Gerar insights</button>
+      </div>
+    </div>
+    <div id="insights-report"></div>`;
+}
+
+function generateInsights() {
+  const box = document.getElementById('insights-report');
+  if (!box) return;
+  const order = ['bad', 'warn', 'good', 'info'];
+  const ins = computeInsights().sort((a, b) => order.indexOf(a.sev) - order.indexOf(b.sev));
+  const counts = order.map(s => ({ s, n: ins.filter(i => i.sev === s).length })).filter(x => x.n);
+  const actions = ins.filter(i => i.action);
+  const ts = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  box.innerHTML = `
+    <div class="insights-summary">
+      ${counts.map(c => {
+        const sv = INS_SEV[c.s];
+        return `<span class="ins-chip" style="color:${sv.color};border-color:${sv.color}55;background:${sv.color}14">${sv.icon} ${c.n} ${sv.labels[c.n > 1 ? 1 : 0]}</span>`;
+      }).join('')}
+      <span class="ins-chip" style="color:var(--text-dim)">gerado em ${ts}</span>
+    </div>
+    ${ins.map(i => `
+      <div class="card insight-card" style="border-left-color:${INS_SEV[i.sev].color}">
+        <div class="insight-head">
+          <span class="insight-tag" style="color:${INS_SEV[i.sev].color};background:${INS_SEV[i.sev].color}1c">${i.tag}</span>
+          <span class="insight-title">${i.title}</span>
+        </div>
+        <div class="insight-body">${i.body}</div>
+      </div>`).join('')}
+    ${actions.length ? `
+      <div class="card insight-card" style="border-left-color:var(--accent-2)">
+        <div class="insight-head">
+          <span class="insight-tag" style="color:var(--accent-2);background:rgba(139,92,246,.14)">Plano de ação</span>
+          <span class="insight-title">Por onde começar</span>
+        </div>
+        <ol class="insight-actions">${actions.map(a => `<li>${a.action}</li>`).join('')}</ol>
+      </div>` : ''}`;
+}
+
 // ── 21. INIT ──────────────────────────────────────────────
 function init() {
   loadState();
@@ -6814,6 +7206,18 @@ function loadCarteira(){
   var f = document.getElementById('carteira-frame');
   if (f.dataset.loaded) return;
   var b64 = document.getElementById('carteira-b64').textContent.trim();
+  var bin = atob(b64);
+  var bytes = Uint8Array.from(bin, function(c){ return c.charCodeAt(0); });
+  f.srcdoc = new TextDecoder('utf-8').decode(bytes);
+  f.dataset.loaded = '1';
+}
+</script>
+<script type="text/plain" id="extrato-b64">PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9InB0LUJSIj4KPGhlYWQ+CjxtZXRhIGNoYXJzZXQ9IlVURi04Ij4KPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xLjAiPgo8dGl0bGU+RXh0cmF0byBYUCDigJQgQ2F0ZWdvcmlhczwvdGl0bGU+CjxzY3JpcHQgc3JjPSJodHRwczovL2Nkbi5qc2RlbGl2ci5uZXQvbnBtL3hsc3hAMC4xOC41L2Rpc3QveGxzeC5mdWxsLm1pbi5qcyI+PC9zY3JpcHQ+CjxzdHlsZT4KICA6cm9vdCB7CiAgICAtLWJnOiAjMTAxNDE4OwogICAgLS1zdXJmYWNlOiAjMWEyMDI3OwogICAgLS1zdXJmYWNlLTI6ICMyMjJhMzM7CiAgICAtLWJvcmRlcjogIzJlMzg0NDsKICAgIC0taW5rOiAjZThlZGYyOwogICAgLS1pbmstMjogIzlhYTdiNDsKICAgIC0taW5rLTM6ICM2Yjc4ODU7CiAgICAtLXBvczogIzNmYjQ2ZjsKICAgIC0tbmVnOiAjZTA1ZDVkOwogICAgLS1hY2NlbnQ6ICM0ZjhmZGI7CiAgICAtLXJhZGl1czogMTBweDsKICB9CiAgKiB7IGJveC1zaXppbmc6IGJvcmRlci1ib3g7IG1hcmdpbjogMDsgcGFkZGluZzogMDsgfQogIGJvZHkgewogICAgYmFja2dyb3VuZDogdmFyKC0tYmcpOwogICAgY29sb3I6IHZhcigtLWluayk7CiAgICBmb250LWZhbWlseTogIlNlZ29lIFVJIiwgc3lzdGVtLXVpLCAtYXBwbGUtc3lzdGVtLCBzYW5zLXNlcmlmOwogICAgbWluLWhlaWdodDogMTAwdmg7CiAgICBwYWRkaW5nOiAzMnB4IDI0cHggNjRweDsKICB9CiAgLndyYXAgeyBtYXgtd2lkdGg6IDEwODBweDsgbWFyZ2luOiAwIGF1dG87IH0KCiAgaGVhZGVyIHsgZGlzcGxheTogZmxleDsgYWxpZ24taXRlbXM6IGJhc2VsaW5lOyBqdXN0aWZ5LWNvbnRlbnQ6IHNwYWNlLWJldHdlZW47IGZsZXgtd3JhcDogd3JhcDsgZ2FwOiA4cHg7IG1hcmdpbi1ib3R0b206IDIwcHg7IH0KICBoMSB7IGZvbnQtc2l6ZTogMjBweDsgZm9udC13ZWlnaHQ6IDYwMDsgfQogICNtZXRhIHsgY29sb3I6IHZhcigtLWluay0yKTsgZm9udC1zaXplOiAxM3B4OyB9CgogICNkcm9wem9uZSB7CiAgICBib3JkZXI6IDJweCBkYXNoZWQgdmFyKC0tYm9yZGVyKTsKICAgIGJvcmRlci1yYWRpdXM6IHZhcigtLXJhZGl1cyk7CiAgICBwYWRkaW5nOiAzNnB4IDIwcHg7CiAgICB0ZXh0LWFsaWduOiBjZW50ZXI7CiAgICBjb2xvcjogdmFyKC0taW5rLTIpOwogICAgY3Vyc29yOiBwb2ludGVyOwogICAgdHJhbnNpdGlvbjogYm9yZGVyLWNvbG9yIC4xNXMsIGJhY2tncm91bmQgLjE1czsKICAgIG1hcmdpbi1ib3R0b206IDI0cHg7CiAgfQogICNkcm9wem9uZTpob3ZlciwgI2Ryb3B6b25lLmRyYWcgeyBib3JkZXItY29sb3I6IHZhcigtLWFjY2VudCk7IGJhY2tncm91bmQ6IHZhcigtLXN1cmZhY2UpOyB9CiAgI2Ryb3B6b25lIHN0cm9uZyB7IGNvbG9yOiB2YXIoLS1pbmspOyB9CiAgI2Ryb3B6b25lIC5zdWIgeyBmb250LXNpemU6IDEycHg7IGNvbG9yOiB2YXIoLS1pbmstMyk7IG1hcmdpbi10b3A6IDZweDsgfQogICNkcm9wem9uZS5jb21wYWN0IHsgcGFkZGluZzogMTJweCAyMHB4OyBmb250LXNpemU6IDEzcHg7IH0KICAjZHJvcHpvbmUuY29tcGFjdCAuc3ViIHsgZGlzcGxheTogbm9uZTsgfQoKICAjZXJybyB7CiAgICBkaXNwbGF5OiBub25lOwogICAgYmFja2dyb3VuZDogcmdiYSgyMjQsOTMsOTMsLjEyKTsKICAgIGJvcmRlcjogMXB4IHNvbGlkIHZhcigtLW5lZyk7CiAgICBib3JkZXItcmFkaXVzOiB2YXIoLS1yYWRpdXMpOwogICAgcGFkZGluZzogMTJweCAxNnB4OwogICAgbWFyZ2luLWJvdHRvbTogMjBweDsKICAgIGZvbnQtc2l6ZTogMTRweDsKICB9CgogICNyZXN1bHRhZG8geyBkaXNwbGF5OiBub25lOyB9CgogIC5jYXJkcyB7CiAgICBkaXNwbGF5OiBncmlkOwogICAgZ3JpZC10ZW1wbGF0ZS1jb2x1bW5zOiByZXBlYXQoYXV0by1maWxsLCBtaW5tYXgoMjMwcHgsIDFmcikpOwogICAgZ2FwOiAxMnB4OwogICAgbWFyZ2luLWJvdHRvbTogMTJweDsKICB9CiAgLmNhcmQgewogICAgYmFja2dyb3VuZDogdmFyKC0tc3VyZmFjZSk7CiAgICBib3JkZXI6IDFweCBzb2xpZCB2YXIoLS1ib3JkZXIpOwogICAgYm9yZGVyLXJhZGl1czogdmFyKC0tcmFkaXVzKTsKICAgIHBhZGRpbmc6IDE0cHggMTZweDsKICAgIGN1cnNvcjogcG9pbnRlcjsKICAgIHRyYW5zaXRpb246IGJvcmRlci1jb2xvciAuMTVzLCBiYWNrZ3JvdW5kIC4xNXM7CiAgfQogIC5jYXJkOmhvdmVyIHsgYmFja2dyb3VuZDogdmFyKC0tc3VyZmFjZS0yKTsgfQogIC5jYXJkLmF0aXZvIHsgYm9yZGVyLWNvbG9yOiB2YXIoLS1hY2NlbnQpOyBiYWNrZ3JvdW5kOiB2YXIoLS1zdXJmYWNlLTIpOyB9CiAgLmNhcmQgLm5vbWUgeyBmb250LXNpemU6IDEyLjVweDsgY29sb3I6IHZhcigtLWluay0yKTsgbWFyZ2luLWJvdHRvbTogNnB4OyB9CiAgLmNhcmQgLnZhbG9yIHsgZm9udC1zaXplOiAyMXB4OyBmb250LXdlaWdodDogNjAwOyBmb250LXZhcmlhbnQtbnVtZXJpYzogdGFidWxhci1udW1zOyB9CiAgLmNhcmQgLnZhbG9yLnBvcyB7IGNvbG9yOiB2YXIoLS1wb3MpOyB9CiAgLmNhcmQgLnZhbG9yLm5lZyB7IGNvbG9yOiB2YXIoLS1uZWcpOyB9CiAgLmNhcmQgLnF0ZCB7IGZvbnQtc2l6ZTogMTEuNXB4OyBjb2xvcjogdmFyKC0taW5rLTMpOyBtYXJnaW4tdG9wOiA0cHg7IH0KICAuY2FyZC5vdXRyb3MgeyBvcGFjaXR5OiAuNzU7IH0KCiAgLnRvb2xiYXIgeyBkaXNwbGF5OiBmbGV4OyBhbGlnbi1pdGVtczogY2VudGVyOyBnYXA6IDEycHg7IGZsZXgtd3JhcDogd3JhcDsgbWFyZ2luOiAyMHB4IDAgMTJweDsgfQogIC50b29sYmFyIC5pbmZvIHsgY29sb3I6IHZhcigtLWluay0yKTsgZm9udC1zaXplOiAxM3B4OyBmbGV4OiAxOyB9CiAgLnRvb2xiYXIgYnV0dG9uIHsKICAgIGJhY2tncm91bmQ6IHZhcigtLXN1cmZhY2UpOwogICAgYm9yZGVyOiAxcHggc29saWQgdmFyKC0tYm9yZGVyKTsKICAgIGNvbG9yOiB2YXIoLS1pbmspOwogICAgYm9yZGVyLXJhZGl1czogN3B4OwogICAgcGFkZGluZzogN3B4IDE0cHg7CiAgICBmb250LXNpemU6IDEzcHg7CiAgICBjdXJzb3I6IHBvaW50ZXI7CiAgfQogIC50b29sYmFyIGJ1dHRvbjpob3ZlciB7IGJhY2tncm91bmQ6IHZhcigtLXN1cmZhY2UtMik7IGJvcmRlci1jb2xvcjogdmFyKC0tYWNjZW50KTsgfQogICNidXNjYSB7CiAgICBiYWNrZ3JvdW5kOiB2YXIoLS1zdXJmYWNlKTsKICAgIGJvcmRlcjogMXB4IHNvbGlkIHZhcigtLWJvcmRlcik7CiAgICBjb2xvcjogdmFyKC0taW5rKTsKICAgIGJvcmRlci1yYWRpdXM6IDdweDsKICAgIHBhZGRpbmc6IDdweCAxMnB4OwogICAgZm9udC1zaXplOiAxM3B4OwogICAgd2lkdGg6IDI0MHB4OwogIH0KICAjYnVzY2E6Zm9jdXMgeyBvdXRsaW5lOiBub25lOyBib3JkZXItY29sb3I6IHZhcigtLWFjY2VudCk7IH0KCiAgLnRhYmVsYS13cmFwIHsgb3ZlcmZsb3cteDogYXV0bzsgYm9yZGVyOiAxcHggc29saWQgdmFyKC0tYm9yZGVyKTsgYm9yZGVyLXJhZGl1czogdmFyKC0tcmFkaXVzKTsgfQogIHRhYmxlIHsgd2lkdGg6IDEwMCU7IGJvcmRlci1jb2xsYXBzZTogY29sbGFwc2U7IGZvbnQtc2l6ZTogMTMuNXB4OyB9CiAgdGggewogICAgdGV4dC1hbGlnbjogbGVmdDsKICAgIHBhZGRpbmc6IDEwcHggMTRweDsKICAgIGNvbG9yOiB2YXIoLS1pbmstMyk7CiAgICBmb250LXdlaWdodDogNTAwOwogICAgZm9udC1zaXplOiAxMnB4OwogICAgdGV4dC10cmFuc2Zvcm06IHVwcGVyY2FzZTsKICAgIGxldHRlci1zcGFjaW5nOiAuMDRlbTsKICAgIGJhY2tncm91bmQ6IHZhcigtLXN1cmZhY2UpOwogICAgYm9yZGVyLWJvdHRvbTogMXB4IHNvbGlkIHZhcigtLWJvcmRlcik7CiAgICBwb3NpdGlvbjogc3RpY2t5OyB0b3A6IDA7CiAgfQogIHRkIHsgcGFkZGluZzogOHB4IDE0cHg7IGJvcmRlci1ib3R0b206IDFweCBzb2xpZCB2YXIoLS1ib3JkZXIpOyB9CiAgdHI6bGFzdC1jaGlsZCB0ZCB7IGJvcmRlci1ib3R0b206IG5vbmU7IH0KICB0Ym9keSB0cjpob3ZlciB7IGJhY2tncm91bmQ6IHZhcigtLXN1cmZhY2UpOyB9CiAgdGQubnVtIHsgdGV4dC1hbGlnbjogcmlnaHQ7IGZvbnQtdmFyaWFudC1udW1lcmljOiB0YWJ1bGFyLW51bXM7IHdoaXRlLXNwYWNlOiBub3dyYXA7IH0KICB0aC5udW0geyB0ZXh0LWFsaWduOiByaWdodDsgfQogIHRkLm51bS5wb3MgeyBjb2xvcjogdmFyKC0tcG9zKTsgfQogIHRkLm51bS5uZWcgeyBjb2xvcjogdmFyKC0tbmVnKTsgfQogIHRkIC5jYXQtdGFnIHsKICAgIGRpc3BsYXk6IGlubGluZS1ibG9jazsKICAgIGZvbnQtc2l6ZTogMTFweDsKICAgIGNvbG9yOiB2YXIoLS1pbmstMik7CiAgICBiYWNrZ3JvdW5kOiB2YXIoLS1zdXJmYWNlLTIpOwogICAgYm9yZGVyOiAxcHggc29saWQgdmFyKC0tYm9yZGVyKTsKICAgIGJvcmRlci1yYWRpdXM6IDIwcHg7CiAgICBwYWRkaW5nOiAycHggOXB4OwogICAgd2hpdGUtc3BhY2U6IG5vd3JhcDsKICB9CiAgdGQuZGF0YSB7IGNvbG9yOiB2YXIoLS1pbmstMik7IHdoaXRlLXNwYWNlOiBub3dyYXA7IH0KCiAgI3JvZGFwZSB7IGNvbG9yOiB2YXIoLS1pbmstMyk7IGZvbnQtc2l6ZTogMTJweDsgbWFyZ2luLXRvcDogMTRweDsgfQo8L3N0eWxlPgo8L2hlYWQ+Cjxib2R5Pgo8ZGl2IGNsYXNzPSJ3cmFwIj4KICA8aGVhZGVyPgogICAgPGgxPkV4dHJhdG8gWFAg4oCUIHNlcGFyYcOnw6NvIHBvciBjYXRlZ29yaWE8L2gxPgogICAgPGRpdiBpZD0ibWV0YSI+PC9kaXY+CiAgPC9oZWFkZXI+CgogIDxkaXYgaWQ9ImRyb3B6b25lIj4KICAgIDxzdHJvbmc+QXJyYXN0ZSBvIGV4dHJhdG8gKC54bHN4KSBhcXVpPC9zdHJvbmc+IG91IGNsaXF1ZSBwYXJhIHNlbGVjaW9uYXIKICAgIDxkaXYgY2xhc3M9InN1YiI+RXh0cmF0byBkYSBjb250YSBYUCDCtyBMYW7Dp2FtZW50b3MgZnV0dXJvcyBzw6NvIGlnbm9yYWRvcyBhdXRvbWF0aWNhbWVudGU8L2Rpdj4KICAgIDxpbnB1dCB0eXBlPSJmaWxlIiBpZD0iYXJxdWl2byIgYWNjZXB0PSIueGxzeCwueGxzIiBoaWRkZW4+CiAgPC9kaXY+CgogIDxkaXYgaWQ9ImVycm8iPjwvZGl2PgoKICA8ZGl2IGlkPSJyZXN1bHRhZG8iPgogICAgPGRpdiBjbGFzcz0iY2FyZHMiIGlkPSJjYXJkcyI+PC9kaXY+CgogICAgPGRpdiBjbGFzcz0idG9vbGJhciI+CiAgICAgIDxkaXYgY2xhc3M9ImluZm8iIGlkPSJmaWx0cm9JbmZvIj48L2Rpdj4KICAgICAgPGlucHV0IHR5cGU9InRleHQiIGlkPSJidXNjYSIgcGxhY2Vob2xkZXI9IkJ1c2NhciBsYW7Dp2FtZW50by4uLiI+CiAgICAgIDxidXR0b24gaWQ9ImNvcGlhciI+Q29waWFyIHJlc3VtbzwvYnV0dG9uPgogICAgPC9kaXY+CgogICAgPGRpdiBjbGFzcz0idGFiZWxhLXdyYXAiPgogICAgICA8dGFibGU+CiAgICAgICAgPHRoZWFkPgogICAgICAgICAgPHRyPgogICAgICAgICAgICA8dGg+TW92aW1lbnRhw6fDo288L3RoPgogICAgICAgICAgICA8dGg+TGFuw6dhbWVudG88L3RoPgogICAgICAgICAgICA8dGg+Q2F0ZWdvcmlhPC90aD4KICAgICAgICAgICAgPHRoIGNsYXNzPSJudW0iPlZhbG9yIChSJCk8L3RoPgogICAgICAgICAgPC90cj4KICAgICAgICA8L3RoZWFkPgogICAgICAgIDx0Ym9keSBpZD0ibGluaGFzIj48L3Rib2R5PgogICAgICA8L3RhYmxlPgogICAgPC9kaXY+CiAgICA8ZGl2IGlkPSJyb2RhcGUiPjwvZGl2PgogIDwvZGl2Pgo8L2Rpdj4KCjxzY3JpcHQ+Ci8vIENhdGVnb3JpYXMgbmEgb3JkZW0gZGUgdmVyaWZpY2HDp8OjbyDigJQgcHJlZml4b3MgbWFpcyBlc3BlY8OtZmljb3MgcHJpbWVpcm8KLy8gKElSUkYgQU1PUlRJWkHDh8ODTyBwcmVjaXNhIHZpciBhbnRlcyBkZSBBTU9SVElaQcOHw4NPKQpjb25zdCBDQVRFR09SSUFTID0gWwogIHsgaWQ6ICdpcnJmLXRkJywgIG5vbWU6ICdJUlJGIEFtb3J0aXphw6fDo28gLSBUZXNvdXJvIERpcmV0bycsIHByZWZpeG86ICdJUlJGIEFNT1JUSVpBQ0FPIC0gVEVTT1VSTycgfSwKICB7IGlkOiAnYW1vcnQtdGQnLCBub21lOiAnQW1vcnRpemHDp8OjbyAtIFRlc291cm8gRGlyZXRvJywgICAgICBwcmVmaXhvOiAnQU1PUlRJWkFDQU8gLSBURVNPVVJPJyB9LAogIHsgaWQ6ICdyZW5kJywgICAgIG5vbWU6ICdSZW5kaW1lbnRvcycsICAgICAgICAgICAgICAgICAgICAgICAgcHJlZml4bzogJ1JFTkRJTUVOVE9TIERFIENMSUVOVEVTJyB9LAogIHsgaWQ6ICdyZW5kLWZmJywgIG5vbWU6ICdSZW5kaW1lbnRvIEZ1bmRvIEZlY2hhZG8nLCAgICAgICAgICAgcHJlZml4bzogJ1JFTkRJTUVOVE8gRlVORE8gRkVDSEFETycgfSwKICB7IGlkOiAnYm9sc2EnLCAgICBub21lOiAnT3BlcmHDp8O1ZXMgZW0gYm9sc2EnLCAgICAgICAgICAgICAgICAgcHJlZml4bzogJ09QRVJBQ09FUyBFTSBCT0xTQScgfSwKICB7IGlkOiAnanVyb3MnLCAgICBub21lOiAnUGd0byBKdXJvcycsICAgICAgICAgICAgICAgICAgICAgICAgIHByZWZpeG86ICdQR1RPIEpVUk9TJyB9LAogIHsgaWQ6ICdhbW9ydCcsICAgIG5vbWU6ICdQZ3RvIEFtb3J0aXphw6fDo28nLCAgICAgICAgICAgICAgICAgICBwcmVmaXhvOiAnUEdUTyBBTU9SVElaQScgfSwKXTsKY29uc3QgT1VUUk9TID0geyBpZDogJ291dHJvcycsIG5vbWU6ICdPdXRyb3MnIH07CgovLyBPcmRlbSBkZSBleGliacOnw6NvIGRvcyBjYXJkcyAoYSBwZWRpZGEgcGVsbyB1c3XDoXJpbykKY29uc3QgT1JERU1fQ0FSRFMgPSBbJ3JlbmQnLCAncmVuZC1mZicsICdib2xzYScsICdqdXJvcycsICdhbW9ydCcsICdhbW9ydC10ZCcsICdpcnJmLXRkJywgJ291dHJvcyddOwoKY29uc3Qgbm9ybSA9IHMgPT4gU3RyaW5nKHMpLm5vcm1hbGl6ZSgnTkZEJykucmVwbGFjZSgvW8yALc2vXS9nLCAnJykudG9VcHBlckNhc2UoKS50cmltKCk7CmNvbnN0IGJybCA9IHYgPT4gdi50b0xvY2FsZVN0cmluZygncHQtQlInLCB7IHN0eWxlOiAnY3VycmVuY3knLCBjdXJyZW5jeTogJ0JSTCcgfSk7CmNvbnN0IGZtdERhdGEgPSBkID0+IGQgaW5zdGFuY2VvZiBEYXRlCiAgPyBkLnRvTG9jYWxlRGF0ZVN0cmluZygncHQtQlInKQogIDogU3RyaW5nKGQpLnNsaWNlKDAsIDEwKS5zcGxpdCgnLScpLnJldmVyc2UoKS5qb2luKCcvJyk7CgpsZXQgbGFuY2FtZW50b3MgPSBbXTsgICAvLyB7ZGF0YSwgZGVzY3JpY2FvLCB2YWxvciwgY2F0SWQsIGNhdE5vbWV9CmxldCBmdXR1cm9zSWdub3JhZG9zID0gMDsKbGV0IGZpbHRyb0NhdCA9IG51bGw7CgpmdW5jdGlvbiBjYXRlZ29yaXphcihkZXNjcmljYW8pIHsKICBjb25zdCBuID0gbm9ybShkZXNjcmljYW8pOwogIGZvciAoY29uc3QgYyBvZiBDQVRFR09SSUFTKSBpZiAobi5zdGFydHNXaXRoKGMucHJlZml4bykpIHJldHVybiBjOwogIHJldHVybiBPVVRST1M7Cn0KCmZ1bmN0aW9uIHBhcnNlVmFsb3IodikgewogIGlmICh0eXBlb2YgdiA9PT0gJ251bWJlcicpIHJldHVybiB2OwogIGlmICh0eXBlb2YgdiA9PT0gJ3N0cmluZycpIHsKICAgIGNvbnN0IG4gPSBwYXJzZUZsb2F0KHYucmVwbGFjZSgvXC4vZywgJycpLnJlcGxhY2UoJywnLCAnLicpKTsKICAgIHJldHVybiBpc05hTihuKSA/IG51bGwgOiBuOwogIH0KICByZXR1cm4gbnVsbDsKfQoKZnVuY3Rpb24gcHJvY2Vzc2FyKGFycmF5QnVmZmVyLCBub21lQXJxdWl2bykgewogIGNvbnN0IHdiID0gWExTWC5yZWFkKGFycmF5QnVmZmVyLCB7IHR5cGU6ICdhcnJheScsIGNlbGxEYXRlczogdHJ1ZSB9KTsKICBjb25zdCB3cyA9IHdiLlNoZWV0c1t3Yi5TaGVldE5hbWVzWzBdXTsKICBjb25zdCBncmlkID0gWExTWC51dGlscy5zaGVldF90b19qc29uKHdzLCB7IGhlYWRlcjogMSwgZGVmdmFsOiBudWxsIH0pOwoKICAvLyBsb2NhbGl6YSBhIGxpbmhhIGRlIGNhYmXDp2FsaG8gZGEgdGFiZWxhIGRlIG1vdmltZW50YcOnw7VlcwogIGxldCBjb2x1bmFzID0gbnVsbCwgaW5pY2lvRGFkb3MgPSAtMSwgbWV0YVBlcmlvZG8gPSAnJywgbWV0YUNvbnRhID0gJyc7CiAgZm9yIChsZXQgaSA9IDA7IGkgPCBncmlkLmxlbmd0aDsgaSsrKSB7CiAgICBjb25zdCByb3cgPSBncmlkW2ldIHx8IFtdOwogICAgZm9yIChjb25zdCBjZWwgb2Ygcm93KSB7CiAgICAgIGlmIChjZWwgPT0gbnVsbCkgY29udGludWU7CiAgICAgIGNvbnN0IHQgPSBTdHJpbmcoY2VsKTsKICAgICAgaWYgKC9eRGU6IC4qQXQvaS50ZXN0KHQpKSBtZXRhUGVyaW9kbyA9IHQ7CiAgICAgIGlmICgvXkNvbnRhIFhQL2kudGVzdCh0KSkgbWV0YUNvbnRhID0gdDsKICAgIH0KICAgIGNvbnN0IG5vcm1Sb3cgPSByb3cubWFwKGMgPT4gYyA9PSBudWxsID8gJycgOiBub3JtKGMpKTsKICAgIGNvbnN0IGlNb3YgPSBub3JtUm93LmluZGV4T2YoJ01PVklNRU5UQUNBTycpOwogICAgaWYgKGlNb3YgIT09IC0xKSB7CiAgICAgIGNvbnN0IGlMYW5jID0gbm9ybVJvdy5maW5kSW5kZXgoYyA9PiBjID09PSAnTEFOQ0FNRU5UTycpOwogICAgICBjb25zdCBpVmFsID0gbm9ybVJvdy5maW5kSW5kZXgoYyA9PiBjLnN0YXJ0c1dpdGgoJ1ZBTE9SJykpOwogICAgICBpZiAoaUxhbmMgIT09IC0xICYmIGlWYWwgIT09IC0xKSB7CiAgICAgICAgY29sdW5hcyA9IHsgbW92OiBpTW92LCBsYW5jOiBpTGFuYywgdmFsOiBpVmFsIH07CiAgICAgICAgaW5pY2lvRGFkb3MgPSBpICsgMTsKICAgICAgICBicmVhazsKICAgICAgfQogICAgfQogIH0KICBpZiAoIWNvbHVuYXMpIHRocm93IG5ldyBFcnJvcignTsOjbyBlbmNvbnRyZWkgYSB0YWJlbGEgZGUgbW92aW1lbnRhw6fDtWVzIChjb2x1bmFzIE1vdmltZW50YcOnw6NvIC8gTGFuw6dhbWVudG8gLyBWYWxvcikuIE8gYXJxdWl2byDDqSB1bSBleHRyYXRvIGRhIGNvbnRhIFhQPycpOwoKICBsYW5jYW1lbnRvcyA9IFtdOwogIGZ1dHVyb3NJZ25vcmFkb3MgPSAwOwogIGxldCBlbUZ1dHVyb3MgPSBmYWxzZTsKCiAgZm9yIChsZXQgaSA9IGluaWNpb0RhZG9zOyBpIDwgZ3JpZC5sZW5ndGg7IGkrKykgewogICAgY29uc3Qgcm93ID0gZ3JpZFtpXSB8fCBbXTsKICAgIGNvbnN0IHRleHRvTGluaGEgPSByb3cuZmlsdGVyKGMgPT4gYyAhPSBudWxsKS5tYXAoYyA9PiBub3JtKGMpKS5qb2luKCcgJyk7CiAgICBpZiAodGV4dG9MaW5oYS5pbmNsdWRlcygnTEFOQ0FNRU5UT1MgRlVUVVJPUycpKSB7IGVtRnV0dXJvcyA9IHRydWU7IGNvbnRpbnVlOyB9CgogICAgY29uc3QgZGVzYyA9IHJvd1tjb2x1bmFzLmxhbmNdOwogICAgY29uc3QgdmFsb3IgPSBwYXJzZVZhbG9yKHJvd1tjb2x1bmFzLnZhbF0pOwogICAgaWYgKGRlc2MgPT0gbnVsbCB8fCBTdHJpbmcoZGVzYykudHJpbSgpID09PSAnJyB8fCB2YWxvciA9PSBudWxsKSBjb250aW51ZTsKICAgIGlmIChub3JtKGRlc2MpID09PSAnTEFOQ0FNRU5UTycpIGNvbnRpbnVlOyAvLyBjYWJlw6dhbGhvIHJlcGV0aWRvIChzZcOnw6NvIGRlIGZ1dHVyb3MpCgogICAgaWYgKGVtRnV0dXJvcykgeyBmdXR1cm9zSWdub3JhZG9zKys7IGNvbnRpbnVlOyB9CgogICAgY29uc3QgY2F0ID0gY2F0ZWdvcml6YXIoZGVzYyk7CiAgICBsYW5jYW1lbnRvcy5wdXNoKHsKICAgICAgZGF0YTogcm93W2NvbHVuYXMubW92XSwKICAgICAgZGVzY3JpY2FvOiBTdHJpbmcoZGVzYykudHJpbSgpLAogICAgICB2YWxvciwKICAgICAgY2F0SWQ6IGNhdC5pZCwKICAgICAgY2F0Tm9tZTogY2F0Lm5vbWUsCiAgICB9KTsKICB9CgogIGlmIChsYW5jYW1lbnRvcy5sZW5ndGggPT09IDApIHRocm93IG5ldyBFcnJvcignTmVuaHVtIGxhbsOnYW1lbnRvIGVuY29udHJhZG8gbm8gYXJxdWl2by4nKTsKCiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ21ldGEnKS50ZXh0Q29udGVudCA9CiAgICBbbWV0YUNvbnRhLCBtZXRhUGVyaW9kb10uZmlsdGVyKEJvb2xlYW4pLmpvaW4oJyDCtyAnKSB8fCBub21lQXJxdWl2bzsKICBmaWx0cm9DYXQgPSBudWxsOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdidXNjYScpLnZhbHVlID0gJyc7CiAgcmVuZGVyKCk7Cn0KCmZ1bmN0aW9uIHRvdGFpc1BvckNhdGVnb3JpYSgpIHsKICBjb25zdCB0ID0ge307CiAgZm9yIChjb25zdCBpZCBvZiBPUkRFTV9DQVJEUykgdFtpZF0gPSB7IHNvbWE6IDAsIHF0ZDogMCB9OwogIGZvciAoY29uc3QgbCBvZiBsYW5jYW1lbnRvcykgeyB0W2wuY2F0SWRdLnNvbWEgKz0gbC52YWxvcjsgdFtsLmNhdElkXS5xdGQrKzsgfQogIHJldHVybiB0Owp9CgpmdW5jdGlvbiByZW5kZXIoKSB7CiAgY29uc3QgdG90YWlzID0gdG90YWlzUG9yQ2F0ZWdvcmlhKCk7CiAgY29uc3Qgbm9tZXMgPSBPYmplY3QuZnJvbUVudHJpZXMoWy4uLkNBVEVHT1JJQVMsIE9VVFJPU10ubWFwKGMgPT4gW2MuaWQsIGMubm9tZV0pKTsKCiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2NhcmRzJykuaW5uZXJIVE1MID0gT1JERU1fQ0FSRFMubWFwKGlkID0+IHsKICAgIGNvbnN0IHsgc29tYSwgcXRkIH0gPSB0b3RhaXNbaWRdOwogICAgY29uc3QgY2xzID0gc29tYSA+IDAgPyAncG9zJyA6IHNvbWEgPCAwID8gJ25lZycgOiAnJzsKICAgIHJldHVybiBgPGRpdiBjbGFzcz0iY2FyZCAke2lkID09PSAnb3V0cm9zJyA/ICdvdXRyb3MnIDogJyd9ICR7ZmlsdHJvQ2F0ID09PSBpZCA/ICdhdGl2bycgOiAnJ30iIGRhdGEtY2F0PSIke2lkfSI+CiAgICAgIDxkaXYgY2xhc3M9Im5vbWUiPiR7bm9tZXNbaWRdfTwvZGl2PgogICAgICA8ZGl2IGNsYXNzPSJ2YWxvciAke2Nsc30iPiR7YnJsKHNvbWEpfTwvZGl2PgogICAgICA8ZGl2IGNsYXNzPSJxdGQiPiR7cXRkfSBsYW7Dp2FtZW50byR7cXRkID09PSAxID8gJycgOiAncyd9PC9kaXY+CiAgICA8L2Rpdj5gOwogIH0pLmpvaW4oJycpOwoKICBkb2N1bWVudC5xdWVyeVNlbGVjdG9yQWxsKCcuY2FyZCcpLmZvckVhY2goYyA9PiBjLmFkZEV2ZW50TGlzdGVuZXIoJ2NsaWNrJywgKCkgPT4gewogICAgZmlsdHJvQ2F0ID0gZmlsdHJvQ2F0ID09PSBjLmRhdGFzZXQuY2F0ID8gbnVsbCA6IGMuZGF0YXNldC5jYXQ7CiAgICByZW5kZXIoKTsKICB9KSk7CgogIHJlbmRlclRhYmVsYSgpOwoKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncm9kYXBlJykudGV4dENvbnRlbnQgPQogICAgYCR7bGFuY2FtZW50b3MubGVuZ3RofSBsYW7Dp2FtZW50b3MgcHJvY2Vzc2Fkb3NgICsKICAgIChmdXR1cm9zSWdub3JhZG9zID8gYCDCtyAke2Z1dHVyb3NJZ25vcmFkb3N9IGxhbsOnYW1lbnRvJHtmdXR1cm9zSWdub3JhZG9zID09PSAxID8gJycgOiAncyd9IGZ1dHVybyR7ZnV0dXJvc0lnbm9yYWRvcyA9PT0gMSA/ICcnIDogJ3MnfSBpZ25vcmFkbyR7ZnV0dXJvc0lnbm9yYWRvcyA9PT0gMSA/ICcnIDogJ3MnfWAgOiAnJyk7CgogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdyZXN1bHRhZG8nKS5zdHlsZS5kaXNwbGF5ID0gJ2Jsb2NrJzsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZHJvcHpvbmUnKS5jbGFzc0xpc3QuYWRkKCdjb21wYWN0Jyk7Cn0KCmZ1bmN0aW9uIHJlbmRlclRhYmVsYSgpIHsKICBjb25zdCBidXNjYSA9IG5vcm0oZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2J1c2NhJykudmFsdWUgfHwgJycpOwogIGNvbnN0IHZpc2l2ZWlzID0gbGFuY2FtZW50b3MuZmlsdGVyKGwgPT4KICAgICghZmlsdHJvQ2F0IHx8IGwuY2F0SWQgPT09IGZpbHRyb0NhdCkgJiYKICAgICghYnVzY2EgfHwgbm9ybShsLmRlc2NyaWNhbykuaW5jbHVkZXMoYnVzY2EpKQogICk7CgogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdsaW5oYXMnKS5pbm5lckhUTUwgPSB2aXNpdmVpcy5tYXAobCA9PiBgPHRyPgogICAgPHRkIGNsYXNzPSJkYXRhIj4ke2ZtdERhdGEobC5kYXRhKX08L3RkPgogICAgPHRkPiR7bC5kZXNjcmljYW99PC90ZD4KICAgIDx0ZD48c3BhbiBjbGFzcz0iY2F0LXRhZyI+JHtsLmNhdE5vbWV9PC9zcGFuPjwvdGQ+CiAgICA8dGQgY2xhc3M9Im51bSAke2wudmFsb3IgPiAwID8gJ3BvcycgOiBsLnZhbG9yIDwgMCA/ICduZWcnIDogJyd9Ij4ke2JybChsLnZhbG9yKX08L3RkPgogIDwvdHI+YCkuam9pbignJykgfHwgJzx0cj48dGQgY29sc3Bhbj0iNCIgc3R5bGU9ImNvbG9yOnZhcigtLWluay0zKSI+TmVuaHVtIGxhbsOnYW1lbnRvIG5lc3NlIGZpbHRyby48L3RkPjwvdHI+JzsKCiAgY29uc3Qgc29tYVZpc2l2ZWwgPSB2aXNpdmVpcy5yZWR1Y2UoKHMsIGwpID0+IHMgKyBsLnZhbG9yLCAwKTsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZmlsdHJvSW5mbycpLnRleHRDb250ZW50ID0gZmlsdHJvQ2F0IHx8IGJ1c2NhCiAgICA/IGBGaWx0cm86ICR7dmlzaXZlaXMubGVuZ3RofSBsYW7Dp2FtZW50b3Mgwrcgc29tYSAke2JybChzb21hVmlzaXZlbCl9IOKAlCBjbGlxdWUgbm8gY2FyZCBkZSBub3ZvIHBhcmEgbGltcGFyYAogICAgOiBgVG9kb3Mgb3MgbGFuw6dhbWVudG9zICgke2xhbmNhbWVudG9zLmxlbmd0aH0pYDsKfQoKZnVuY3Rpb24gY29waWFyUmVzdW1vKCkgewogIGNvbnN0IHRvdGFpcyA9IHRvdGFpc1BvckNhdGVnb3JpYSgpOwogIGNvbnN0IG5vbWVzID0gT2JqZWN0LmZyb21FbnRyaWVzKFsuLi5DQVRFR09SSUFTLCBPVVRST1NdLm1hcChjID0+IFtjLmlkLCBjLm5vbWVdKSk7CiAgY29uc3QgbGluaGFzID0gT1JERU1fQ0FSRFMubWFwKGlkID0+CiAgICBgJHtub21lc1tpZF19OiAke2JybCh0b3RhaXNbaWRdLnNvbWEpfSAoJHt0b3RhaXNbaWRdLnF0ZH0gbGFuw6dhbWVudG9zKWApOwogIG5hdmlnYXRvci5jbGlwYm9hcmQud3JpdGVUZXh0KGxpbmhhcy5qb2luKCdcbicpKS50aGVuKCgpID0+IHsKICAgIGNvbnN0IGIgPSBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnY29waWFyJyk7CiAgICBiLnRleHRDb250ZW50ID0gJ0NvcGlhZG8hJzsKICAgIHNldFRpbWVvdXQoKCkgPT4gYi50ZXh0Q29udGVudCA9ICdDb3BpYXIgcmVzdW1vJywgMTUwMCk7CiAgfSk7Cn0KCi8vIHVwbG9hZApjb25zdCBkcm9wem9uZSA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdkcm9wem9uZScpOwpjb25zdCBpbnB1dEFycXVpdm8gPSBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnYXJxdWl2bycpOwoKZnVuY3Rpb24gbGVyQXJxdWl2byhmaWxlKSB7CiAgZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2Vycm8nKS5zdHlsZS5kaXNwbGF5ID0gJ25vbmUnOwogIGNvbnN0IHJlYWRlciA9IG5ldyBGaWxlUmVhZGVyKCk7CiAgcmVhZGVyLm9ubG9hZCA9IGUgPT4gewogICAgdHJ5IHsgcHJvY2Vzc2FyKGUudGFyZ2V0LnJlc3VsdCwgZmlsZS5uYW1lKTsgfQogICAgY2F0Y2ggKGVycikgewogICAgICBjb25zdCBlbCA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdlcnJvJyk7CiAgICAgIGVsLnRleHRDb250ZW50ID0gZXJyLm1lc3NhZ2U7CiAgICAgIGVsLnN0eWxlLmRpc3BsYXkgPSAnYmxvY2snOwogICAgICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncmVzdWx0YWRvJykuc3R5bGUuZGlzcGxheSA9ICdub25lJzsKICAgICAgZHJvcHpvbmUuY2xhc3NMaXN0LnJlbW92ZSgnY29tcGFjdCcpOwogICAgfQogIH07CiAgcmVhZGVyLnJlYWRBc0FycmF5QnVmZmVyKGZpbGUpOwp9Cgpkcm9wem9uZS5hZGRFdmVudExpc3RlbmVyKCdjbGljaycsICgpID0+IGlucHV0QXJxdWl2by5jbGljaygpKTsKaW5wdXRBcnF1aXZvLmFkZEV2ZW50TGlzdGVuZXIoJ2NoYW5nZScsICgpID0+IGlucHV0QXJxdWl2by5maWxlc1swXSAmJiBsZXJBcnF1aXZvKGlucHV0QXJxdWl2by5maWxlc1swXSkpOwpkcm9wem9uZS5hZGRFdmVudExpc3RlbmVyKCdkcmFnb3ZlcicsIGUgPT4geyBlLnByZXZlbnREZWZhdWx0KCk7IGRyb3B6b25lLmNsYXNzTGlzdC5hZGQoJ2RyYWcnKTsgfSk7CmRyb3B6b25lLmFkZEV2ZW50TGlzdGVuZXIoJ2RyYWdsZWF2ZScsICgpID0+IGRyb3B6b25lLmNsYXNzTGlzdC5yZW1vdmUoJ2RyYWcnKSk7CmRyb3B6b25lLmFkZEV2ZW50TGlzdGVuZXIoJ2Ryb3AnLCBlID0+IHsKICBlLnByZXZlbnREZWZhdWx0KCk7CiAgZHJvcHpvbmUuY2xhc3NMaXN0LnJlbW92ZSgnZHJhZycpOwogIGUuZGF0YVRyYW5zZmVyLmZpbGVzWzBdICYmIGxlckFycXVpdm8oZS5kYXRhVHJhbnNmZXIuZmlsZXNbMF0pOwp9KTsKZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2J1c2NhJykuYWRkRXZlbnRMaXN0ZW5lcignaW5wdXQnLCByZW5kZXJUYWJlbGEpOwpkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnY29waWFyJykuYWRkRXZlbnRMaXN0ZW5lcignY2xpY2snLCBjb3BpYXJSZXN1bW8pOwoKLy8gaG9vayBwYXJhIHRlc3RlcyBhdXRvbWF0aXphZG9zCndpbmRvdy5fX3Byb2Nlc3NhciA9IHByb2Nlc3NhcjsKPC9zY3JpcHQ+CjwvYm9keT4KPC9odG1sPgo=</script>
+<script>
+function loadExtrato(){
+  var f = document.getElementById('extrato-frame');
+  if (f.dataset.loaded) return;
+  var b64 = document.getElementById('extrato-b64').textContent.trim();
   var bin = atob(b64);
   var bytes = Uint8Array.from(bin, function(c){ return c.charCodeAt(0); });
   f.srcdoc = new TextDecoder('utf-8').decode(bytes);
