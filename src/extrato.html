@@ -198,6 +198,32 @@ const CATEGORIAS = [
 ];
 const OUTROS = { id: 'outros', nome: 'Outros' };
 
+// Indexador por emissor — usado nos lançamentos de Pgto Juros / Pgto Amortização.
+// Termos mais específicos primeiro (MOVIDA31 é IPCA; MOVIDA sem sufixo é Pré).
+const INDEXADORES = [
+  { termo: 'MOVIDA31',   ind: 'IPCA' },
+  { termo: 'PRIME AGRO', ind: 'IPCA' },
+  { termo: 'ADUBOS',     ind: 'IPCA' },
+  { termo: 'MASSUTI',    ind: 'IPCA' },
+  { termo: 'MRV',        ind: 'IPCA' },
+  { termo: 'JSL',        ind: 'IPCA' },
+  { termo: 'GPA',        ind: 'CDI' },
+  { termo: 'SIMPAR',     ind: 'CDI' },
+  { termo: 'MINERVA',    ind: 'Pré' },
+  { termo: 'ENAUTA',     ind: 'Pré' },
+  { termo: 'LAVORO',     ind: 'Pré' },
+  { termo: 'MOVIDA',     ind: 'Pré' },
+  { termo: 'VAMOS',      ind: 'Pré' },
+  { termo: 'COGNA',      ind: 'Pré' },
+  { termo: 'YDUQS',      ind: 'Pré' },
+];
+
+function detectarIndexador(descricao) {
+  const n = norm(descricao);
+  for (const { termo, ind } of INDEXADORES) if (n.includes(termo)) return ind;
+  return null;
+}
+
 // Ordem de exibição dos cards (a pedida pelo usuário)
 const ORDEM_CARDS = ['rend', 'rend-ff', 'bolsa', 'juros', 'amort', 'amort-td', 'irrf-td', 'outros'];
 
