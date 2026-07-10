@@ -7287,6 +7287,41 @@ function renderDebts() {
   setTimeout(_debtsDrawChart, 0);
 }
 
+// Saldo devedor total (todas as dívidas ativas) daqui a m meses
+function _debtsTotalAt(infos, m) {
+  return infos.reduce((s, x) => {
+    const i = x.now.idx + m;
+    return s + (i < x.now.sched.length ? x.now.sched[i].saldoIni : 0);
+  }, 0);
+}
+
+// Linhas ano a ano: saldo ao fim de cada dezembro + redução e juros pagos no ano
+function _debtsYearlyRows(infos) {
+  const maxMonths = Math.max(...infos.map(x => x.now.mesesRestantes));
+  const now = new Date();
+  const curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const curMonthNum = now.getMonth() + 1; // 1-12
+  const rows = [];
+  let prevM = 0;
+  // primeiro marco: dezembro deste ano; depois de 12 em 12
+  for (let m = 12 - curMonthNum; prevM < maxMonths; m += 12) {
+    const mEnd = Math.min(m, maxMonths);
+    const juros = infos.reduce((s, x) =>
+      s + x.now.sched.slice(x.now.idx + prevM, x.now.idx + mEnd).reduce((a, r) => a + r.juros, 0), 0);
+    const saldoIniAno = _debtsTotalAt(infos, prevM);
+    const saldoFimAno = _debtsTotalAt(infos, mEnd);
+    rows.push({
+      ano: addMonths(curKey, mEnd).split('-')[0],
+      saldo: saldoFimAno,
+      reducao: saldoIniAno - saldoFimAno,
+      juros,
+    });
+    prevM = mEnd;
+    if (mEnd >= maxMonths) break;
+  }
+  return rows;
+}
+
 function _debtsDrawChart() {
   if (activeCharts.debts) { activeCharts.debts.destroy(); delete activeCharts.debts; }
   const ctx = document.getElementById('ch-debts');
@@ -7294,19 +7329,20 @@ function _debtsDrawChart() {
   const infos = (S.debts || []).map(d => ({ d, now: debtNow(d) })).filter(x => !x.now.quitada);
   if (!infos.length) return;
   const maxMonths = Math.max(...infos.map(x => x.now.mesesRestantes));
-  const labels = [], totals = [];
+  const labels = [], totals = [], radii = [];
   const now = new Date();
   const curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const curMonthNum = now.getMonth() + 1;
   for (let m = 0; m <= maxMonths; m++) {
-    labels.push(m % 12 === 0 || m === maxMonths ? monthLabel(addMonths(curKey, m)) : '');
-    totals.push(+infos.reduce((s, x) => {
-      const i = x.now.idx + m;
-      return s + (i < x.now.sched.length ? x.now.sched[i].saldoIni : 0);
-    }, 0).toFixed(2));
+    const isDez = (m + curMonthNum) % 12 === 0;                // marcos em dezembro de cada ano
+    labels.push(isDez || m === 0 || m === maxMonths ? monthLabel(addMonths(curKey, m)) : '');
+    radii.push(isDez || m === maxMonths ? 3.5 : 0);
+    totals.push(+_debtsTotalAt(infos, m).toFixed(2));
   }
   activeCharts.debts = makeLineChart('ch-debts', {
     labels,
-    datasets: [{ label: 'Saldo devedor total', data: totals, borderColor: '#f87171', backgroundColor: '#f8717115', tension: .3, pointRadius: 0, borderWidth: 2, fill: true }],
+    datasets: [{ label: 'Saldo devedor total', data: totals, borderColor: '#f87171', backgroundColor: '#f8717115',
+      tension: .3, pointRadius: radii, pointHoverRadius: 5, pointBackgroundColor: '#f87171', borderWidth: 2, fill: true }],
   });
 }
 
