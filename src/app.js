@@ -5920,7 +5920,7 @@ function renderDebts() {
   const infos = debts.map(d => ({ d, now: debtNow(d) }));
   const ativos = infos.filter(x => !x.now.quitada);
   const saldoTotal   = ativos.reduce((s, x) => s + x.now.saldoAtual, 0);
-  const parcelaTotal = ativos.reduce((s, x) => s + x.now.parcelaAtual, 0);
+  const parcelaTotal = ativos.reduce((s, x) => s + (x.d.parcelaReal || x.now.parcelaAtual), 0);
   const jurosMesTot  = ativos.reduce((s, x) => s + x.now.jurosMes, 0);
   const jurosRestTot = ativos.reduce((s, x) => s + x.now.jurosRestantes, 0);
 
