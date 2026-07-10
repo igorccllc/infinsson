@@ -7282,14 +7282,7 @@ function renderDebts() {
     </div>`;
   }).join('');
 
-  el.innerHTML = `
-    <div class="page-header"><div>
-      <div class="page-title">Dívidas</div>
-      <div class="page-subtitle">${ativos.length} ativa(s) · saldo evolui pelo cronograma desde o registro</div>
-    </div>
-    <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openDebtModal()">+ Nova dívida</button></div>
-    </div>
-
+  el.innerHTML = headerHtml(`${ativos.length} ativa(s) · saldo evolui pelo cronograma desde o registro`) + tabsHtml + `
     <div class="kpi-grid mb-16">
       <div class="kpi"><div class="kpi-label">Saldo devedor total</div><div class="kpi-value" style="color:var(--red)">${fmt(saldoTotal)}</div></div>
       <div class="kpi"><div class="kpi-label">Parcelas do mês</div><div class="kpi-value">${fmt(parcelaTotal)}</div></div>
