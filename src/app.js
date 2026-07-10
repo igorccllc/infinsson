@@ -109,6 +109,7 @@ const HISTORICAL = [
 
 // ── 1b. DADOS MOBILLS (populado via sync) ─────────────────
 let MOBILLS_RAW = JSON.parse(localStorage.getItem('finplan_mobills') || '[]');
+let FINANCIAMENTO = JSON.parse(localStorage.getItem('finplan_financiamento') || 'null');   // espelho da aba Financiamento
 let MOBILLS = MOBILLS_RAW;   // view sem os itens ignorados (ver refreshMobillsFilter); MOBILLS_RAW guarda o bruto
 
 // ── 2. ESTADO PADRÃO ──────────────────────────────────────
