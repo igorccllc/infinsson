@@ -386,6 +386,15 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
   text-transform: uppercase;
   letter-spacing: .5px;
 }
+/* Botão ⓘ — explica como cada métrica é calculada */
+.info-btn {
+  display: inline-block; cursor: pointer;
+  color: var(--text-dim); font-size: 12px; font-style: normal;
+  margin-left: 4px; vertical-align: baseline;
+  transition: color .15s;
+}
+.info-btn:hover { color: var(--accent); }
+
 /* Toggle de modo da Meta FI (regra dos 4% vs perpetuidade real) */
 .fi-mode-toggle {
   display: flex; gap: 6px; margin-bottom: 16px;
