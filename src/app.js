@@ -5339,30 +5339,55 @@ function renderFI() {
 
     <div class="kpi-grid mb-16">
       <div class="kpi">
-        <div class="kpi-label">FI nominal (ilusão)</div>
+        <div class="kpi-label">FI nominal (ilusão) ${infoBtn('finominal')}</div>
         <div class="kpi-value" style="color:var(--purple)">${fiNominal ? fiNominal.date.toLocaleDateString('pt-BR',{month:'short',year:'numeric'}) : '> 40 anos'}</div>
         <div class="kpi-sub">${fiNominal && fiRes ? `parece ~${Math.max(0, Math.round((fiRes.months - fiNominal.months)/12))} ano(s) mais cedo em R$ futuros — o número real (acima) já desconta a inflação` : `em R$ futuros, sem descontar a inflação`}</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">Runway</div>
+        <div class="kpi-label">Runway ${infoBtn('runway')}</div>
         <div class="kpi-value" style="color:var(--accent)">${(rwM/12).toFixed(1)} anos</div>
         <div class="kpi-sub">se a renda zerar hoje, a carteira banca ${Math.round(rwM)} meses de gastos</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">Coast FI</div>
+        <div class="kpi-label">Coast FI ${infoBtn('coastfi')}</div>
         <div class="kpi-value" style="color:${coastY !== null && coastY <= 20 ? 'var(--green)' : 'var(--yellow)'}">${coastY === 0 ? 'Atingido ✓' : coastY !== null ? coastY.toFixed(1) + ' anos' : '—'}</div>
         <div class="kpi-sub">${coastY === 0 ? 'juros sozinhos já sustentam a meta' : coastY !== null ? `sem nunca mais aportar, FI aos ${Math.round(currentAge() + coastY)} anos` : 'retorno real ≤ 0'}</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">Cobertura Renda Passiva</div>
+        <div class="kpi-label">Cobertura Renda Passiva ${infoBtn('coverage')}</div>
         <div class="kpi-value" style="color:${cov.pct >= 100 ? 'var(--green)' : cov.pct >= 50 ? 'var(--accent)' : 'var(--yellow)'}">${fmtPct(cov.pct)}</div>
         <div class="kpi-sub">${fmt(cov.passiveMonthly)}/mês estimado vs ${fmt(cov.avgGas)} de gastos</div>
       </div>
     </div>
 
+    ${mcd ? `
+    <div class="card mb-16">
+      <div class="card-title">Sobrevivência pós-FI — o dinheiro dura? ${infoBtn('mcdecum')}</div>
+      <div class="grid-3" style="gap:14px;align-items:center">
+        <div style="text-align:center;padding:14px;border-radius:var(--r-sm);background:${mcd.successRate >= 90 ? 'var(--green-dim)' : mcd.successRate >= 75 ? 'var(--accent-dim)' : 'var(--red-dim)'}">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Taxa de Sucesso</div>
+          <div style="font-size:30px;font-weight:800;color:${mcd.successRate >= 90 ? 'var(--green)' : mcd.successRate >= 75 ? 'var(--yellow)' : 'var(--red)'}">${fmtPct(mcd.successRate)}</div>
+          <div style="font-size:11px;color:var(--text-muted)">dos cenários, o dinheiro dura até os ${mcd.horizonAge}</div>
+        </div>
+        <div style="text-align:center;padding:14px">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Patrimônio aos ${mcd.horizonAge} (mediana)</div>
+          <div style="font-size:22px;font-weight:700;color:var(--accent)">${mcd.medianFinal != null ? fmtK(mcd.medianFinal) : '—'}</div>
+          <div style="font-size:11px;color:var(--text-muted)">P10: ${mcd.p10Final != null ? fmtK(mcd.p10Final) : '—'}</div>
+        </div>
+        <div style="text-align:center;padding:14px">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Quando falha, falha aos</div>
+          <div style="font-size:22px;font-weight:700;color:var(--red)">${mcd.medianRuinAge != null ? Math.round(mcd.medianRuinAge) + ' anos' : 'nunca'}</div>
+          <div style="font-size:11px;color:var(--text-muted)">idade mediana da ruína (${(100 - mcd.successRate).toFixed(0)}% dos casos)</div>
+        </div>
+      </div>
+      <div class="mt-12 text-sm text-muted" style="text-align:center">
+        Aposenta ao atingir a FI (ou aos ${S.assumptions.retirementAge}) e saca ${fmt(mcd.saque)}/mês em valores de hoje, sem cortar gasto em ano ruim — o teste mais duro.
+      </div>
+    </div>` : ''}
+
     ${mc ? `
     <div class="card mb-16">
-      <div class="card-title">Monte Carlo — ${mc.sims} simulações com volatilidade da carteira (${fmtPct(portfolioVol())} a.a.)</div>
+      <div class="card-title">Monte Carlo — chegada à FI (${mc.sims} simulações, vol. ${fmtPct(portfolioVol())} a.a.) ${infoBtn('montecarlo')}</div>
       <div class="grid-3" style="gap:14px">
         <div style="text-align:center;padding:14px;border-radius:var(--r-sm);background:var(--green-dim)">
           <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Otimista (P10)</div>
