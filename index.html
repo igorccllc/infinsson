@@ -2215,6 +2215,279 @@ function passiveCoverage() {
   return { passiveMonthly, avgGas, pct: avgGas > 0 ? passiveMonthly / avgGas * 100 : 0 };
 }
 
+// Inflação pessoal (INFORMATIVO — não entra em nenhuma projeção):
+// crescimento dos gastos recorrentes (col. J da planilha) últimos 12m vs 12m anteriores.
+// Cai nos gastos totais se a coluna ainda não tiver 24 meses de dados.
+function inflacaoPessoal() {
+  const wRec = HISTORICAL.filter(h => h.gasRec != null && h.gasRec > 0);
+  let series, src;
+  if (wRec.length >= 24) { series = wRec.map(h => h.gasRec); src = 'Gastos Recorrentes (planilha, col. J)'; }
+  else if (HISTORICAL.length >= 24) { series = HISTORICAL.map(h => h.gas); src = 'Gastos Totais (histórico) — inclui não-recorrentes, mais ruidoso'; }
+  else return null;
+  const last12 = series.slice(-12).reduce((s, v) => s + v, 0);
+  const prev12 = series.slice(-24, -12).reduce((s, v) => s + v, 0);
+  if (prev12 <= 0) return null;
+  return { pct: (last12 / prev12 - 1) * 100, avgLast12: last12 / 12, avgPrev12: prev12 / 12, src };
+}
+
+// ── 5c. DÍVIDAS — cronograma SAC/Price a partir do registro ──
+function monthsBetween(fromYYYYMM, toYYYYMM) {
+  const [y1, m1] = fromYYYYMM.split('-').map(Number);
+  const [y2, m2] = toYYYYMM.split('-').map(Number);
+  return (y2 - y1) * 12 + (m2 - m1);
+}
+
+// Cronograma mensal completo desde a data de referência até a quitação.
+function debtSchedule(d) {
+  const jm = d.taxaMes / 100;
+  const n  = d.parcelas;
+  const out = [];
+  let saldo = d.saldo;
+  if (d.sistema === 'price') {
+    const P = jm > 0 ? saldo * jm / (1 - Math.pow(1 + jm, -n)) : saldo / n;
+    for (let k = 0; k < n && saldo > 0.01; k++) {
+      const juros = saldo * jm;
+      const amort = Math.min(P - juros, saldo);
+      out.push({ k, saldoIni: saldo, juros, amort, parcela: juros + amort, saldoFim: saldo - amort });
+      saldo -= amort;
+    }
+  } else { // SAC
+    const amortFixa = saldo / n;
+    for (let k = 0; k < n && saldo > 0.01; k++) {
+      const juros = saldo * jm;
+      out.push({ k, saldoIni: saldo, juros, amort: amortFixa, parcela: amortFixa + juros, saldoFim: saldo - amortFixa });
+      saldo -= amortFixa;
+    }
+  }
+  return out;
+}
+
+// Posição atual da dívida: quantos meses se passaram desde dataRef.
+function debtNow(d) {
+  const now = new Date();
+  const curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const sched = debtSchedule(d);
+  const idx = Math.max(0, Math.min(monthsBetween(d.dataRef, curKey), sched.length));
+  if (idx >= sched.length) {
+    return { quitada: true, sched, idx, saldoAtual: 0, parcelaAtual: 0, jurosMes: 0, amortMes: 0, mesesRestantes: 0, jurosRestantes: 0 };
+  }
+  const cur = sched[idx];
+  const jurosRestantes = sched.slice(idx).reduce((s, r) => s + r.juros, 0);
+  return {
+    quitada: false, sched, idx,
+    saldoAtual: cur.saldoIni, parcelaAtual: cur.parcela,
+    jurosMes: cur.juros, amortMes: cur.amort,
+    mesesRestantes: sched.length - idx, jurosRestantes,
+    quitacao: addMonths(d.dataRef, sched.length),
+  };
+}
+
+// ── 5d. EXPLICADOR DE MÉTRICAS (ⓘ) ───────────────────────
+// Cada entrada devolve a conta VIVA: termos com valores atuais e a fonte de cada um.
+const METRIC_DOCS = {
+  runway: () => {
+    const liquid = S.portfolio.reduce((s, a) => s + a.value, 0);
+    const last12 = HISTORICAL.slice(-12);
+    const avgGas = last12.reduce((s, h) => s + h.gas, 0) / Math.max(1, last12.length);
+    return {
+      title: 'Runway',
+      what: 'Quantos meses a carteira banca seus gastos se toda renda parar hoje.',
+      calc: [
+        ['Carteira investida (aba Patrimônio)', fmt(liquid)],
+        ['÷ Gasto médio 12m (Histórico, col. Gastos)', fmt(avgGas) + '/mês'],
+        ['= Runway', Math.round(liquid / avgGas) + ' meses (' + (liquid / avgGas / 12).toFixed(1) + ' anos)'],
+      ],
+      ignores: 'Rendimento da carteira e inflação dos gastos — trata o dinheiro como caixa parado.',
+      assumes: 'Gasto mensal constante no nível da média dos últimos 12 meses.',
+    };
+  },
+  coastfi: () => {
+    const ipca = S.assumptions.ipca || 5.5;
+    const rReal = ((1 + weightedReturn()/100) / (1 + ipca/100) - 1) * 100;
+    return {
+      title: 'Coast FI',
+      what: 'Em quantos anos você chega à FI se NUNCA mais aportar — só juros compostos reais.',
+      calc: [
+        ['Patrimônio investível hoje', fmt(investableWealth())],
+        ['Número FI (meta)', fmt(fiNumber())],
+        ['Retorno real da carteira (premissa − IPCA)', fmtPct(rReal) + ' a.a.'],
+        ['= ln(meta ÷ atual) ÷ ln(1 + retorno real)', (coastFIYears() ?? 0).toFixed(1) + ' anos'],
+      ],
+      ignores: 'Aportes futuros (é o ponto: zero contribuição) e volatilidade — usa retorno médio constante.',
+      assumes: 'O retorno é a PREMISSA da carteira (aba Patrimônio), não o realizado.',
+    };
+  },
+  coverage: () => {
+    const c = passiveCoverage();
+    return {
+      title: 'Cobertura Renda Passiva',
+      what: 'Quanto dos seus gastos a renda estimada da carteira já paga hoje.',
+      calc: [
+        ['Renda passiva estimada (Σ ativo × retorno ÷ 12)', fmt(c.passiveMonthly) + '/mês'],
+        ['÷ Gasto médio 12m (Histórico)', fmt(c.avgGas) + '/mês'],
+        ['= Cobertura', fmtPct(c.pct)],
+      ],
+      ignores: 'IR sobre os rendimentos e a diferença entre retorno esperado e distribuído (nem todo retorno vira caixa).',
+      assumes: 'Cada ativo rende exatamente o retorno cadastrado na aba Patrimônio.',
+    };
+  },
+  finumber: () => {
+    const isPerp = S.fi.mode === 'perpetuidade';
+    return {
+      title: 'Número FI',
+      what: 'O patrimônio investível que sustenta sua renda-alvo sem trabalho.',
+      calc: [
+        ['Renda mensal almejada', fmt(S.fi.targetMonthlyIncome)],
+        ['× 12 = necessidade anual', fmt(S.fi.targetMonthlyIncome * 12)],
+        [isPerp ? '÷ Juro real esperado (modo perpetuidade)' : '÷ Taxa de retirada segura (regra dos 4%)', fmtPct(fiRate())],
+        ['= Número FI', fmt(fiNumber())],
+      ],
+      ignores: 'IR sobre os saques — a renda-alvo é tratada como líquida.',
+      assumes: isPerp
+        ? 'Você vive só do juro real: o principal se preserva para sempre em valor de hoje.'
+        : 'Saque de fração fixa ao ano; em sequências ruins de retorno o principal pode se esgotar em ~30 anos.',
+    };
+  },
+  fidate: () => {
+    const inc = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0);
+    const exp = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+    return {
+      title: 'Data Estimada da FI (cenário base)',
+      what: 'Primeiro mês em que o patrimônio projetado cruza o Número FI, numa simulação mês a mês determinística.',
+      calc: [
+        ['Ponto de partida (patrimônio investível)', fmt(investableWealth())],
+        ['Retorno real (premissa carteira − IPCA)', fmtPct(weightedReturnReal()) + ' a.a.'],
+        ['+ Poupança mensal (aba Fluxo de Caixa)', fmt(inc - exp) + '/mês (' + fmt(inc) + ' − ' + fmt(exp) + ')'],
+        ['Meta: Número FI', fmt(fiNumber())],
+      ],
+      ignores: 'Volatilidade (é o caminho médio — veja o Monte Carlo para a dispersão) e os aportes reais do Histórico (usa o fluxo de caixa manual).',
+      assumes: 'Poupança constante em termos reais e retorno igual à premissa todos os meses.',
+    };
+  },
+  finominal: () => ({
+    title: 'FI Nominal (ilusão)',
+    what: 'A mesma projeção, mas SEM descontar a inflação — em reais futuros, que valem menos.',
+    calc: [
+      ['Retorno nominal da carteira', fmtPct(weightedReturn()) + ' a.a.'],
+      ['IPCA (premissa)', fmtPct(S.assumptions.ipca) + ' a.a.'],
+      ['Real usado na projeção oficial', fmtPct(weightedReturnReal()) + ' a.a.'],
+    ],
+    ignores: 'O poder de compra: R$ 7,5M em 2034 nominais compram menos que R$ 7,5M de hoje.',
+    assumes: 'Existe só como contraste — a data oficial é a REAL, que já desconta a inflação.',
+  }),
+  montecarlo: () => ({
+    title: 'Monte Carlo — chegada à FI',
+    what: '500 simulações do caminho até a FI, cada mês sorteando um retorno em torno da média.',
+    calc: [
+      ['Retorno real médio (μ)', fmtPct(weightedReturnReal()) + ' a.a.'],
+      ['Volatilidade da carteira (σ, por classe)', fmtPct(portfolioVol()) + ' a.a.'],
+      ['P10/P50/P90', 'os meses em que 10%/50%/90% das simulações atingiram a meta'],
+    ],
+    ignores: 'Correlações entre classes (superestima um pouco o risco) e caudas gordas (usa distribuição normal — crashes reais são piores).',
+    assumes: 'Poupança mensal igual à do cenário determinístico.',
+  }),
+  mcdecum: () => {
+    const r = window._lastMcDecum;
+    return {
+      title: 'Sobrevivência pós-FI',
+      what: 'A pergunta que importa: depois de parar de trabalhar, o dinheiro DURA? Cada simulação acumula até a FI (ou até a idade de aposentadoria) e depois saca a renda-alvo todo mês.',
+      calc: [
+        ['Saque mensal na aposentadoria (renda-alvo, real)', fmt(S.fi.targetMonthlyIncome)],
+        ['Horizonte', 'até os ' + (r ? r.horizonAge : 90) + ' anos'],
+        ['Retorno real μ ± σ', fmtPct(weightedReturnReal()) + ' ± ' + fmtPct(portfolioVol()) + ' a.a.'],
+        ['= Taxa de sucesso', r ? fmtPct(r.successRate) + ' das ' + r.sims + ' simulações' : '—'],
+      ],
+      ignores: 'IR sobre saques, mudanças de gasto na velhice e flexibilidade (cortar gasto em ano ruim melhora muito o resultado real).',
+      assumes: 'Saque fixo em valor de hoje, sem ajuste de comportamento — é o teste mais duro.',
+    };
+  },
+  twr: () => ({
+    title: 'Retorno Realizado (TWR)',
+    what: 'O retorno REAL que sua carteira entregou, isolando o efeito dos aportes.',
+    calc: [
+      ['Cada mês: (Δpatrimônio − aporte) ÷ patrimônio anterior', 'coluna Rentabilidade do Histórico'],
+      ['Compõe os últimos 12 meses e anualiza', fmtPct(twr(12)) + ' a.a.'],
+      ['Desde o início', fmtPct(twr()) + ' a.a.'],
+    ],
+    ignores: 'Nada — mas depende da qualidade do "apo" da planilha: aporte mal medido distorce o retorno.',
+    assumes: 'O aporte registrado no mês é todo o dinheiro novo que entrou.',
+  }),
+  alpha: () => ({
+    title: 'Alpha vs CDI',
+    what: 'Quanto sua carteira ganhou (ou perdeu) do benchmark mais básico do Brasil.',
+    calc: [
+      ['TWR 12m (realizado)', fmtPct(twr(12)) + ' a.a.'],
+      ['− CDI no mesmo período', fmtPct(cdiAnnualized(12)) + ' a.a.'],
+      ['= Alpha', fmtPct(twr(12) - cdiAnnualized(12))],
+    ],
+    ignores: 'Risco: bater o CDI tomando muito mais risco não é a mesma coisa que bater com pouco.',
+    assumes: 'CDI anual por tabela fixa no código (2026 é estimativa).',
+  }),
+  cagr: () => {
+    const last = HISTORICAL[HISTORICAL.length-1], first = HISTORICAL[0];
+    const years = HISTORICAL.length / 12;
+    return {
+      title: 'CAGR do Patrimônio',
+      what: 'Crescimento anual composto do patrimônio TOTAL — esforço (aportes) + juros juntos.',
+      calc: [
+        ['Patrimônio inicial (' + monthLabel(first.d) + ')', fmt(first.pat)],
+        ['Patrimônio atual (' + monthLabel(last.d) + ')', fmt(last.pat)],
+        ['(final ÷ inicial)^(1 ÷ ' + years.toFixed(1) + ' anos) − 1', fmtPct((Math.pow(last.pat/first.pat, 1/years) - 1) * 100)],
+      ],
+      ignores: 'NÃO é retorno de investimento — inclui todos os aportes. Para retorno puro, veja o TWR.',
+      assumes: '',
+    };
+  },
+  savingsrate: () => {
+    const last12h = HISTORICAL.slice(-12).filter(h => h.rec > 0);
+    const avg = last12h.length ? last12h.reduce((s, h) => s + savingsRate(h), 0) / last12h.length : 0;
+    return {
+      title: 'Taxa de Poupança',
+      what: 'De tudo que entrou, quanto sobrou — mês a mês, depois média.',
+      calc: [
+        ['Cada mês: (Receita − Gastos) ÷ Receita', 'da planilha (col. G quando disponível)'],
+        ['Média dos últimos 12 meses', fmtPct(avg)],
+      ],
+      ignores: 'O "apo" — de propósito: aporte inclui rendimento reinvestido e estouraria 100%.',
+      assumes: 'Meses sem receita ficam de fora da média.',
+    };
+  },
+  inflacao: () => {
+    const inf = inflacaoPessoal();
+    if (!inf) return { title: 'Inflação Pessoal', what: 'Sem dados suficientes (precisa de 24 meses).', calc: [], ignores: '', assumes: '' };
+    return {
+      title: 'Inflação Pessoal',
+      what: 'Quanto o SEU custo de vida subiu, medido pelos seus próprios gastos — comparado ao IPCA.',
+      calc: [
+        ['Fonte', inf.src],
+        ['Média mensal últimos 12m', fmt(inf.avgLast12)],
+        ['÷ Média mensal 12m anteriores', fmt(inf.avgPrev12)],
+        ['= Inflação pessoal', fmtPct(inf.pct) + ' vs IPCA ' + fmtPct(S.assumptions.ipca)],
+      ],
+      ignores: 'Mudanças de cesta: se seu padrão de consumo mudou (não só os preços), o número mistura as duas coisas.',
+      assumes: 'INFORMATIVO — este número NÃO alimenta nenhuma projeção do app.',
+    };
+  },
+};
+
+function explainMetric(key) {
+  const fn = METRIC_DOCS[key];
+  if (!fn) return;
+  const d = fn();
+  openModal('ⓘ ' + d.title, `
+    <p style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:14px">${d.what}</p>
+    ${d.calc.length ? `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:14px">
+      ${d.calc.map(([l, v]) => `<div class="qi-row"><span class="qi-label">${l}</span><span class="qi-val">${v}</span></div>`).join('')}
+    </div>` : ''}
+    ${d.ignores ? `<p style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:8px"><b style="color:var(--yellow)">Não considera:</b> ${d.ignores}</p>` : ''}
+    ${d.assumes ? `<p style="font-size:12px;color:var(--text-muted);line-height:1.6"><b style="color:var(--accent)">Premissa:</b> ${d.assumes}</p>` : ''}
+  `);
+}
+
+function infoBtn(key) {
+  return `<span class="info-btn" onclick="event.stopPropagation();explainMetric('${key}')" title="Como esse número é calculado?">ⓘ</span>`;
+}
+
 // ── 6. NAVEGAÇÃO ──────────────────────────────────────────
 let activePage = 'dashboard';
 let activeCharts = {};
