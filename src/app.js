@@ -6095,16 +6095,29 @@ function _buildFinHistTab() {
       <p style="font-size:13px">Atualize o Apps Script (Deploy > nova versão) e clique em <strong>↻ Sync Sheets</strong>.</p>
     </div>`;
   }
-  // primeira linha com conteúdo = cabeçalho
-  const hIdx = FINANCIAMENTO.findIndex(r => r.some(c => c !== '' && c != null));
+  const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  // Cabeçalho = linha que contém "Data" + (saldo/juros/amortização) — pula linhas de metadados antes dela
+  let hIdx = FINANCIAMENTO.findIndex(r => {
+    const cells = r.map(norm);
+    return cells.some(c => c === 'data' || c === 'datas') &&
+           cells.some(c => /saldo|juros|amortiza|parcela|valor/.test(c));
+  });
+  // linha de metadados acima do cabeçalho (ex: "assinado | data | valor financiado")
+  const meta = hIdx > 0 ? FINANCIAMENTO.slice(0, hIdx).filter(r => r.some(c => c !== '' && c != null)) : [];
+  if (hIdx < 0) hIdx = FINANCIAMENTO.findIndex(r => r.some(c => c !== '' && c != null));
   if (hIdx < 0) return `<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Aba vazia.</div>`;
   const headers = FINANCIAMENTO[hIdx].map(h => String(h ?? ''));
   const body = FINANCIAMENTO.slice(hIdx + 1).filter(r => r.some(c => c !== '' && c != null));
   // esconde colunas 100% vazias
   const used = headers.map((h, i) => h.trim() !== '' || body.some(r => r[i] !== '' && r[i] != null));
 
+  const fmtDate = v => { const m = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(v ?? ''); };
+  const metaHtml = meta.length ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${
+    meta.map(r => r.filter(c => c !== '' && c != null).map(c => `<b style="color:var(--text)">${fmtDate(c)}</b>`).join(' · ')).join('<br>')
+  }</div>` : '';
+
   // Classifica a cor de cada coluna pelo cabeçalho (sem acento, minúsculo)
-  const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const colorFor = h => {
     const n = norm(h);
     if (/restante/.test(n))                              return 'accent'; // meses restantes → azul
