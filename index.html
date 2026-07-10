@@ -7278,10 +7278,34 @@ function renderDebts() {
 
     ${cards}
 
-    ${ativos.length ? `<div class="card">
+    ${ativos.length ? (() => {
+      const yearly = _debtsYearlyRows(ativos);
+      const saldoHoje = ativos.reduce((s, x) => s + x.now.saldoAtual, 0);
+      return `<div class="card">
       <div class="card-title">Projeção do Saldo Devedor</div>
       <div class="chart-wrap chart-med"><canvas id="ch-debts"></canvas></div>
-    </div>` : ''}
+      <div class="table-wrap mt-12">
+        <table>
+          <thead><tr>
+            <th>Fim de</th>
+            <th class="r">Saldo remanescente</th>
+            <th class="r">↓ Redução no ano</th>
+            <th class="r">Juros pagos no ano</th>
+            <th class="r">% quitado</th>
+          </tr></thead>
+          <tbody>${yearly.map(r => `
+            <tr>
+              <td class="bold">${r.ano}</td>
+              <td class="r red">${fmt(r.saldo)}</td>
+              <td class="r green">−${fmt(r.reducao)}</td>
+              <td class="r yellow">${fmt(r.juros)}</td>
+              <td class="r muted">${fmtPct((1 - r.saldo / saldoHoje) * 100)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+    })() : ''}
   `;
 
   setTimeout(_debtsDrawChart, 0);
