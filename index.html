@@ -6895,7 +6895,7 @@ function renderHistory() {
         <div class="kpi-sub">benchmark aproximado</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">Alpha vs CDI — 12m</div>
+        <div class="kpi-label">Alpha vs CDI — 12m ${infoBtn('alpha')}</div>
         <div class="kpi-value" style="color:${alpha12 >= 0 ? 'var(--green)' : 'var(--red)'}">${alpha12 >= 0 ? '+' : ''}${fmtPct(alpha12)}</div>
         <div class="kpi-sub">desde o início: ${fmtPct(twrAll)} vs CDI ${fmtPct(cdiAll)}</div>
       </div>
