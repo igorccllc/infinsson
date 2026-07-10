@@ -5808,6 +5808,21 @@ function renderExpenses() {
   const qDelta = prevQTotal > 0 ? ((curQTotal - prevQTotal) / prevQTotal * 100) : 0;
   const qNames = ['Q1','Q2','Q3','Q4'];
 
+  // ── Inflação pessoal (informativo — não entra em projeções) ──
+  const infP = inflacaoPessoal();
+  const inflacaoHtml = infP ? `<div class="card mb-16" style="padding:14px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim)">Inflação Pessoal — 12m vs 12m anteriores ${infoBtn('inflacao')}</div>
+      <div style="display:flex;align-items:baseline;gap:12px;margin-top:4px">
+        <span style="font-size:22px;font-weight:700;color:${infP.pct > S.assumptions.ipca ? 'var(--red)' : 'var(--green)'}">${infP.pct >= 0 ? '+' : ''}${fmtPct(infP.pct)}</span>
+        <span style="font-size:13px;color:var(--text-muted)">vs IPCA ${fmtPct(S.assumptions.ipca)} — seu custo de vida ${infP.pct > S.assumptions.ipca ? 'sobe MAIS rápido que' : 'acompanha'} a inflação oficial</span>
+      </div>
+    </div>
+    <div style="margin-left:auto;font-size:11px;color:var(--text-dim);text-align:right">
+      ${fmt(infP.avgPrev12)}/mês → ${fmt(infP.avgLast12)}/mês<br>informativo — não altera projeções
+    </div>
+  </div>` : '';
+
   let comparisonHtml = '';
   if (yoyVal > 0 || prevQTotal > 0) {
     const yoyCls = yoyDelta <= 0 ? 'badge-up' : 'badge-down';
