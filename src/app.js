@@ -5933,6 +5933,8 @@ function renderDebts() {
       </div>`;
     }
     const pctPago = (1 - now.saldoAtual / d.saldo) * 100;
+    const encargos = d.parcelaReal ? d.parcelaReal - now.parcelaAtual : 0;
+    const parcelaExibida = d.parcelaReal || now.parcelaAtual;
     return `<div class="card mb-16">
       <div class="flex-between mb-8">
         <div class="card-title" style="margin-bottom:0">${d.name}
@@ -5944,8 +5946,10 @@ function renderDebts() {
       <div class="kpi-grid" style="margin-bottom:12px">
         <div class="kpi"><div class="kpi-label">Saldo devedor hoje</div><div class="kpi-value" style="color:var(--red)">${fmt(now.saldoAtual)}</div>
           <div class="kpi-sub">de ${fmt(d.saldo)} em ${monthLabel(d.dataRef)}</div></div>
-        <div class="kpi"><div class="kpi-label">Parcela do mês</div><div class="kpi-value">${fmt(now.parcelaAtual)}</div>
-          <div class="kpi-sub">${fmt(now.jurosMes)} de juros + ${fmt(now.amortMes)} de amortização</div></div>
+        <div class="kpi"><div class="kpi-label">Parcela do mês</div><div class="kpi-value">${fmt(parcelaExibida)}</div>
+          <div class="kpi-sub">${fmt(now.jurosMes)} juros + ${fmt(now.amortMes)} amortização${d.parcelaReal ? (encargos >= 0
+            ? ` + <span style="color:var(--yellow)">${fmt(encargos)} encargos</span> (seguros/taxas/TR)`
+            : ` <span style="color:var(--text-dim)">(teórica ${fmt(now.parcelaAtual)} — banco recalculou abaixo)</span>`) : ''}</div></div>
         <div class="kpi"><div class="kpi-label">Quitação</div><div class="kpi-value" style="color:var(--accent)">${monthLabel(now.quitacao)}</div>
           <div class="kpi-sub">${now.mesesRestantes} parcelas restantes</div></div>
         <div class="kpi"><div class="kpi-label">Juros até o fim</div><div class="kpi-value" style="color:var(--yellow)">${fmt(now.jurosRestantes)}</div>
