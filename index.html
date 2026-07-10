@@ -7144,6 +7144,171 @@ function showToast(msg) {
   setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),300); }, 2000);
 }
 
+// ── 19b. DÍVIDAS ──────────────────────────────────────────
+function renderDebts() {
+  const el = document.getElementById('page-debts');
+  const debts = S.debts || [];
+
+  if (!debts.length) {
+    el.innerHTML = `
+      <div class="page-header"><div>
+        <div class="page-title">Dívidas</div>
+        <div class="page-subtitle">Registre financiamentos e acompanhe saldo, juros e quitação</div>
+      </div>
+      <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openDebtModal()">+ Nova dívida</button></div>
+      </div>
+      <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+        <p style="font-size:16px;margin-bottom:8px">Nenhuma dívida registrada.</p>
+        <p style="font-size:13px">Cadastre o financiamento uma vez — o saldo evolui sozinho mês a mês pelo cronograma (SAC ou Price).</p>
+      </div>`;
+    return;
+  }
+
+  const infos = debts.map(d => ({ d, now: debtNow(d) }));
+  const ativos = infos.filter(x => !x.now.quitada);
+  const saldoTotal   = ativos.reduce((s, x) => s + x.now.saldoAtual, 0);
+  const parcelaTotal = ativos.reduce((s, x) => s + x.now.parcelaAtual, 0);
+  const jurosMesTot  = ativos.reduce((s, x) => s + x.now.jurosMes, 0);
+  const jurosRestTot = ativos.reduce((s, x) => s + x.now.jurosRestantes, 0);
+
+  const cards = infos.map(({ d, now }) => {
+    if (now.quitada) {
+      return `<div class="card mb-16" style="opacity:.65">
+        <div class="flex-between"><div class="card-title" style="margin-bottom:0">${d.name} <span class="sim-badge" style="background:rgba(34,197,94,.15);color:var(--green)">Quitada</span></div>
+        <div><button class="btn btn-ghost btn-sm" onclick="openDebtModal('${d.id}')">✎</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteDebt('${d.id}')">✕</button></div></div>
+      </div>`;
+    }
+    const pctPago = (1 - now.saldoAtual / d.saldo) * 100;
+    return `<div class="card mb-16">
+      <div class="flex-between mb-8">
+        <div class="card-title" style="margin-bottom:0">${d.name}
+          <span style="font-size:11px;color:var(--text-dim);font-weight:400;margin-left:8px">${d.sistema.toUpperCase()} · ${d.taxaMes.toFixed(2).replace('.',',')}% a.m.</span>
+        </div>
+        <div><button class="btn btn-ghost btn-sm" onclick="openDebtModal('${d.id}')">✎ Editar</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteDebt('${d.id}')">✕</button></div>
+      </div>
+      <div class="kpi-grid" style="margin-bottom:12px">
+        <div class="kpi"><div class="kpi-label">Saldo devedor hoje</div><div class="kpi-value" style="color:var(--red)">${fmt(now.saldoAtual)}</div>
+          <div class="kpi-sub">de ${fmt(d.saldo)} em ${monthLabel(d.dataRef)}</div></div>
+        <div class="kpi"><div class="kpi-label">Parcela do mês</div><div class="kpi-value">${fmt(now.parcelaAtual)}</div>
+          <div class="kpi-sub">${fmt(now.jurosMes)} de juros + ${fmt(now.amortMes)} de amortização</div></div>
+        <div class="kpi"><div class="kpi-label">Quitação</div><div class="kpi-value" style="color:var(--accent)">${monthLabel(now.quitacao)}</div>
+          <div class="kpi-sub">${now.mesesRestantes} parcelas restantes</div></div>
+        <div class="kpi"><div class="kpi-label">Juros até o fim</div><div class="kpi-value" style="color:var(--yellow)">${fmt(now.jurosRestantes)}</div>
+          <div class="kpi-sub">se nada for amortizado</div></div>
+      </div>
+      <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pctPago}%;background:var(--green)"></div></div>
+      <div class="text-sm text-muted mt-8">${fmtPct(pctPago)} do principal quitado</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="page-header"><div>
+      <div class="page-title">Dívidas</div>
+      <div class="page-subtitle">${ativos.length} ativa(s) · saldo evolui pelo cronograma desde o registro</div>
+    </div>
+    <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openDebtModal()">+ Nova dívida</button></div>
+    </div>
+
+    <div class="kpi-grid mb-16">
+      <div class="kpi"><div class="kpi-label">Saldo devedor total</div><div class="kpi-value" style="color:var(--red)">${fmt(saldoTotal)}</div></div>
+      <div class="kpi"><div class="kpi-label">Parcelas do mês</div><div class="kpi-value">${fmt(parcelaTotal)}</div></div>
+      <div class="kpi"><div class="kpi-label">Juros embutidos no mês</div><div class="kpi-value" style="color:var(--yellow)">${fmt(jurosMesTot)}</div>
+        <div class="kpi-sub">${parcelaTotal > 0 ? fmtPct(jurosMesTot / parcelaTotal * 100) + ' da parcela é juro' : ''}</div></div>
+      <div class="kpi"><div class="kpi-label">Juros até quitar tudo</div><div class="kpi-value" style="color:var(--yellow)">${fmt(jurosRestTot)}</div>
+        <div class="kpi-sub">custo futuro total da dívida</div></div>
+    </div>
+
+    ${cards}
+
+    ${ativos.length ? `<div class="card">
+      <div class="card-title">Projeção do Saldo Devedor</div>
+      <div class="chart-wrap chart-med"><canvas id="ch-debts"></canvas></div>
+    </div>` : ''}
+  `;
+
+  setTimeout(_debtsDrawChart, 0);
+}
+
+function _debtsDrawChart() {
+  if (activeCharts.debts) { activeCharts.debts.destroy(); delete activeCharts.debts; }
+  const ctx = document.getElementById('ch-debts');
+  if (!ctx) return;
+  const infos = (S.debts || []).map(d => ({ d, now: debtNow(d) })).filter(x => !x.now.quitada);
+  if (!infos.length) return;
+  const maxMonths = Math.max(...infos.map(x => x.now.mesesRestantes));
+  const labels = [], totals = [];
+  const now = new Date();
+  const curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  for (let m = 0; m <= maxMonths; m++) {
+    labels.push(m % 12 === 0 || m === maxMonths ? monthLabel(addMonths(curKey, m)) : '');
+    totals.push(+infos.reduce((s, x) => {
+      const i = x.now.idx + m;
+      return s + (i < x.now.sched.length ? x.now.sched[i].saldoIni : 0);
+    }, 0).toFixed(2));
+  }
+  activeCharts.debts = makeLineChart('ch-debts', {
+    labels,
+    datasets: [{ label: 'Saldo devedor total', data: totals, borderColor: '#f87171', backgroundColor: '#f8717115', tension: .3, pointRadius: 0, borderWidth: 2, fill: true }],
+  });
+}
+
+function openDebtModal(id) {
+  const d = id ? S.debts.find(x => x.id === id) : null;
+  const now = new Date();
+  const curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  openModal(d ? 'Editar Dívida' : 'Nova Dívida', `
+    <div class="form-group"><label class="form-label">Nome</label>
+      <input class="form-input" id="debt-name" value="${d ? d.name : 'Financiamento AP'}"></div>
+    <div class="grid-2" style="gap:12px">
+      <div class="form-group"><label class="form-label">Saldo devedor (R$)</label>
+        <input class="form-input" id="debt-saldo" type="number" value="${d ? d.saldo : 370000}" min="0" step="1000"></div>
+      <div class="form-group"><label class="form-label">Na data de</label>
+        <input class="form-input" id="debt-dataref" type="month" value="${d ? d.dataRef : curKey}"></div>
+      <div class="form-group"><label class="form-label">Taxa mensal (% a.m., CET)</label>
+        <input class="form-input" id="debt-taxa" type="number" value="${d ? d.taxaMes : 0.97}" min="0" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Parcelas restantes (na data)</label>
+        <input class="form-input" id="debt-parcelas" type="number" value="${d ? d.parcelas : 169}" min="1" step="1"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Sistema de amortização</label>
+      <select class="form-input" id="debt-sistema">
+        <option value="sac" ${!d || d.sistema === 'sac' ? 'selected' : ''}>SAC — parcela decrescente</option>
+        <option value="price" ${d && d.sistema === 'price' ? 'selected' : ''}>Price — parcela fixa</option>
+      </select></div>
+    <div class="form-hint" style="margin-bottom:14px">O saldo informado é o da data escolhida — o app evolui o cronograma sozinho a partir dela.</div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveDebt('${d ? d.id : ''}')">Salvar</button>
+    </div>
+  `);
+}
+
+function saveDebt(id) {
+  const obj = {
+    name:     document.getElementById('debt-name').value.trim() || 'Dívida',
+    saldo:    parseFloat(document.getElementById('debt-saldo').value) || 0,
+    dataRef:  document.getElementById('debt-dataref').value || addMonths('2026-01', 0),
+    taxaMes:  parseFloat(document.getElementById('debt-taxa').value) || 0,
+    parcelas: parseInt(document.getElementById('debt-parcelas').value, 10) || 1,
+    sistema:  document.getElementById('debt-sistema').value,
+  };
+  if (obj.saldo <= 0) { showToast('Informe o saldo devedor.'); return; }
+  if (id) {
+    const i = S.debts.findIndex(x => x.id === id);
+    if (i >= 0) S.debts[i] = { ...S.debts[i], ...obj };
+  } else {
+    S.debts.push({ id: uid(), ...obj });
+  }
+  saveState(); closeModal(); renderDebts();
+}
+
+function deleteDebt(id) {
+  if (!confirm('Excluir esta dívida?')) return;
+  S.debts = S.debts.filter(x => x.id !== id);
+  saveState(); renderDebts();
+}
+
 // ── 20. IMPORT / EXPORT ───────────────────────────────────
 function exportData() {
   const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
