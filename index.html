@@ -7401,10 +7401,26 @@ function _buildFinHistTab() {
   const body = FINANCIAMENTO.slice(hIdx + 1).filter(r => r.some(c => c !== '' && c != null));
   // esconde colunas 100% vazias
   const used = headers.map((h, i) => h.trim() !== '' || body.some(r => r[i] !== '' && r[i] != null));
+
+  // Classifica a cor de cada coluna pelo cabeçalho (sem acento, minúsculo)
+  const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const colorFor = h => {
+    const n = norm(h);
+    if (/restante/.test(n))                              return 'accent'; // meses restantes → azul
+    if (/valor|amortiza|remanescente/.test(n))           return 'green';  // valor, amortização, saldo remanescente
+    if (/juros|seguro|taxa|correcao/.test(n))            return 'red';    // juros, seguro, taxas, correção monetária
+    return '';
+  };
+  const colClass = headers.map(colorFor);
+
+  // Data YYYY-MM-DD → DD-MM-YYYY
   const fmtCell = v => {
     if (typeof v === 'number') return v.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
-    return String(v ?? '');
+    const s = String(v ?? '');
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : s;
   };
+
   return `<div class="card">
     <div class="flex-between mb-8">
       <div class="card-title" style="margin-bottom:0">Aba "Financiamento" — ${body.length} linhas</div>
@@ -7412,8 +7428,12 @@ function _buildFinHistTab() {
     </div>
     <div class="table-wrap" style="max-height:560px;overflow:auto">
       <table>
-        <thead><tr>${headers.map((h, i) => used[i] ? `<th>${h || '—'}</th>` : '').join('')}</tr></thead>
-        <tbody>${body.map(r => `<tr>${r.map((c, i) => used[i] ? `<td class="${typeof c === 'number' ? 'r' : ''}">${fmtCell(c)}</td>` : '').join('')}</tr>`).join('')}</tbody>
+        <thead><tr>${headers.map((h, i) => used[i] ? `<th class="${colClass[i]}">${h || '—'}</th>` : '').join('')}</tr></thead>
+        <tbody>${body.map(r => `<tr>${r.map((c, i) => {
+          if (!used[i]) return '';
+          const alignR = typeof c === 'number' ? 'r ' : '';
+          return `<td class="${alignR}${colClass[i]}">${fmtCell(c)}</td>`;
+        }).join('')}</tr>`).join('')}</tbody>
       </table>
     </div>
   </div>`;
