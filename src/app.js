@@ -1239,6 +1239,7 @@ function renderPage(p) {
     history:     renderHistory,
     simulador:   renderSimulador,
     insights:    renderInsights,
+    debts:       renderDebts,
   };
   map[p]?.();
 }
