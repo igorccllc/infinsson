@@ -292,6 +292,8 @@ function loadState() {
   // Migração: modo de SWR (regra dos 4% vs perpetuidade real).
   if (S.fi.mode === undefined)     { S.fi.mode = 'swr'; saveState(); }
   if (S.fi.realRate === undefined) { S.fi.realRate = 5.0; saveState(); }
+  // Migração: dívidas registradas.
+  if (!Array.isArray(S.debts)) { S.debts = []; saveState(); }
 }
 
 function saveState() {
