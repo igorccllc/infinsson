@@ -7206,18 +7206,32 @@ function showToast(msg) {
 }
 
 // ── 19b. DÍVIDAS ──────────────────────────────────────────
+let debtsTab = 'overview';
+function setDebtsTab(t) { debtsTab = t; destroyCharts(); renderDebts(); }
+
 function renderDebts() {
   const el = document.getElementById('page-debts');
   const debts = S.debts || [];
 
+  const tabsHtml = `<div class="tabs" style="margin-bottom:16px">
+    <button class="tab-btn ${debtsTab === 'overview' ? 'active' : ''}" onclick="setDebtsTab('overview')">Visão Geral</button>
+    <button class="tab-btn ${debtsTab === 'fin' ? 'active' : ''}" onclick="setDebtsTab('fin')">Financiamento — Histórico</button>
+  </div>`;
+  const headerHtml = (sub) => `
+    <div class="page-header"><div>
+      <div class="page-title">Dívidas</div>
+      <div class="page-subtitle">${sub}</div>
+    </div>
+    <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openDebtModal()">+ Nova dívida</button></div>
+    </div>`;
+
+  if (debtsTab === 'fin') {
+    el.innerHTML = headerHtml('Espelho da aba Financiamento da planilha') + tabsHtml + _buildFinHistTab();
+    return;
+  }
+
   if (!debts.length) {
-    el.innerHTML = `
-      <div class="page-header"><div>
-        <div class="page-title">Dívidas</div>
-        <div class="page-subtitle">Registre financiamentos e acompanhe saldo, juros e quitação</div>
-      </div>
-      <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openDebtModal()">+ Nova dívida</button></div>
-      </div>
+    el.innerHTML = headerHtml('Registre financiamentos e acompanhe saldo, juros e quitação') + tabsHtml + `
       <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
         <p style="font-size:16px;margin-bottom:8px">Nenhuma dívida registrada.</p>
         <p style="font-size:13px">Cadastre o financiamento uma vez — o saldo evolui sozinho mês a mês pelo cronograma (SAC ou Price).</p>
