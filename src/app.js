@@ -4989,6 +4989,7 @@ function renderExpenses() {
 
     ${pacingHtml}
     ${comparisonHtml}
+    ${inflacaoHtml}
     ${insightsHtml}
     ${budgetBarsHtml}
 
