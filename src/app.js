@@ -425,6 +425,14 @@ async function syncFromSheets(silent = false) {
       changed = true;
     }
 
+    // ── Atualiza espelho da aba Financiamento ─────────────
+    if (Array.isArray(data.financiamento) && data.financiamento.length > 0) {
+      FINANCIAMENTO = data.financiamento;
+      localStorage.setItem('finplan_financiamento', JSON.stringify(FINANCIAMENTO));
+      console.log('[Sync] financiamento rows:', FINANCIAMENTO.length);
+      changed = true;
+    }
+
     // ── Atualiza Mobills ──────────────────────────────────
     if (Array.isArray(data.mobills) && data.mobills.length > 0) {
       MOBILLS_RAW = data.mobills;
