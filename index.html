@@ -7386,6 +7386,39 @@ function _debtsDrawChart() {
   });
 }
 
+// Espelho da aba "Financiamento" da planilha (grade crua vinda do sync).
+function _buildFinHistTab() {
+  if (!FINANCIAMENTO || !FINANCIAMENTO.length) {
+    return `<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+      <p style="font-size:15px;margin-bottom:8px">Dados da aba "Financiamento" ainda não sincronizados.</p>
+      <p style="font-size:13px">Atualize o Apps Script (Deploy > nova versão) e clique em <strong>↻ Sync Sheets</strong>.</p>
+    </div>`;
+  }
+  // primeira linha com conteúdo = cabeçalho
+  const hIdx = FINANCIAMENTO.findIndex(r => r.some(c => c !== '' && c != null));
+  if (hIdx < 0) return `<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Aba vazia.</div>`;
+  const headers = FINANCIAMENTO[hIdx].map(h => String(h ?? ''));
+  const body = FINANCIAMENTO.slice(hIdx + 1).filter(r => r.some(c => c !== '' && c != null));
+  // esconde colunas 100% vazias
+  const used = headers.map((h, i) => h.trim() !== '' || body.some(r => r[i] !== '' && r[i] != null));
+  const fmtCell = v => {
+    if (typeof v === 'number') return v.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+    return String(v ?? '');
+  };
+  return `<div class="card">
+    <div class="flex-between mb-8">
+      <div class="card-title" style="margin-bottom:0">Aba "Financiamento" — ${body.length} linhas</div>
+      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · atualiza no Sync</span>
+    </div>
+    <div class="table-wrap" style="max-height:560px;overflow:auto">
+      <table>
+        <thead><tr>${headers.map((h, i) => used[i] ? `<th>${h || '—'}</th>` : '').join('')}</tr></thead>
+        <tbody>${body.map(r => `<tr>${r.map((c, i) => used[i] ? `<td class="${typeof c === 'number' ? 'r' : ''}">${fmtCell(c)}</td>` : '').join('')}</tr>`).join('')}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 function openDebtModal(id) {
   const d = id ? S.debts.find(x => x.id === id) : null;
   const now = new Date();
