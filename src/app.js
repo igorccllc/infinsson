@@ -844,6 +844,57 @@ function monteCarloFI(nSims = 500, maxYears = 40) {
   };
 }
 
+// Monte Carlo de DECUMULAÇÃO: o dinheiro dura depois da FI?
+// Cada simulação: acumula (poupança projetada) até atingir a FI ou a idade de
+// aposentadoria (o que vier primeiro); daí em diante saca a renda-alvo mensal
+// (real) até a idade-horizonte. Sucesso = patrimônio nunca zera.
+function monteCarloDecum(nSims = 500, horizonAge = 90) {
+  const fiNum = fiNumber();
+  const w0    = investableWealth();
+  const muM   = Math.pow(1 + weightedReturnReal() / 100, 1/12) - 1;
+  const volM  = (portfolioVol() / 100) / Math.sqrt(12);
+  const A     = S.assumptions, age0 = currentAge();
+  const retAge = A.retirementAge > 0 ? A.retirementAge : Infinity;
+  const capY   = A.incomeGrowthCapYears > 0 ? A.incomeGrowthCapYears : Infinity;
+  const saque  = S.fi.targetMonthlyIncome;
+  const months = Math.max(12, Math.round((horizonAge - age0) * 12));
+
+  // Poupança mensal na fase de acumulação (mesma lógica do monteCarloFI)
+  const sav = [];
+  for (let m = 0; m < months; m++) {
+    const y = m / 12;
+    const gY = Math.min(y, capY);
+    const inc = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount * Math.pow(1 + i.growthRate/100, gY), 0);
+    const exp = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount * Math.pow(1 + e.growthRate/100, y), 0);
+    sav.push(inc - exp);
+  }
+
+  let ok = 0;
+  const finals = [], ruinAges = [];
+  for (let s = 0; s < nSims; s++) {
+    let w = w0, retired = false, ruined = false;
+    for (let m = 0; m < months; m++) {
+      const age = age0 + m / 12;
+      if (!retired && (w >= fiNum || age >= retAge)) retired = true;
+      const flow = retired ? -saque : sav[m];
+      w = w * (1 + muM + volM * randn()) + flow;
+      if (w <= 0) { ruined = true; ruinAges.push(age); break; }
+    }
+    if (!ruined) { ok++; finals.push(w); }
+  }
+
+  finals.sort((a, b) => a - b);
+  ruinAges.sort((a, b) => a - b);
+  const q = (arr, p) => arr.length ? arr[Math.min(arr.length - 1, Math.floor(p * arr.length))] : null;
+  return {
+    successRate:   ok / nSims * 100,
+    medianFinal:   q(finals, 0.5),
+    p10Final:      q(finals, 0.10),
+    medianRuinAge: q(ruinAges, 0.5),
+    horizonAge, sims: nSims, saque,
+  };
+}
+
 // Projeção em termos reais: desconta IPCA de retorno e crescimentos.
 // Meta FI permanece em dinheiro de hoje.
 function realBasePath(months) {
