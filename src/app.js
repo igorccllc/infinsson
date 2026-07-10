@@ -6141,7 +6141,7 @@ function _buildFinHistTab() {
       <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · atualiza no Sync</span>
     </div>
     ${metaHtml}
-    <div class="table-wrap" style="max-height:560px;overflow:auto">
+    <div class="table-wrap fin-hist-wrap" style="max-height:560px;overflow:auto">
       <table>
         <thead><tr>${headers.map((h, i) => used[i] ? `<th class="${colClass[i]}">${h || '—'}</th>` : '').join('')}</tr></thead>
         <tbody>${body.map(r => `<tr>${r.map((c, i) => {
