@@ -2319,7 +2319,7 @@ function renderDashboard() {
         <div class="kpi-sub"><span class="${(last.pl - prev.pl) >= 0 ? 'badge-up' : 'badge-down'}">${(last.pl - prev.pl) >= 0 ? '↑ +' : '↓ -'}${fmtK(Math.abs(last.pl - prev.pl))}</span> vs mês anterior</div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">Taxa de Poupança</div>
+        <div class="kpi-label">Taxa de Poupança ${infoBtn('savingsrate')}</div>
         <div class="kpi-value" style="color:${avgSavingsRate>=50?'var(--green)':avgSavingsRate>=30?'var(--yellow)':'var(--red)'}">${fmtPct(avgSavingsRate)}</div>
         <div class="kpi-sub">Média dos últimos 12 meses</div>
       </div>
