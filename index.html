@@ -5595,7 +5595,7 @@ function buildGastosTabHtml() {
   const totalMobillsMonths = [...new Set(MOBILLS.map(r => r.d))].length;
   const avgAllMonths = totalAcc / Math.max(1, totalMobillsMonths);
   const matchedNats = [...new Set(matched.map(r => r.cat))].sort();
-  const sortedDesc = matched.slice().sort((a, b) => b.d.localeCompare(a.d));
+  const sortedDesc = matched.slice().sort((a, b) => (b.dt || b.d).localeCompare(a.dt || a.d));
   const lastTx = sortedDesc[0];
 
   const now = new Date();
