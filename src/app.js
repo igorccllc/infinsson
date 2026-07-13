@@ -4405,7 +4405,7 @@ function buildGastosTabHtml() {
       <div class="table-wrap">
         <table class="history-table">
           <thead><tr>
-            <th>Mês</th><th>Natureza</th><th class="r">Valor</th>
+            <th>Dia</th><th>Nome</th><th>Natureza</th><th class="r">Valor</th>
           </tr></thead>
           <tbody>${txRows}</tbody>
         </table>
