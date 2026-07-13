@@ -4353,9 +4353,14 @@ function buildGastosTabHtml() {
       <div class="exp-insights-list">${trendHtml}${spikeHtml}${yoyHtml}</div>
     </div>` : '';
 
+  const fmtDia = r => {
+    const m = String(r.dt || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : monthLabel(r.d);   // fallback p/ dados antigos sem dia
+  };
   const txRows = sortedDesc.map(r => `<tr>
-    <td style="color:var(--text-muted);font-size:12px">${monthLabel(r.d)}</td>
-    <td style="color:var(--text);font-size:12px">${r.cat || '—'}</td>
+    <td style="color:var(--text-muted);font-size:12px;white-space:nowrap">${fmtDia(r)}</td>
+    <td style="color:var(--text);font-size:12px">${r.name || '—'}</td>
+    <td style="color:var(--text-muted);font-size:12px">${r.cat || '—'}</td>
     <td class="r" style="color:var(--red);font-weight:600">${fmt(Math.abs(r.val))}</td>
   </tr>`).join('');
 
