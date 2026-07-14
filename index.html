@@ -6314,9 +6314,9 @@ function renderExpenses() {
         </div>
       </div>
       <div class="kpi">
-        <div class="kpi-label">Maior Seção</div>
-        <div class="kpi-value" style="color:${SECAO_COLORS[secNames[0]] || 'var(--text)'};font-size:18px">${secNames[0]}</div>
-        <div class="kpi-sub">${fmtPct(secEntries[0][1] / totalGastos * 100)} do total · ${fmt(secEntries[0][1] / numMonths)}/mês</div>
+        <div class="kpi-label">Maior Seção ${topSecIsMonth ? '· ' + monthLabel(lastMonth) : ''}</div>
+        <div class="kpi-value" style="color:${SECAO_COLORS[topSec[0]] || 'var(--text)'};font-size:18px">${topSec[0]}</div>
+        <div class="kpi-sub">${fmt(topSec[1])} · ${fmtPct(topSecBase > 0 ? topSec[1] / topSecBase * 100 : 0)} ${topSecScope}</div>
       </div>
       ${kpi4}
     </div>
