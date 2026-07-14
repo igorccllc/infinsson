@@ -5836,9 +5836,9 @@ function renderExpenses() {
     </div>`;
   } else {
     kpi4 = `<div class="kpi">
-      <div class="kpi-label">Maior Seção</div>
-      <div class="kpi-value" style="color:${SECAO_COLORS[secNames[0]] || 'var(--text)'}">${secNames[0]}</div>
-      <div class="kpi-sub">${fmtPct(secEntries[0][1] / totalGastos * 100)} do total</div>
+      <div class="kpi-label">Maior Seção ${topSecIsMonth ? '· ' + monthLabel(lastMonth) : ''}</div>
+      <div class="kpi-value" style="color:${SECAO_COLORS[topSec[0]] || 'var(--text)'}">${topSec[0]}</div>
+      <div class="kpi-sub">${fmt(topSec[1])} · ${fmtPct(topSecBase > 0 ? topSec[1] / topSecBase * 100 : 0)} ${topSecScope}</div>
     </div>`;
   }
 
