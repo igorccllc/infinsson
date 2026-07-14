@@ -2384,8 +2384,8 @@ const METRIC_DOCS = {
       ],
       ignores: 'IR sobre os saques — a renda-alvo é tratada como líquida.',
       assumes: isPerp
-        ? 'Você vive só do juro real: o principal se preserva para sempre em valor de hoje.'
-        : 'Saque de fração fixa ao ano; em sequências ruins de retorno o principal pode se esgotar em ~30 anos.',
+        ? 'Você vive só do juro real: o principal se preserva para sempre em valor de hoje. Juro maior assumido → precisa de MENOS principal (por isso a meta cai quando a taxa sobe).'
+        : 'A taxa é a premissa de quanto dá pra sacar por ano sem quebrar — taxa maior exige MENOS patrimônio (meta cai), mas aumenta o risco de ruína. O contrapeso está no card Sobrevivência pós-FI.',
     };
   },
   fidate: () => {
