@@ -6608,6 +6608,27 @@ function renderFI() {
     return { delta:d, months:fiM };
   });
 
+  // Sensibilidade da TAXA DE RETIRADA: o trade-off central do FIRE.
+  // Taxa maior → meta menor e FI mais cedo, porém menor sobrevivência pós-FI.
+  let sensiRate = null;
+  if (S.fi.mode === 'swr') {
+    const saveRate = S.fi.withdrawalRate;
+    sensiRate = [3, 3.5, 4, 4.5, 5, 6].map(rt => {
+      S.fi.withdrawalRate = rt;                     // fiNumber()/findFIDate leem daqui
+      const path = projectPath(S.assumptions.projectionYears * 12, investableWealth(), weightedReturnReal(), 0, 0);
+      const fiR  = findFIDate(path);
+      const mcdR = monteCarloDecum(300, 90);
+      return {
+        rt,
+        meta: (S.fi.targetMonthlyIncome * 12) / (rt / 100),
+        anos: fiR ? fiR.months / 12 : null,
+        succ: mcdR.successRate,
+        atual: Math.abs(rt - saveRate) < 0.01,
+      };
+    });
+    S.fi.withdrawalRate = saveRate;                 // restaura sem salvar
+  }
+
   el.innerHTML = `
     <div class="page-header">
       <div><div class="page-title">Independência Financeira</div>
