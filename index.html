@@ -6823,6 +6823,25 @@ function renderFI() {
       </div>
     </div>
 
+    ${sensiRate ? `
+    <div class="card mb-16">
+      <div class="card-title">Trade-off da Taxa de Retirada — meta menor ≠ plano melhor</div>
+      <div class="table-wrap">
+        <table class="sensitivity">
+          <thead><tr><th>Taxa</th><th class="r">Meta FI</th><th class="r">Anos até a FI</th><th class="r">Sucesso pós-FI (até os 90)</th></tr></thead>
+          <tbody>${sensiRate.map(s => `
+            <tr class="${s.atual ? 'sim-best' : ''}">
+              <td class="bold">${fmtPct(s.rt)}${s.atual ? ' <span class="sim-badge">atual</span>' : ''}</td>
+              <td class="r">${fmtK(s.meta)}</td>
+              <td class="r">${s.anos != null ? s.anos.toFixed(1) : '> horizonte'}</td>
+              <td class="r" style="color:${s.succ >= 90 ? 'var(--green)' : s.succ >= 75 ? 'var(--yellow)' : 'var(--red)'};font-weight:700">${fmtPct(s.succ)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="text-sm text-muted mt-8">Taxa maior = meta menor e FI mais cedo, porém <b style="color:var(--red)">maior risco de o dinheiro acabar</b>. A taxa é a premissa de quanto dá pra sacar do patrimônio por ano — agressividade, não rendimento.</div>
+    </div>` : ''}
+
     <div class="card">
       <div class="card-title">Projeção Rumo à FI — Cenário Base</div>
       <div class="chart-wrap chart-tall"><canvas id="ch-fi"></canvas></div>
