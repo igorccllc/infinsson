@@ -4468,6 +4468,18 @@ function renderExpenses() {
   const avg6m = prev5withData.length > 0 ? prev5withData.reduce((s, m) => s + (byMonthMap[m] || 0), 0) / prev5withData.length : 0;
   const deltaVsAvg6 = avg6m > 0 ? (lastVal / avg6m - 1) * 100 : null;
 
+  // "Maior Seção" = maior gasto POR VALOR no mês de referência (não a 1ª da ordem fixa,
+  // nem a média de todo o histórico). Cai no total geral se o mês não tiver dados.
+  const secMonthDesc = secNames
+    .map(s => [s, bySecMonthMap[s + '|' + curMonthKey] || 0])
+    .filter(e => e[1] > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const bySecValueDesc = Object.entries(bySecMap).sort((a, b) => b[1] - a[1]);
+  const topSecIsMonth = secMonthDesc.length > 0;
+  const topSec = topSecIsMonth ? secMonthDesc[0] : (bySecValueDesc[0] || ['—', 0]);
+  const topSecBase = topSecIsMonth ? (lastVal || topSec[1]) : (totalGastos || topSec[1]);
+  const topSecScope = topSecIsMonth ? `no mês` : `do total`;
+
   const prd = expFilter.period;
   let periodN = 6;
   if (prd === '3m') periodN = 3;
