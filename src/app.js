@@ -5352,7 +5352,7 @@ function renderFI() {
           <input type="range" class="sc-slider" min="1" max="8" step="0.1"
             value="${S.fi.withdrawalRate}"
             oninput="fiSliderInput(this,'rate')" onchange="fiSliderCommit()">
-          <div class="fi-mode-note">Saca uma fração fixa por ano. Em valores de hoje, o principal pode se esgotar em ~30 anos num cenário de retornos ruins.</div>
+          <div class="fi-mode-note">Quanto você assume que pode sacar do patrimônio por ano. <b>Taxa maior → meta MENOR e FI mais cedo, porém mais risco de o dinheiro acabar</b> — veja a tabela de trade-off e a Sobrevivência pós-FI abaixo.</div>
         </div>
         ` : `
         <div class="slider-group">
