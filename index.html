@@ -788,6 +788,18 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
 .sc-detail-wrap table { font-size: 12px; }
 .sc-detail-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
 .fin-hist-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 2; box-shadow: 0 1px 0 var(--border-2); }
+/* Colunas Data (1ª) e Natureza (2ª) fixas na horizontal */
+.fin-hist-wrap th:nth-child(1), .fin-hist-wrap td:nth-child(1) {
+  position: sticky; left: 0; width: 104px; min-width: 104px;
+  background: var(--surface); z-index: 1;
+}
+.fin-hist-wrap th:nth-child(2), .fin-hist-wrap td:nth-child(2) {
+  position: sticky; left: 104px; min-width: 120px;
+  background: var(--surface); z-index: 1;
+  box-shadow: 1px 0 0 var(--border-2);   /* separador do bloco fixo */
+}
+/* cantos (cabeçalho das colunas fixas): grudam nos dois eixos, acima de tudo */
+.fin-hist-wrap thead th:nth-child(1), .fin-hist-wrap thead th:nth-child(2) { z-index: 3; }
 tr.fi-row td { background: rgba(52,211,153,.07); }
 tr.fi-row td:first-child { font-weight: 700; }
 
