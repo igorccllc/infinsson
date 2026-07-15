@@ -7139,12 +7139,16 @@ function _buildFluxoGridTab() {
   };
 
   // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna (carrega o índice
-  // original p/ consultar o negrito da col A = macro-conta/seção)
+  // original p/ consultar o negrito da col A = macro-conta/seção). Cada linha de
+  // detalhe herda a cor da seção-mãe (última linha em negrito vista) para colorir a lateral.
   const bold = Array.isArray(FLUXOBOLD) ? FLUXOBOLD : [];
   const body = [];
+  let curColor = 'var(--accent)';
   for (let i = hIdx + 1; i < FLUXOGRID.length; i++) {
     if (String(FLUXOGRID[i][0] ?? '').trim() === '') continue;
-    body.push({ cells: FLUXOGRID[i], section: !!bold[i] });
+    const section = !!bold[i];
+    if (section) curColor = SECAO_COLORS[String(FLUXOGRID[i][0] ?? '').trim()] || 'var(--accent)';
+    body.push({ cells: FLUXOGRID[i], section, color: curColor });
   }
 
   const toggle = `<div class="fi-mode-toggle" style="max-width:240px;margin-bottom:14px">
@@ -7152,22 +7156,23 @@ function _buildFluxoGridTab() {
     <button class="fi-mode-btn ${fluxoView === 'ano' ? 'active' : ''}" onclick="setFluxoView('ano')" ${hasResumo ? '' : 'disabled title="planilha sem colunas de Total/Média"'}>Por ano</button>
   </div>`;
 
-  const rowHtml = ({ cells, section }) => {
-    const label = String(cells[0] ?? '');
-    const secColor = section ? (SECAO_COLORS[label] || 'var(--accent)') : '';
-    const firstStyle = section && secColor ? ` style="border-left:3px solid ${secColor}"` : '';
-    return `<tr class="${section ? 'fx-section' : 'fx-detail'}">${visibleCols.map((j, idx) => {
+  const rowHtml = ({ cells, section, color }) => {
+    const borderW = section ? 4 : 3;
+    const rowStyle = section
+      ? ` style="--sec-color:${color};border-left:${borderW}px solid ${color};background:${hexToRgba(color, .13)}"`
+      : ` style="--sec-color:${color};border-left:${borderW}px solid ${hexToRgba(color, .45)}"`;
+    return `<tr class="${section ? 'fx-section' : 'fx-detail'}"${rowStyle}>${visibleCols.map((j, idx) => {
       const v = cells[j];
       const isNum = typeof v === 'number';
       const cls = `${j > 0 ? 'r ' : ''}${!section && colKind[j] === 'resumo' ? 'accent ' : ''}${isNum && v < 0 ? 'red' : ''}`.trim();
-      return `<td class="${cls}"${idx === 0 ? firstStyle : ''}>${fmtCell(v)}</td>`;
+      return `<td class="${cls}">${fmtCell(v)}</td>`;
     }).join('')}</tr>`;
   };
 
   return `<div class="card">
     <div class="flex-between mb-8">
       <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.length} linhas</div>
-      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · macro-contas em destaque</span>
+      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · seções coloridas · linhas ocultas na planilha não aparecem</span>
     </div>
     ${toggle}
     <div class="table-wrap fluxo-grid-wrap" style="max-height:600px;overflow:auto">
