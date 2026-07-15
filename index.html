@@ -809,6 +809,14 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
 }
 /* cantos (cabeçalho das colunas fixas): grudam nos dois eixos, acima de tudo */
 .fin-hist-wrap thead th:nth-child(1), .fin-hist-wrap thead th:nth-child(2) { z-index: 3; }
+
+/* Fluxo de Caixa: cabeçalho fixo no topo + 1ª coluna (rótulos) fixa na horizontal */
+.fluxo-grid-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 2; box-shadow: 0 1px 0 var(--border-2); }
+.fluxo-grid-wrap th:nth-child(1), .fluxo-grid-wrap td:nth-child(1) {
+  position: sticky; left: 0; min-width: 150px; text-align: left;
+  background: var(--surface); z-index: 1; box-shadow: 1px 0 0 var(--border-2);
+}
+.fluxo-grid-wrap thead th:nth-child(1) { z-index: 3; }
 tr.fi-row td { background: rgba(52,211,153,.07); }
 tr.fi-row td:first-child { font-weight: 700; }
 
