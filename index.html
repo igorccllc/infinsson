@@ -7132,28 +7132,42 @@ function _buildFluxoGridTab() {
     return m ? `${MES[+m[2] - 1]}/${m[1].slice(2)}` : s;
   };
 
-  // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna
-  const body = FLUXOGRID.slice(hIdx + 1).filter(r => String(r[0] ?? '').trim() !== '');
+  // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna (carrega o índice
+  // original p/ consultar o negrito da col A = macro-conta/seção)
+  const bold = Array.isArray(FLUXOBOLD) ? FLUXOBOLD : [];
+  const body = [];
+  for (let i = hIdx + 1; i < FLUXOGRID.length; i++) {
+    if (String(FLUXOGRID[i][0] ?? '').trim() === '') continue;
+    body.push({ cells: FLUXOGRID[i], section: !!bold[i] });
+  }
 
   const toggle = `<div class="fi-mode-toggle" style="max-width:240px;margin-bottom:14px">
     <button class="fi-mode-btn ${fluxoView === 'mes' ? 'active' : ''}" onclick="setFluxoView('mes')">Mês a mês</button>
     <button class="fi-mode-btn ${fluxoView === 'ano' ? 'active' : ''}" onclick="setFluxoView('ano')" ${hasResumo ? '' : 'disabled title="planilha sem colunas de Total/Média"'}>Por ano</button>
   </div>`;
 
+  const rowHtml = ({ cells, section }) => {
+    const label = String(cells[0] ?? '');
+    const secColor = section ? (SECAO_COLORS[label] || 'var(--accent)') : '';
+    const firstStyle = section && secColor ? ` style="border-left:3px solid ${secColor}"` : '';
+    return `<tr class="${section ? 'fx-section' : 'fx-detail'}">${visibleCols.map((j, idx) => {
+      const v = cells[j];
+      const isNum = typeof v === 'number';
+      const cls = `${j > 0 ? 'r ' : ''}${!section && colKind[j] === 'resumo' ? 'accent ' : ''}${isNum && v < 0 ? 'red' : ''}`.trim();
+      return `<td class="${cls}"${idx === 0 ? firstStyle : ''}>${fmtCell(v)}</td>`;
+    }).join('')}</tr>`;
+  };
+
   return `<div class="card">
     <div class="flex-between mb-8">
       <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.length} linhas</div>
-      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · atualiza no Sync</span>
+      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · macro-contas em destaque</span>
     </div>
     ${toggle}
     <div class="table-wrap fluxo-grid-wrap" style="max-height:600px;overflow:auto">
       <table>
         <thead><tr>${visibleCols.map(j => `<th class="${colKind[j] === 'resumo' ? 'accent' : ''} ${j > 0 ? 'r' : ''}">${fmtHead(header[j], colKind[j])}</th>`).join('')}</tr></thead>
-        <tbody>${body.map(r => `<tr>${visibleCols.map(j => {
-          const v = r[j];
-          const isNum = typeof v === 'number';
-          return `<td class="${j > 0 ? 'r ' : ''}${colKind[j] === 'resumo' ? 'accent' : ''}${isNum && v < 0 ? ' red' : ''}">${fmtCell(v)}</td>`;
-        }).join('')}</tr>`).join('')}</tbody>
+        <tbody>${body.map(rowHtml).join('')}</tbody>
       </table>
     </div>
   </div>`;
