@@ -7803,7 +7803,8 @@ function openDebtModal(id) {
         <input class="form-input" id="debt-parcela-real" type="number" value="${d && d.parcelaReal ? d.parcelaReal : ''}" min="0" step="0.01" placeholder="o que você paga de fato"></div>
     </div>
     <div class="form-hint" style="margin-bottom:14px">O saldo informado é o da data escolhida — o app evolui o cronograma sozinho a partir dela.
-      Se a parcela real difere da teórica (seguros MIP/DFI, taxa de administração, TR), informe-a: o app usa o valor real e mostra a diferença como encargos.</div>
+      Se a parcela real difere da teórica (seguros MIP/DFI, taxa de administração, TR), informe-a: o app usa o valor real e mostra a diferença como encargos.
+      Informe o valor total financiado (o valor original, na assinatura do contrato) para o % quitado ser calculado sobre a dívida inteira — sem ele, o app usa o saldo atual como base (e o % começa em 0%, o que subestima o quanto já foi pago).</div>
     <div class="form-actions">
       <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveDebt('${d ? d.id : ''}')">Salvar</button>
