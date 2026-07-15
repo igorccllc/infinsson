@@ -5760,8 +5760,13 @@ function saveFISettings() {
 // ── 14. HISTÓRICO ─────────────────────────────────────────
 let historyTab = 'overview';
 let fluxoView = 'mes';   // 'mes' = colunas mensais · 'ano' = só Total/Média por ano
+let fluxoCollapsed = new Set();   // nomes de macro-contas recolhidas (some ao trocar de aba/recarregar)
 function setHistoryTab(t) { historyTab = t; destroyCharts(); renderHistory(); }
 function setFluxoView(v) { fluxoView = v; renderHistory(); }
+function toggleFluxoSection(name) {
+  if (fluxoCollapsed.has(name)) fluxoCollapsed.delete(name); else fluxoCollapsed.add(name);
+  renderHistory();
+}
 
 // Espelho da aba "Fluxo de Caixa": grade inteira, com toggle mês/ano.
 function _buildFluxoGridTab() {
