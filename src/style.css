@@ -372,6 +372,15 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
   text-transform: uppercase;
   letter-spacing: .5px;
 }
+/* Blocos conceituais (card "Como a meta é calculada") */
+.concept-block {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px;
+}
+.cb-title { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+.cb-text  { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
+.cb-text b { color: var(--text); }
+
 /* Botão ⓘ — explica como cada métrica é calculada */
 .info-btn {
   display: inline-block; cursor: pointer;
