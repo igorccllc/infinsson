@@ -2348,6 +2348,17 @@ const METRIC_DOCS = {
       ],
       ignores: 'Rendimento da carteira e inflação dos gastos — trata o dinheiro como caixa parado.',
       assumes: 'Gasto mensal constante no nível da média dos últimos 12 meses.',
+      sim: {
+        inputs: [
+          { key: 'gasto', label: 'Simular gasto mensal', value: Math.round(avgGas), step: 100, min: 0, unit: 'R$/mês' },
+        ],
+        recompute: v => {
+          const g = v.gasto;
+          if (!(g > 0)) return '<span style="color:var(--text-muted)">Informe um gasto válido.</span>';
+          const m = liquid / g;
+          return `${fmt(liquid)} ÷ ${fmt(g)}/mês = <b style="color:var(--accent);font-size:15px">${Math.round(m)} meses</b> <span style="color:var(--text-muted)">(${(m/12).toFixed(1)} anos)</span>`;
+        },
+      },
     };
   },
   coastfi: () => {
@@ -2364,6 +2375,19 @@ const METRIC_DOCS = {
       ],
       ignores: 'Aportes futuros (é o ponto: zero contribuição) e volatilidade — usa retorno médio constante.',
       assumes: 'O retorno é a PREMISSA da carteira (aba Patrimônio), não o realizado.',
+      sim: {
+        inputs: [
+          { key: 'atual', label: 'Simular patrimônio atual', value: Math.round(investableWealth()), step: 10000, min: 0, unit: 'R$' },
+          { key: 'retorno', label: 'Simular retorno real', value: +rReal.toFixed(1), step: 0.5, unit: '% a.a.' },
+        ],
+        recompute: v => {
+          const fin = fiNumber(), atual = v.atual, rr = v.retorno / 100;
+          if (atual >= fin) return `Com ${fmtK(atual)} você já teria atingido a meta de ${fmtK(fin)}.`;
+          if (rr <= 0) return `<span style="color:var(--red)">Retorno real ≤ 0 — nunca chega sozinho.</span>`;
+          const anos = Math.log(fin / atual) / Math.log(1 + rr);
+          return `ln(${fmtK(fin)} ÷ ${fmtK(atual)}) ÷ ln(1+${fmtPct(v.retorno)}) = <b style="color:var(--accent);font-size:15px">${anos.toFixed(1)} anos</b> <span style="color:var(--text-muted)">(aos ${Math.round(currentAge() + anos)} anos)</span>`;
+        },
+      },
     };
   },
   coverage: () => {
@@ -2378,6 +2402,17 @@ const METRIC_DOCS = {
       ],
       ignores: 'IR sobre os rendimentos e a diferença entre retorno esperado e distribuído (nem todo retorno vira caixa).',
       assumes: 'Cada ativo rende exatamente o retorno cadastrado na aba Patrimônio.',
+      sim: {
+        inputs: [
+          { key: 'gasto', label: 'Simular gasto mensal', value: Math.round(c.avgGas), step: 100, min: 0, unit: 'R$/mês' },
+        ],
+        recompute: v => {
+          const g = v.gasto;
+          if (!(g > 0)) return '<span style="color:var(--text-muted)">Informe um gasto válido.</span>';
+          const pct = c.passiveMonthly / g * 100;
+          return `${fmt(c.passiveMonthly)}/mês ÷ ${fmt(g)}/mês = <b style="color:${pct>=100?'var(--green)':pct>=50?'var(--accent)':'var(--yellow)'};font-size:15px">${fmtPct(pct)}</b> de cobertura`;
+        },
+      },
     };
   },
   finumber: () => {
