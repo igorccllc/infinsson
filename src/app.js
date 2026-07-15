@@ -6437,7 +6437,7 @@ function _buildFinHistTab() {
         <tbody>${body.map(r => `<tr>${r.map((c, i) => {
           if (!used[i]) return '';
           const alignR = typeof c === 'number' ? 'r ' : '';
-          return `<td class="${alignR}${colClass[i]}">${fmtCell(c)}</td>`;
+          return `<td class="${alignR}${colClass[i]}">${fmtCell(c, i)}</td>`;
         }).join('')}</tr>`).join('')}</tbody>
       </table>
     </div>
