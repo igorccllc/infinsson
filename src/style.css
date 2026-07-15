@@ -810,7 +810,6 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
 .fluxo-grid-wrap tr:hover td { filter: brightness(1.12); }
 .fx-caret { display:inline-block; width:14px; color:var(--text-dim); font-size:10px; }
 .fluxo-grid-wrap tr.fx-top td { font-weight:800; text-transform:uppercase; letter-spacing:.03em; font-size:12px; }
-.fluxo-grid-wrap tr.fx-section td { font-weight:700; }
 tr.fi-row td { background: rgba(52,211,153,.07); }
 tr.fi-row td:first-child { font-weight: 700; }
 
