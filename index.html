@@ -7066,7 +7066,84 @@ function saveFISettings() {
 
 // ── 14. HISTÓRICO ─────────────────────────────────────────
 let historyTab = 'overview';
+let fluxoView = 'mes';   // 'mes' = colunas mensais · 'ano' = só Total/Média por ano
 function setHistoryTab(t) { historyTab = t; destroyCharts(); renderHistory(); }
+function setFluxoView(v) { fluxoView = v; renderHistory(); }
+
+// Espelho da aba "Fluxo de Caixa": grade inteira, com toggle mês/ano.
+function _buildFluxoGridTab() {
+  if (!FLUXOGRID || !FLUXOGRID.length) {
+    return `<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+      <p style="font-size:15px;margin-bottom:8px">Aba "Fluxo de Caixa" ainda não sincronizada.</p>
+      <p style="font-size:13px">Atualize o Apps Script (Deploy > nova versão) e clique em <strong>↻ Sync Sheets</strong>.</p>
+    </div>`;
+  }
+  const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ''));
+  const MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+
+  // cabeçalho = linha com mais células de data (os meses)
+  let hIdx = 0, best = -1;
+  FLUXOGRID.slice(0, 15).forEach((row, i) => {
+    const c = row.filter(isDate).length;
+    if (c > best) { best = c; hIdx = i; }
+  });
+  const header = FLUXOGRID[hIdx] || [];
+  const nCols = header.length;
+
+  // classifica cada coluna (a partir da 2ª): mês (data) ou resumo (Total/Média)
+  const colKind = header.map((h, j) => {
+    if (j === 0) return 'label';
+    if (isDate(h)) return 'mes';
+    return String(h ?? '').trim() !== '' ? 'resumo' : 'vazio';
+  });
+  const hasResumo = colKind.includes('resumo');
+
+  const visibleCols = [];
+  for (let j = 0; j < nCols; j++) {
+    if (j === 0) { visibleCols.push(j); continue; }
+    if (colKind[j] === 'vazio') continue;
+    if (fluxoView === 'mes' && colKind[j] === 'mes') visibleCols.push(j);
+    else if (fluxoView === 'ano' && colKind[j] === 'resumo') visibleCols.push(j);
+    else if (!hasResumo) visibleCols.push(j);   // sem colunas de resumo: mostra tudo
+  }
+
+  const fmtHead = (h, kind) => {
+    if (kind === 'mes' && isDate(h)) { const [y, m] = String(h).split('-'); return MES[+m - 1] + '/' + y.slice(2); }
+    return String(h ?? '') || '—';
+  };
+  const fmtCell = v => {
+    if (typeof v === 'number') return v.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+    const s = String(v ?? '');
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? `${MES[+m[2] - 1]}/${m[1].slice(2)}` : s;
+  };
+
+  // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna
+  const body = FLUXOGRID.slice(hIdx + 1).filter(r => String(r[0] ?? '').trim() !== '');
+
+  const toggle = `<div class="fi-mode-toggle" style="max-width:240px;margin-bottom:14px">
+    <button class="fi-mode-btn ${fluxoView === 'mes' ? 'active' : ''}" onclick="setFluxoView('mes')">Mês a mês</button>
+    <button class="fi-mode-btn ${fluxoView === 'ano' ? 'active' : ''}" onclick="setFluxoView('ano')" ${hasResumo ? '' : 'disabled title="planilha sem colunas de Total/Média"'}>Por ano</button>
+  </div>`;
+
+  return `<div class="card">
+    <div class="flex-between mb-8">
+      <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.length} linhas</div>
+      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · atualiza no Sync</span>
+    </div>
+    ${toggle}
+    <div class="table-wrap fluxo-grid-wrap" style="max-height:600px;overflow:auto">
+      <table>
+        <thead><tr>${visibleCols.map(j => `<th class="${colKind[j] === 'resumo' ? 'accent' : ''} ${j > 0 ? 'r' : ''}">${fmtHead(header[j], colKind[j])}</th>`).join('')}</tr></thead>
+        <tbody>${body.map(r => `<tr>${visibleCols.map(j => {
+          const v = r[j];
+          const isNum = typeof v === 'number';
+          return `<td class="${j > 0 ? 'r ' : ''}${colKind[j] === 'resumo' ? 'accent' : ''}${isNum && v < 0 ? ' red' : ''}">${fmtCell(v)}</td>`;
+        }).join('')}</tr>`).join('')}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
 
 function renderHistory() {
   const el = document.getElementById('page-history');
