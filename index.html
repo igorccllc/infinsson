@@ -1771,6 +1771,11 @@ async function syncFromSheets(silent = false) {
       console.log('[Sync] fluxoGrid rows:', FLUXOGRID.length);
       changed = true;
     }
+    if (Array.isArray(data.fluxoBold) && data.fluxoBold.length > 0) {
+      FLUXOBOLD = data.fluxoBold;
+      localStorage.setItem('finplan_fluxobold', JSON.stringify(FLUXOBOLD));
+      changed = true;
+    }
 
     // ── Atualiza Mobills ──────────────────────────────────
     if (Array.isArray(data.mobills) && data.mobills.length > 0) {
