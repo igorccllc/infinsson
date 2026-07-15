@@ -2572,14 +2572,48 @@ function explainMetric(key) {
   const fn = METRIC_DOCS[key];
   if (!fn) return;
   const d = fn();
+  window._metricSimKey = key;
+  window._metricSimVals = {};
+  if (d.sim) d.sim.inputs.forEach(inp => { window._metricSimVals[inp.key] = inp.value; });
+
+  const simHtml = d.sim ? `
+    <div style="background:var(--surface-2);border:1px solid var(--accent);border-radius:10px;padding:12px 16px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--accent);margin-bottom:10px">🔧 Simular</div>
+      ${d.sim.inputs.map(inp => `
+        <div class="sim-param-row">
+          <span class="sim-param-label">${inp.label}</span>
+          <div class="sim-param-field">
+            <input type="number" class="sim-num-input" value="${inp.value}" step="${inp.step ?? 1}" ${inp.min != null ? `min="${inp.min}"` : ''}
+              oninput="metricSimInput('${key}','${inp.key}',this.value)">
+            <span class="sim-prod-unit">${inp.unit || ''}</span>
+          </div>
+        </div>`).join('')}
+      <div id="metric-sim-result" style="margin-top:10px;font-size:13px;color:var(--text)">${d.sim.recompute(window._metricSimVals)}</div>
+    </div>` : '';
+
   openModal('ⓘ ' + d.title, `
     <p style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:14px">${d.what}</p>
     ${d.calc.length ? `<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:14px">
       ${d.calc.map(([l, v]) => `<div class="qi-row"><span class="qi-label">${l}</span><span class="qi-val">${v}</span></div>`).join('')}
     </div>` : ''}
+    ${simHtml}
     ${d.ignores ? `<p style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:8px"><b style="color:var(--yellow)">Não considera:</b> ${d.ignores}</p>` : ''}
     ${d.assumes ? `<p style="font-size:12px;color:var(--text-muted);line-height:1.6"><b style="color:var(--accent)">Premissa:</b> ${d.assumes}</p>` : ''}
   `);
+}
+
+// Recalcula o card "🔧 Simular" ao vivo, sem fechar o modal nem persistir nada no estado.
+function metricSimInput(key, inputKey, val) {
+  const v = parseFloat(val);
+  if (isNaN(v)) return;
+  window._metricSimVals[inputKey] = v;
+  clearTimeout(metricSimInput._t);
+  metricSimInput._t = setTimeout(() => {
+    const d = METRIC_DOCS[key]?.();
+    if (!d?.sim) return;
+    const el = document.getElementById('metric-sim-result');
+    if (el) el.innerHTML = d.sim.recompute(window._metricSimVals);
+  }, 150);
 }
 
 function infoBtn(key) {
