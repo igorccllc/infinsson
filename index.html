@@ -7151,6 +7151,26 @@ function _buildFluxoGridTab() {
     return m ? `${MES[+m[2] - 1]}/${m[1].slice(2)}` : s;
   };
 
+  // Super-grupos: Receitas (Receitas Ativas, Receitas Passivas, Total Proventos) em verde,
+  // Gastos (Gastos, Gastos Não Recorrentes, Impostos) em vermelho, (-) AP em amarelo — cada
+  // macro-conta mantém seu agrupamento/colapso interno, só a cor passa a refletir o lado do fluxo.
+  const FLUXO_SUPERGRUPO = {
+    'receitas ativas': 'receitas', 'receitas passivas': 'receitas', 'total proventos': 'receitas',
+    'gastos': 'gastos', 'gastos nao recorrentes': 'gastos', 'impostos': 'gastos',
+  };
+  const FLUXO_SUPERGRUPO_COR = { receitas: '#22c55e', gastos: '#f87171' };
+  const FLUXO_AP_COR = '#eab308';
+  const resolveGrupo = label => {
+    const n = normCat(label);
+    if (/^\(-\)\s*ap\b/.test(n)) return 'ap';
+    return FLUXO_SUPERGRUPO[n] || null;
+  };
+  const colorForGrupo = (label, grupo) => {
+    if (grupo === 'ap') return FLUXO_AP_COR;
+    if (grupo) return FLUXO_SUPERGRUPO_COR[grupo];
+    return SECAO_COLORS[label] || null;
+  };
+
   // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna (carrega o índice
   // original p/ consultar o negrito da col A = macro-conta/seção). Cada linha de
   // detalhe herda a cor e o nome da seção-mãe (última linha em negrito vista); linhas
@@ -7159,12 +7179,20 @@ function _buildFluxoGridTab() {
   const esc = s => String(s).replace(/'/g, "\\'");
   const bold = Array.isArray(FLUXOBOLD) ? FLUXOBOLD : [];
   const body = [];
-  let curColor = null, curSection = null;
+  let curColor = null, curSection = null, prevGrupo = null;
   for (let i = hIdx + 1; i < FLUXOGRID.length; i++) {
     const label = String(FLUXOGRID[i][0] ?? '').trim();
     if (label === '') continue;
     const section = !!bold[i];
-    if (section) { curSection = label; curColor = SECAO_COLORS[label] || null; }
+    if (section) {
+      curSection = label;
+      const grupo = resolveGrupo(label);
+      curColor = colorForGrupo(label, grupo);
+      if ((grupo === 'receitas' || grupo === 'gastos') && grupo !== prevGrupo) {
+        body.push({ groupHeader: true, label: grupo === 'receitas' ? 'Total Receitas' : 'Total Gastos', color: FLUXO_SUPERGRUPO_COR[grupo] });
+      }
+      prevGrupo = grupo;
+    }
     if (!section && curSection && fluxoCollapsed.has(curSection)) continue;   // seção recolhida: pula o detalhe
     body.push({ cells: FLUXOGRID[i], section, color: curColor, sectionName: curSection });
   }
@@ -7173,6 +7201,8 @@ function _buildFluxoGridTab() {
     <button class="fi-mode-btn ${fluxoView === 'mes' ? 'active' : ''}" onclick="setFluxoView('mes')">Mês a mês</button>
     <button class="fi-mode-btn ${fluxoView === 'ano' ? 'active' : ''}" onclick="setFluxoView('ano')" ${hasResumo ? '' : 'disabled title="planilha sem colunas de Total/Média"'}>Por ano</button>
   </div>`;
+
+  const groupHeaderHtml = ({ label, color }) => `<tr class="fx-group"><td colspan="${visibleCols.length}" style="background:${hexToRgba(color, .22)};border-top:2px solid ${color};border-bottom:2px solid ${color};color:${color}">${label}</td></tr>`;
 
   const rowHtml = ({ cells, section, color, sectionName }) => {
     const hasColor = !!color;
@@ -7194,14 +7224,14 @@ function _buildFluxoGridTab() {
 
   return `<div class="card">
     <div class="flex-between mb-8">
-      <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.length} linhas</div>
-      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · seções coloridas · linhas ocultas na planilha não aparecem</span>
+      <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.filter(r => !r.groupHeader).length} linhas</div>
+      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · verde = receita · vermelho = gasto · amarelo = (-) AP</span>
     </div>
     ${toggle}
     <div class="table-wrap fluxo-grid-wrap" style="max-height:600px;overflow:auto">
       <table>
         <thead><tr>${visibleCols.map(j => `<th class="${colKind[j] === 'resumo' ? 'accent' : ''} ${j > 0 ? 'r' : ''}">${fmtHead(header[j], colKind[j])}</th>`).join('')}</tr></thead>
-        <tbody>${body.map(rowHtml).join('')}</tbody>
+        <tbody>${body.map(r => r.groupHeader ? groupHeaderHtml(r) : rowHtml(r)).join('')}</tbody>
       </table>
     </div>
   </div>`;
