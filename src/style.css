@@ -803,6 +803,12 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
   background: var(--surface); z-index: 1; box-shadow: 1px 0 0 var(--border-2);
 }
 .fluxo-grid-wrap thead th:nth-child(1) { z-index: 3; }
+/* Macro-contas (seções): negrito + fundo destacado; contas de detalhe recuadas */
+.fluxo-grid-wrap tr.fx-section td { background: var(--surface-2); font-weight: 700; color: var(--text); }
+.fluxo-grid-wrap tr.fx-section td:nth-child(1) { background: var(--surface-2); }
+.fluxo-grid-wrap tr.fx-detail td:nth-child(1) { padding-left: 24px; color: var(--text-muted); }
+.fluxo-grid-wrap tr:hover td { background: var(--surface-2); }
+.fluxo-grid-wrap tr.fx-section:hover td { filter: brightness(1.15); }
 tr.fi-row td { background: rgba(52,211,153,.07); }
 tr.fi-row td:first-child { font-weight: 700; }
 
