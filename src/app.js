@@ -434,6 +434,14 @@ async function syncFromSheets(silent = false) {
       changed = true;
     }
 
+    // ── Atualiza espelho da grade Fluxo de Caixa ──────────
+    if (Array.isArray(data.fluxoGrid) && data.fluxoGrid.length > 0) {
+      FLUXOGRID = data.fluxoGrid;
+      localStorage.setItem('finplan_fluxogrid', JSON.stringify(FLUXOGRID));
+      console.log('[Sync] fluxoGrid rows:', FLUXOGRID.length);
+      changed = true;
+    }
+
     // ── Atualiza Mobills ──────────────────────────────────
     if (Array.isArray(data.mobills) && data.mobills.length > 0) {
       MOBILLS_RAW = data.mobills;
