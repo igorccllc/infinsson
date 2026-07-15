@@ -5818,15 +5818,20 @@ function _buildFluxoGridTab() {
 
   // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna (carrega o índice
   // original p/ consultar o negrito da col A = macro-conta/seção). Cada linha de
-  // detalhe herda a cor da seção-mãe (última linha em negrito vista) para colorir a lateral.
+  // detalhe herda a cor e o nome da seção-mãe (última linha em negrito vista); linhas
+  // ANTES da 1ª macro-conta (ex: Receita/Saldo no topo) ficam sem cor — não pertencem
+  // a nenhuma seção, então não fazia sentido pintá-las com um azul de "fallback".
+  const esc = s => String(s).replace(/'/g, "\\'");
   const bold = Array.isArray(FLUXOBOLD) ? FLUXOBOLD : [];
   const body = [];
-  let curColor = 'var(--accent)';
+  let curColor = null, curSection = null;
   for (let i = hIdx + 1; i < FLUXOGRID.length; i++) {
-    if (String(FLUXOGRID[i][0] ?? '').trim() === '') continue;
+    const label = String(FLUXOGRID[i][0] ?? '').trim();
+    if (label === '') continue;
     const section = !!bold[i];
-    if (section) curColor = SECAO_COLORS[String(FLUXOGRID[i][0] ?? '').trim()] || 'var(--accent)';
-    body.push({ cells: FLUXOGRID[i], section, color: curColor });
+    if (section) { curSection = label; curColor = SECAO_COLORS[label] || null; }
+    if (!section && curSection && fluxoCollapsed.has(curSection)) continue;   // seção recolhida: pula o detalhe
+    body.push({ cells: FLUXOGRID[i], section, color: curColor, sectionName: curSection });
   }
 
   const toggle = `<div class="fi-mode-toggle" style="max-width:240px;margin-bottom:14px">
@@ -5834,16 +5839,21 @@ function _buildFluxoGridTab() {
     <button class="fi-mode-btn ${fluxoView === 'ano' ? 'active' : ''}" onclick="setFluxoView('ano')" ${hasResumo ? '' : 'disabled title="planilha sem colunas de Total/Média"'}>Por ano</button>
   </div>`;
 
-  const rowHtml = ({ cells, section, color }) => {
-    const bg = hexToRgba(color, section ? .16 : .06);
-    const borderColor = section ? color : hexToRgba(color, .55);
+  const rowHtml = ({ cells, section, color, sectionName }) => {
+    const hasColor = !!color;
+    const bg = hasColor ? hexToRgba(color, section ? .16 : .06) : '';
+    const borderColor = hasColor ? (section ? color : hexToRgba(color, .55)) : 'transparent';
     const borderW = section ? 4 : 3;
-    return `<tr class="${section ? 'fx-section' : 'fx-detail'}">${visibleCols.map((j, idx) => {
+    const collapsed = section && fluxoCollapsed.has(sectionName);
+    const caret = section ? `<span class="fx-caret">${collapsed ? '▸' : '▾'}</span>` : '';
+    const trAttrs = section ? ` onclick="toggleFluxoSection('${esc(sectionName)}')" style="cursor:pointer"` : '';
+    return `<tr class="${section ? 'fx-section' : 'fx-detail'}"${trAttrs}>${visibleCols.map((j, idx) => {
       const v = cells[j];
       const isNum = typeof v === 'number';
       const cls = `${j > 0 ? 'r ' : ''}${!section && colKind[j] === 'resumo' ? 'accent ' : ''}${isNum && v < 0 ? 'red' : ''}`.trim();
       const style = idx === 0 ? `background:${bg};border-left:${borderW}px solid ${borderColor}` : `background:${bg}`;
-      return `<td class="${cls}" style="${style}">${fmtCell(v)}</td>`;
+      const content = idx === 0 ? `${caret}${fmtCell(v)}` : fmtCell(v);
+      return `<td class="${cls}" style="${style}">${content}</td>`;
     }).join('')}</tr>`;
   };
 
