@@ -5816,50 +5816,56 @@ function _buildFluxoGridTab() {
     return m ? `${MES[+m[2] - 1]}/${m[1].slice(2)}` : s;
   };
 
-  // Super-grupos: Receitas (Receitas Ativas, Receitas Passivas, Total Proventos) em verde,
-  // Gastos (Gastos, Gastos Não Recorrentes, Impostos) em vermelho, (-) AP em amarelo — cada
-  // macro-conta mantém seu agrupamento/colapso interno, só a cor passa a refletir o lado do fluxo.
+  // Super-grupos: a planilha já tem "Total Receitas" e "Total Gastos" como macro-contas de
+  // topo (negrito), cada uma com sub-seções também em negrito prefixadas "(+)"/"(-)":
+  //   Total Receitas → (+) Total Receitas Ativas, (+) Total Receitas Passivas, (+) Total Proventos
+  //   Total Gastos   → (-) Gastos, (-) Gastos Não Recorrentes, (-) Impostos
+  // Não sintetizamos nada: só herdamos a cor do grupo (verde/vermelho) por toda a árvore,
+  // e o "(-) AP" fica isolado em amarelo. O agrupamento/colapso de cada macro-conta continua.
+  const stripSign = s => String(s ?? '').replace(/^\(\+\)\s*|^\(-\)\s*/, '').trim();
   const FLUXO_SUPERGRUPO = {
-    'receitas ativas': 'receitas', 'receitas passivas': 'receitas', 'total proventos': 'receitas',
-    'gastos': 'gastos', 'gastos nao recorrentes': 'gastos', 'impostos': 'gastos',
+    'total receitas': 'receitas', 'total receitas ativas': 'receitas',
+    'total receitas passivas': 'receitas', 'total proventos': 'receitas',
+    'total gastos': 'gastos', 'gastos': 'gastos',
+    'gastos nao recorrentes': 'gastos', 'impostos': 'gastos',
   };
+  const FLUXO_TOPO = { 'total receitas': true, 'total gastos': true };
   const FLUXO_SUPERGRUPO_COR = { receitas: '#22c55e', gastos: '#f87171' };
   const FLUXO_AP_COR = '#eab308';
   const resolveGrupo = label => {
-    const n = normCat(label);
-    if (/^\(-\)\s*ap\b/.test(n)) return 'ap';
+    const n = normCat(stripSign(label));
+    if (n === 'ap') return 'ap';
     return FLUXO_SUPERGRUPO[n] || null;
   };
+  const isTopo = label => !!FLUXO_TOPO[normCat(stripSign(label))];
   const colorForGrupo = (label, grupo) => {
     if (grupo === 'ap') return FLUXO_AP_COR;
     if (grupo) return FLUXO_SUPERGRUPO_COR[grupo];
     return SECAO_COLORS[label] || null;
   };
 
-  // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna (carrega o índice
-  // original p/ consultar o negrito da col A = macro-conta/seção). Cada linha de
-  // detalhe herda a cor e o nome da seção-mãe (última linha em negrito vista); linhas
-  // ANTES da 1ª macro-conta (ex: Receita/Saldo no topo) ficam sem cor — não pertencem
-  // a nenhuma seção, então não fazia sentido pintá-las com um azul de "fallback".
+  // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna (carrega o índice original
+  // p/ consultar o negrito da col A = macro-conta/seção). Hierarquia de negrito com 2 níveis:
+  // "Total Receitas/Gastos" (topo) → "(+)/(-) ..." (seção) → categorias (detalhe). Recolher o
+  // topo esconde a seção inteira; recolher uma seção esconde só suas categorias.
   const esc = s => String(s).replace(/'/g, "\\'");
   const bold = Array.isArray(FLUXOBOLD) ? FLUXOBOLD : [];
   const body = [];
-  let curColor = null, curSection = null, prevGrupo = null;
+  let curColor = null, curTop = null, curSection = null;
   for (let i = hIdx + 1; i < FLUXOGRID.length; i++) {
     const label = String(FLUXOGRID[i][0] ?? '').trim();
     if (label === '') continue;
     const section = !!bold[i];
+    const topo = section && isTopo(label);
     if (section) {
-      curSection = label;
-      const grupo = resolveGrupo(label);
-      curColor = colorForGrupo(label, grupo);
-      if ((grupo === 'receitas' || grupo === 'gastos') && grupo !== prevGrupo) {
-        body.push({ groupHeader: true, label: grupo === 'receitas' ? 'Total Receitas' : 'Total Gastos', color: FLUXO_SUPERGRUPO_COR[grupo] });
-      }
-      prevGrupo = grupo;
+      curColor = colorForGrupo(label, resolveGrupo(label));
+      if (topo) { curTop = label; curSection = null; }
+      else curSection = label;
     }
-    if (!section && curSection && fluxoCollapsed.has(curSection)) continue;   // seção recolhida: pula o detalhe
-    body.push({ cells: FLUXOGRID[i], section, color: curColor, sectionName: curSection });
+    // pula linha se a seção-mãe estiver recolhida, ou (p/ não-topo) se o topo-mãe estiver recolhido
+    if (!topo && curTop && fluxoCollapsed.has(curTop)) continue;
+    if (!section && curSection && fluxoCollapsed.has(curSection)) continue;
+    body.push({ cells: FLUXOGRID[i], section, topo, color: curColor, toggleKey: section ? label : (curSection || curTop) });
   }
 
   const toggle = `<div class="fi-mode-toggle" style="max-width:240px;margin-bottom:14px">
@@ -5867,17 +5873,17 @@ function _buildFluxoGridTab() {
     <button class="fi-mode-btn ${fluxoView === 'ano' ? 'active' : ''}" onclick="setFluxoView('ano')" ${hasResumo ? '' : 'disabled title="planilha sem colunas de Total/Média"'}>Por ano</button>
   </div>`;
 
-  const groupHeaderHtml = ({ label, color }) => `<tr class="fx-group"><td colspan="${visibleCols.length}" style="background:${hexToRgba(color, .22)};border-top:2px solid ${color};border-bottom:2px solid ${color};color:${color}">${label}</td></tr>`;
-
-  const rowHtml = ({ cells, section, color, sectionName }) => {
+  const rowHtml = ({ cells, section, topo, color, toggleKey }) => {
     const hasColor = !!color;
-    const bg = hasColor ? hexToRgba(color, section ? .16 : .06) : '';
-    const borderColor = hasColor ? (section ? color : hexToRgba(color, .55)) : 'transparent';
-    const borderW = section ? 4 : 3;
-    const collapsed = section && fluxoCollapsed.has(sectionName);
+    const alpha = topo ? .28 : section ? .16 : .06;
+    const bg = hasColor ? hexToRgba(color, alpha) : '';
+    const borderColor = hasColor ? (topo || section ? color : hexToRgba(color, .55)) : 'transparent';
+    const borderW = topo ? 5 : section ? 4 : 3;
+    const collapsed = section && fluxoCollapsed.has(toggleKey);
     const caret = section ? `<span class="fx-caret">${collapsed ? '▸' : '▾'}</span>` : '';
-    const trAttrs = section ? ` onclick="toggleFluxoSection('${esc(sectionName)}')" style="cursor:pointer"` : '';
-    return `<tr class="${section ? 'fx-section' : 'fx-detail'}"${trAttrs}>${visibleCols.map((j, idx) => {
+    const trAttrs = section ? ` onclick="toggleFluxoSection('${esc(toggleKey)}')" style="cursor:pointer"` : '';
+    const rowCls = topo ? 'fx-top' : section ? 'fx-section' : 'fx-detail';
+    return `<tr class="${rowCls}"${trAttrs}>${visibleCols.map((j, idx) => {
       const v = cells[j];
       const isNum = typeof v === 'number';
       const cls = `${j > 0 ? 'r ' : ''}${!section && colKind[j] === 'resumo' ? 'accent ' : ''}${isNum && v < 0 ? 'red' : ''}`.trim();
@@ -5889,14 +5895,14 @@ function _buildFluxoGridTab() {
 
   return `<div class="card">
     <div class="flex-between mb-8">
-      <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.filter(r => !r.groupHeader).length} linhas</div>
+      <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.length} linhas</div>
       <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · verde = receita · vermelho = gasto · amarelo = (-) AP</span>
     </div>
     ${toggle}
     <div class="table-wrap fluxo-grid-wrap" style="max-height:600px;overflow:auto">
       <table>
         <thead><tr>${visibleCols.map(j => `<th class="${colKind[j] === 'resumo' ? 'accent' : ''} ${j > 0 ? 'r' : ''}">${fmtHead(header[j], colKind[j])}</th>`).join('')}</tr></thead>
-        <tbody>${body.map(r => r.groupHeader ? groupHeaderHtml(r) : rowHtml(r)).join('')}</tbody>
+        <tbody>${body.map(rowHtml).join('')}</tbody>
       </table>
     </div>
   </div>`;
