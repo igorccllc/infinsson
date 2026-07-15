@@ -5830,15 +5830,15 @@ function _buildFluxoGridTab() {
   </div>`;
 
   const rowHtml = ({ cells, section, color }) => {
+    const bg = hexToRgba(color, section ? .16 : .06);
+    const borderColor = section ? color : hexToRgba(color, .55);
     const borderW = section ? 4 : 3;
-    const rowStyle = section
-      ? ` style="--sec-color:${color};border-left:${borderW}px solid ${color};background:${hexToRgba(color, .13)}"`
-      : ` style="--sec-color:${color};border-left:${borderW}px solid ${hexToRgba(color, .45)}"`;
-    return `<tr class="${section ? 'fx-section' : 'fx-detail'}"${rowStyle}>${visibleCols.map((j, idx) => {
+    return `<tr class="${section ? 'fx-section' : 'fx-detail'}">${visibleCols.map((j, idx) => {
       const v = cells[j];
       const isNum = typeof v === 'number';
       const cls = `${j > 0 ? 'r ' : ''}${!section && colKind[j] === 'resumo' ? 'accent ' : ''}${isNum && v < 0 ? 'red' : ''}`.trim();
-      return `<td class="${cls}">${fmtCell(v)}</td>`;
+      const style = idx === 0 ? `background:${bg};border-left:${borderW}px solid ${borderColor}` : `background:${bg}`;
+      return `<td class="${cls}" style="${style}">${fmtCell(v)}</td>`;
     }).join('')}</tr>`;
   };
 
