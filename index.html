@@ -7065,12 +7065,28 @@ function saveFISettings() {
 }
 
 // ── 14. HISTÓRICO ─────────────────────────────────────────
+let historyTab = 'overview';
+function setHistoryTab(t) { historyTab = t; destroyCharts(); renderHistory(); }
+
 function renderHistory() {
   const el = document.getElementById('page-history');
   const last = HISTORICAL[HISTORICAL.length-1];
   const first = HISTORICAL[0];
   const years = (HISTORICAL.length) / 12;
   const cagr  = (Math.pow(last.pat/first.pat, 1/years)-1)*100;
+
+  const tabsHtml = `<div class="tabs" style="margin-bottom:16px">
+    <button class="tab-btn ${historyTab === 'overview' ? 'active' : ''}" onclick="setHistoryTab('overview')">Visão Geral</button>
+    <button class="tab-btn ${historyTab === 'fluxo' ? 'active' : ''}" onclick="setHistoryTab('fluxo')">Fluxo de Caixa</button>
+  </div>`;
+  const headerHtml = (sub) => `<div class="page-header"><div>
+      <div class="page-title">Histórico</div><div class="page-subtitle">${sub}</div>
+    </div></div>`;
+
+  if (historyTab === 'fluxo') {
+    el.innerHTML = headerHtml('Espelho da aba Fluxo de Caixa da planilha') + tabsHtml + _buildFluxoGridTab();
+    return;
+  }
 
   // Retorno realizado (TWR) vs CDI — separa esforço (aporte) de juros
   const twr12   = twr(12);
@@ -7081,11 +7097,8 @@ function renderHistory() {
   const assumed = weightedReturn();
 
   el.innerHTML = `
-    <div class="page-header">
-      <div><div class="page-title">Histórico</div>
-        <div class="page-subtitle">${monthLabel(first.d)} — ${monthLabel(last.d)} · ${HISTORICAL.length} meses</div>
-      </div>
-    </div>
+    ${headerHtml(`${monthLabel(first.d)} — ${monthLabel(last.d)} · ${HISTORICAL.length} meses`)}
+    ${tabsHtml}
 
     <div class="kpi-grid mb-16">
       <div class="kpi">
