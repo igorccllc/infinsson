@@ -5402,6 +5402,28 @@ function renderFI() {
       </div>
     </div>
 
+    <div class="card mb-16">
+      <div class="card-title">Como a meta é calculada</div>
+      <div class="eq-headline" style="font-size:19px">
+        ${fmt(S.fi.targetMonthlyIncome)}<span>/mês</span> × 12 = ${fmtK(S.fi.targetMonthlyIncome * 12)}<span>/ano</span> ÷ <b>${fmtPct(fiRate())}</b> = <b>${fmtK(fin)}</b>
+      </div>
+      <div class="grid-2 mt-12" style="gap:12px">
+        <div class="concept-block">
+          <div class="cb-title" style="color:var(--green)">Renda almejada — "quanto eu saco"</div>
+          <div class="cb-text">O valor em R$ que o patrimônio precisa te pagar todo mês, para sempre, em dinheiro de hoje. Aumentou a renda → a meta <b>sobe</b>.</div>
+        </div>
+        ${S.fi.mode === 'swr' ? `
+        <div class="concept-block">
+          <div class="cb-title" style="color:var(--accent)">Taxa de retirada — "quão duro o pote trabalha"</div>
+          <div class="cb-text">A fração do patrimônio que você assume poder sacar por ano sem quebrar. Taxa maior → o mesmo saque cabe num pote <b>menor</b> (meta cai), mas o risco de o dinheiro acabar <b style="color:var(--red)">sobe</b> — veja o Trade-off e a Sobrevivência pós-FI abaixo.</div>
+        </div>` : `
+        <div class="concept-block">
+          <div class="cb-title" style="color:var(--accent)">Juro real esperado — "o pote nunca encolhe"</div>
+          <div class="cb-text">Você vive só do rendimento acima da inflação; o principal se preserva para sempre. Juro maior assumido → cada real trabalha mais → meta <b>menor</b>. O risco aqui é o juro real cair e te obrigar a reinvestir a menos.</div>
+        </div>`}
+      </div>
+    </div>
+
     <div class="kpi-grid mb-16">
       <div class="kpi">
         <div class="kpi-label">FI nominal (ilusão) ${infoBtn('finominal')}</div>
