@@ -6486,6 +6486,7 @@ function saveDebt(id) {
     parcelas: parseInt(document.getElementById('debt-parcelas').value, 10) || 1,
     sistema:  document.getElementById('debt-sistema').value,
     parcelaReal: parseFloat(document.getElementById('debt-parcela-real').value) || null,
+    valorTotal: parseFloat(document.getElementById('debt-valor-total').value) || null,
   };
   if (obj.saldo <= 0) { showToast('Informe o saldo devedor.'); return; }
   if (id) {
