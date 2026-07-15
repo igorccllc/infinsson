@@ -1162,6 +1162,20 @@ const METRIC_DOCS = {
       ],
       ignores: 'IR sobre saques, mudanças de gasto na velhice e flexibilidade (cortar gasto em ano ruim melhora muito o resultado real).',
       assumes: 'Saque fixo em valor de hoje, sem ajuste de comportamento — é o teste mais duro.',
+      sim: {
+        inputs: [
+          { key: 'saque', label: 'Simular saque mensal', value: S.fi.targetMonthlyIncome, step: 500, min: 0, unit: 'R$/mês' },
+          { key: 'horizonte', label: 'Simular até a idade', value: r ? r.horizonAge : 90, step: 1, min: currentAge() + 1, unit: 'anos' },
+        ],
+        recompute: v => {
+          const saveInc = S.fi.targetMonthlyIncome;
+          S.fi.targetMonthlyIncome = v.saque;
+          const rr = monteCarloDecum(250, Math.round(v.horizonte));
+          S.fi.targetMonthlyIncome = saveInc;   // nunca persiste — só simula
+          const col = rr.successRate >= 90 ? 'var(--green)' : rr.successRate >= 75 ? 'var(--yellow)' : 'var(--red)';
+          return `Sacando ${fmt(v.saque)}/mês até os ${Math.round(v.horizonte)} anos: <b style="color:${col};font-size:15px">${fmtPct(rr.successRate)}</b> de sucesso`;
+        },
+      },
     };
   },
   twr: () => ({
