@@ -7790,6 +7790,8 @@ function openDebtModal(id) {
         <input class="form-input" id="debt-taxa" type="number" value="${d ? d.taxaMes : 0.97}" min="0" step="0.01"></div>
       <div class="form-group"><label class="form-label">Parcelas restantes (na data)</label>
         <input class="form-input" id="debt-parcelas" type="number" value="${d ? d.parcelas : 169}" min="1" step="1"></div>
+      <div class="form-group"><label class="form-label">Valor total financiado (R$) — opcional</label>
+        <input class="form-input" id="debt-valor-total" type="number" value="${d && d.valorTotal ? d.valorTotal : ''}" min="0" step="1000" placeholder="ex: 508000"></div>
     </div>
     <div class="grid-2" style="gap:12px">
       <div class="form-group"><label class="form-label">Sistema de amortização</label>
