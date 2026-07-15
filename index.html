@@ -7571,7 +7571,8 @@ function renderDebts() {
         <button class="btn btn-ghost btn-sm" onclick="deleteDebt('${d.id}')">✕</button></div></div>
       </div>`;
     }
-    const pctPago = (1 - now.saldoAtual / d.saldo) * 100;
+    const base = d.valorTotal || d.saldo;
+    const pctPago = (1 - now.saldoAtual / base) * 100;
     const encargos = d.parcelaReal ? d.parcelaReal - now.parcelaAtual : 0;
     const parcelaExibida = d.parcelaReal || now.parcelaAtual;
     return `<div class="card mb-16">
