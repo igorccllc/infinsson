@@ -634,7 +634,9 @@ function projectPath(months, startWealth, annualReturn, incDelta, expDelta, extr
       .filter(ev => ev.monthOffset === m)
       .reduce((s,ev) => s + ev.impact, 0);
 
-    w = Math.max(0, w + ret + savings + evImpact);
+    const extra = extraFlows ? (extraFlows[m] || 0) : 0;   // saídas de metas (item Objetivos)
+
+    w = Math.max(0, w + ret + savings + evImpact + extra);
     path.push({ m, w, income, expense, savings, ret });
   }
   return path;
