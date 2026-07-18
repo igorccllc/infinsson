@@ -2963,7 +2963,9 @@ function getHistoricalAverages() {
 }
 
 function renderScenarios() {
-  const el = document.getElementById('page-scenarios');
+  // Agora é a aba "Cenários" dentro da Linha da Vida (renderiza em #sc-body).
+  const el = document.getElementById('sc-body') || document.getElementById('page-scenarios');
+  if (!el) return;
 
   const hist = getHistoricalAverages();
   const totalInc = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0);
