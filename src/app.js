@@ -3441,6 +3441,8 @@ function renderPortfolio() {
       </div>
     </div>
 
+    ${riskCard}
+
     <div class="grid-2 mb-16">
       <div class="card">
         <div class="card-title">Ativos</div>
