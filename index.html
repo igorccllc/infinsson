@@ -8354,6 +8354,22 @@ function computeInsights() {
     }
   }
 
+  // ── Perfil de risco: Necessidade × Capacidade × Tolerância
+  if (totalPort > 0) {
+    const rp = riskProfile();
+    if (rp.overRisk) {
+      push('warn', 'Risco',
+        `Você toma mais risco do que precisa (${fmtPct(rp.rvPct)} em ativos de risco)`,
+        `Sua necessidade de retorno é baixa (${rp.reqReal != null ? 'precisa de só ' + fmtPct(rp.reqReal) + ' real a.a.' : 'meta já atingida'}), mas a carteira está agressiva. <b>Quando você já ganhou o jogo, não precisa continuar apostando</b> — reduzir RV trava o resultado e diminui o risco de sequência perto da FI. Detalhe na aba Patrimônio.`,
+        'Avaliar reduzir a fatia de RV/FII e travar o resultado, já que o plano não depende de retorno alto.');
+    } else if (rp.necLvl === 'alta') {
+      push('info', 'Risco',
+        `O plano depende de retorno alto (${rp.reqReal != null ? 'precisa de ' + fmtPct(rp.reqReal) + ' real a.a.' : 'meta difícil no prazo'})`,
+        `A necessidade de retorno está alta em relação ao horizonte e ao aporte. Ou aumenta o aporte, ou estende o prazo, ou aceita mais risco — mas mais risco perto da meta é justamente o que a régua Capacidade × Tolerância manda evitar. Recomendação de perfil: <b>${rp.rec}</b>.`,
+        null);
+    }
+  }
+
   // ── Alocação vs. meta (bandas de rebalanceamento)
   const targets = S.targetAllocation || {};
   if (totalPort > 0 && Object.keys(targets).length) {
