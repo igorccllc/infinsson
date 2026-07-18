@@ -6446,10 +6446,10 @@ function renderDebts() {
   </div>`;
   const headerHtml = (sub) => `
     <div class="page-header"><div>
-      <div class="page-title">Dívidas</div>
+      <div class="page-title">Financiamento</div>
       <div class="page-subtitle">${sub}</div>
     </div>
-    <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openDebtModal()">+ Nova dívida</button></div>
+    <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openDebtModal()">+ Novo financiamento</button></div>
     </div>`;
 
   if (debtsTab === 'fin') {
