@@ -5562,7 +5562,7 @@ function renderFI() {
       <div class="kpi">
         <div class="kpi-label">Runway ${infoBtn('runway')}</div>
         <div class="kpi-value" style="color:var(--accent)">${(rwM/12).toFixed(1)} anos</div>
-        <div class="kpi-sub">se a renda zerar hoje, os ativos líquidos (caixa + RF) bancam ${Math.round(rwM)} meses de gasto recorrente</div>
+        <div class="kpi-sub">se a renda zerar hoje, o patrimônio investível banca ${Math.round(rwM)} meses de gastos</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Coast FI ${infoBtn('coastfi')}</div>
