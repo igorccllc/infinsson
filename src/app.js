@@ -219,6 +219,16 @@ const DEFAULT_STATE = {
 
   // Dívidas registradas (seção própria — não altera os simuladores)
   debts: [],
+
+  // Proteção (seguros): dimensiona capital de vida e invalidez necessário
+  protection: {
+    dependentes:      1,       // nº de pessoas que dependem da sua renda
+    anosDependencia:  20,      // por quantos anos a família precisa da reposição de renda
+    seguroVida:       0,       // capital de seguro de vida JÁ contratado (R$)
+    seguroInvalidez:  0,       // capital de seguro de invalidez JÁ contratado (R$)
+    dividaCobertaMIP: null,    // saldo de dívida coberto por seguro prestamista (null = assume toda dívida ativa)
+    tetoINSS:         8157,    // teto do benefício do INSS (R$/mês) — ajuste anual
+  },
 };
 
 // ── 3. STATE MANAGER ─────────────────────────────────────
