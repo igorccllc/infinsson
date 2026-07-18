@@ -2032,15 +2032,18 @@ function savingsRate(h) {
 // CDI médio anual aproximado (% a.a.) — benchmark histórico
 const CDI_YEARLY = { 2017:9.9, 2018:6.4, 2019:5.9, 2020:2.8, 2021:4.4, 2022:12.4, 2023:13.0, 2024:10.9, 2025:14.7, 2026:13.6 };
 
-// Retorno mensal realizado da carteira: (Δpatrimônio - aporte) / patrimônio anterior.
-// Aproximação: o aporte do mês carrega ruído (rendimento reinvestido, imóvel),
-// mas na média de 12m+ converge para o retorno de mercado da carteira.
+// Retorno mensal realizado da carteira. Fonte da verdade = coluna Rentabilidade da planilha
+// (h.rent, já em % → ÷100), para o heatmap ficar IDÊNTICO à planilha. Só quando o mês não tem
+// rentabilidade sincronizada é que cai no recálculo (Δpatrimônio - aporte)/patrimônio anterior.
 function realizedReturns() {
   const out = [];
   for (let i = 1; i < HISTORICAL.length; i++) {
     const prev = HISTORICAL[i-1], cur = HISTORICAL[i];
-    if (!prev.pat) continue;
-    out.push({ d: cur.d, r: (cur.pat - prev.pat - (cur.apo || 0)) / prev.pat });
+    if (cur.rent != null && cur.rent !== '') {
+      out.push({ d: cur.d, r: cur.rent / 100 });
+    } else if (prev.pat) {
+      out.push({ d: cur.d, r: (cur.pat - prev.pat - (cur.apo || 0)) / prev.pat });
+    }
   }
   return out;
 }
