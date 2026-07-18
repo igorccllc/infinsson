@@ -6840,7 +6840,7 @@ function renderProtection() {
             <tr style="border-top:2px solid var(--border-2)"><td class="bold">= Falta contratar</td><td class="r bold" style="color:${faltaVida > 0 ? 'var(--red)' : 'var(--green)'}">${faltaVida > 0 ? fmt(faltaVida) : 'coberto ✓'}</td></tr>
           </tbody>
         </table></div>
-        <div class="form-hint" style="margin-top:10px">Se você faltar, a família precisa deste capital para quitar dívidas e manter o padrão de vida pelos anos de dependência. O MIP do financiamento já extingue a dívida na morte — por isso entra creditado.</div>
+        <div class="form-hint" style="margin-top:10px">Se você faltar, a família precisa deste capital para quitar o financiamento e manter o padrão de vida pelos anos de dependência. O MIP do financiamento já o extingue na morte — por isso entra creditado.</div>
       </div>
 
       <div class="card">
