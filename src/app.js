@@ -980,6 +980,78 @@ function passiveCoverage() {
   return { passiveMonthly, avgGas, pct: avgGas > 0 ? passiveMonthly / avgGas * 100 : 0 };
 }
 
+// Retorno real anual necessário p/ atingir a FI até a aposentadoria, dado o aporte atual.
+// Busca binária; 0 se já atingiu; null se nem 30% real resolve (meta inatingível no prazo).
+function requiredRealReturn() {
+  const w0 = investableWealth(), target = fiNumber();
+  if (w0 >= target) return 0;
+  const n = Math.max(1, (S.assumptions.retirementAge || 60) - currentAge());
+  const months = n * 12;
+  const inc = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0);
+  const exp = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+  const pmt = Math.max(0, inc - exp);
+  const fv = rA => {
+    const rm = Math.pow(1 + rA / 100, 1/12) - 1;
+    let w = w0;
+    for (let m = 0; m < months; m++) w = w * (1 + rm) + pmt;
+    return w;
+  };
+  if (fv(30) < target) return null;
+  let lo = -5, hi = 30;
+  for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (fv(mid) >= target) hi = mid; else lo = mid; }
+  return (lo + hi) / 2;
+}
+
+// Maior queda pico-a-vale já vivida no patrimônio investível — tolerância a risco COMPROVADA.
+function maxDrawdownHist() {
+  let peak = -Infinity, maxDD = 0;
+  for (const h of HISTORICAL) {
+    const v = h.pl || h.pat;
+    if (!v) continue;
+    if (v > peak) peak = v;
+    if (peak > 0) maxDD = Math.max(maxDD, (peak - v) / peak);
+  }
+  return maxDD * 100;
+}
+
+// Perfil de risco: cruza Necessidade × Capacidade × Tolerância. A alocação deve respeitar a MENOR.
+function riskProfile() {
+  const w0 = investableWealth(), target = fiNumber();
+  const reqReal = requiredRealReturn();
+  const expReal = weightedReturnReal();
+  const anos = Math.max(0, (S.assumptions.retirementAge || 60) - currentAge());
+  const dd = maxDrawdownHist();
+  const total = S.portfolio.reduce((s, a) => s + a.value, 0);
+  const risco = S.portfolio.reduce((s, a) => s + (['rv', 'fii', 'intl'].includes(a.cat) ? a.value : 0), 0);
+  const rvPct = total > 0 ? risco / total * 100 : 0;
+
+  // Necessidade — quanto risco você PRECISA
+  let nec, necLvl, necTxt;
+  if (w0 >= target) { nec = 1; necLvl = 'baixa'; necTxt = 'Você já atingiu a meta — não precisa de risco nenhum.'; }
+  else if (reqReal == null) { nec = 3; necLvl = 'alta'; necTxt = 'A meta não fecha nem com retorno alto no prazo — reveja aporte ou meta.'; }
+  else if (reqReal <= 2) { nec = 1; necLvl = 'baixa'; necTxt = `Precisa de só ${fmtPct(reqReal)} real a.a. — folga sobre os ${fmtPct(expReal)} esperados.`; }
+  else if (reqReal <= 5) { nec = 2; necLvl = 'média'; necTxt = `Precisa de ${fmtPct(reqReal)} real a.a. para bater a meta no prazo.`; }
+  else { nec = 3; necLvl = 'alta'; necTxt = `Precisa de ${fmtPct(reqReal)} real a.a. — exige carteira agressiva ou mais aporte.`; }
+
+  // Capacidade — quanto risco você PODE (horizonte)
+  let cap, capLvl;
+  if (anos >= 15) { cap = 3; capLvl = 'alta'; }
+  else if (anos >= 7) { cap = 2; capLvl = 'média'; }
+  else { cap = 1; capLvl = 'baixa'; }
+
+  // Tolerância COMPROVADA — pelo maior tombo já vivido
+  let tol, tolLvl, tolTxt;
+  if (dd >= 20) { tol = 3; tolLvl = 'alta'; tolTxt = `Já viveu uma queda de ${fmtPct(dd)} e seguiu — tolerância comprovada.`; }
+  else if (dd >= 8) { tol = 2; tolLvl = 'média'; tolTxt = `Maior queda vivida no patrimônio: ${fmtPct(dd)}.`; }
+  else { tol = 2; tolLvl = 'não testada'; tolTxt = `Nunca passou por queda relevante (máx ${fmtPct(dd)}) — tolerância ainda não testada.`; }
+
+  const minLvl = Math.min(nec, cap, tol);
+  const rec = minLvl <= 1 ? 'conservadora' : (minLvl === 2 ? 'moderada' : 'arrojada');
+  const overRisk = necLvl === 'baixa' && rvPct > 40;   // "ganhou o jogo" e ainda joga pesado
+
+  return { reqReal, expReal, anos, dd, rvPct, necLvl, necTxt, capLvl, tolLvl, tolTxt, rec, overRisk, atingiu: w0 >= target };
+}
+
 // Inflação pessoal (INFORMATIVO — não entra em nenhuma projeção):
 // crescimento dos gastos recorrentes (col. J da planilha) últimos 12m vs 12m anteriores.
 // Cai nos gastos totais se a coluna ainda não tiver 24 meses de dados.
