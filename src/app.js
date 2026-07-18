@@ -599,7 +599,7 @@ function investableWealth() {
   return port || HISTORICAL[HISTORICAL.length-1].pl;
 }
 
-function projectPath(months, startWealth, annualReturn, incDelta, expDelta) {
+function projectPath(months, startWealth, annualReturn, incDelta, expDelta, extraFlows) {
   const monthlyRate = Math.pow(1 + annualReturn / 100, 1/12) - 1;
   const A = S.assumptions;
   const age0  = currentAge();
