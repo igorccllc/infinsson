@@ -1447,6 +1447,9 @@ let activePage = 'dashboard';
 let activeCharts = {};
 
 function navigate(page) {
+  // Aliases: Cenários e Objetivos viraram abas da Linha da Vida.
+  if (page === 'scenarios') { timelineTab = 'cenarios'; page = 'timeline'; }
+  else if (page === 'objetivos') { timelineTab = 'objetivos'; page = 'timeline'; }
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`[data-page="${page}"]`).classList.add('active');
   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
