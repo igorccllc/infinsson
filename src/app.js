@@ -220,6 +220,9 @@ const DEFAULT_STATE = {
   // Dívidas registradas (seção própria — não altera os simuladores)
   debts: [],
 
+  // Objetivos (metas paralelas à FI): cada meta é uma saída futura em valores de hoje
+  goals: [],
+
   // Proteção (seguros): dimensiona capital de vida e invalidez necessário
   protection: {
     dependentes:      1,       // nº de pessoas que dependem da sua renda
