@@ -6928,7 +6928,7 @@ function _objetivosBody() {
     </tr>`;
   }).join('');
 
-  el.innerHTML = headerHtml(`${goals.length} meta(s) · ${fmt(totalHoje)} em valores de hoje`) + `
+  return addBtn + `
     <div class="card mb-16">
       <div class="card-title">Impacto na Independência Financeira</div>
       <div class="kpi-grid-3" style="gap:12px">
