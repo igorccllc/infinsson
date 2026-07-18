@@ -8332,13 +8332,13 @@ function saveGoal(id) {
   } else {
     S.goals.push({ id: uid(), ...obj });
   }
-  saveState(); closeModal(); renderObjetivos();
+  saveState(); closeModal(); timelineTab = 'objetivos'; renderTimeline();
 }
 
 function deleteGoal(id) {
   if (!confirm('Excluir esta meta?')) return;
   S.goals = S.goals.filter(x => x.id !== id);
-  saveState(); renderObjetivos();
+  saveState(); timelineTab = 'objetivos'; renderTimeline();
 }
 
 // ── 20. IMPORT / EXPORT ───────────────────────────────────
