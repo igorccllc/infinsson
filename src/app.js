@@ -2998,12 +2998,7 @@ function renderScenarios() {
   </div>`;
 
   el.innerHTML = `
-    <div class="page-header">
-      <div>
-        <div class="page-title">Cenários</div>
-        <div class="page-subtitle">Arraste os controles para ajustar as premissas — tudo em valores de hoje (real, acima da inflação)</div>
-      </div>
-    </div>
+    <div class="page-subtitle" style="margin:-4px 0 14px">Arraste os controles para ajustar as premissas — tudo em valores de hoje (real, acima da inflação). Os cenários alimentam as linhas da aba Projeção.</div>
     ${refHtml}
     <details class="params-accordion card mb-16">
       <summary class="params-accordion-header">
