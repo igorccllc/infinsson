@@ -2686,10 +2686,16 @@ function renderTimeline() {
       <div class="page-subtitle">Trajetória histórica + projeção futura do patrimônio</div>
     </div></div>`;
   const tabsHtml = `<div class="tabs" style="margin-bottom:16px">
+    <button class="tab-btn ${timelineTab === 'cenarios' ? 'active' : ''}" onclick="setTimelineTab('cenarios')">Cenários</button>
     <button class="tab-btn ${timelineTab === 'projecao' ? 'active' : ''}" onclick="setTimelineTab('projecao')">Projeção</button>
     <button class="tab-btn ${timelineTab === 'objetivos' ? 'active' : ''}" onclick="setTimelineTab('objetivos')">Objetivos</button>
   </div>`;
 
+  if (timelineTab === 'cenarios') {
+    el.innerHTML = headerHtml + tabsHtml + '<div id="sc-body"></div>';
+    renderScenarios();
+    return;
+  }
   if (timelineTab === 'objetivos') {
     el.innerHTML = headerHtml + tabsHtml + _objetivosBody();
     return;
