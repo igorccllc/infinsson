@@ -1045,23 +1045,19 @@ function debtNow(d) {
 // Cada entrada devolve a conta VIVA: termos com valores atuais e a fonte de cada um.
 const METRIC_DOCS = {
   runway: () => {
-    const liquid = liquidWealth();
+    const liquid = investableWealth();
     const last12 = HISTORICAL.slice(-12);
-    const recVals = last12.map(h => h.gasRec).filter(v => v > 0);
-    const usaRec = recVals.length > 0;
-    const avgGas = usaRec
-      ? recVals.reduce((s, v) => s + v, 0) / recVals.length
-      : last12.reduce((s, h) => s + h.gas, 0) / Math.max(1, last12.length);
+    const avgGas = last12.reduce((s, h) => s + h.gas, 0) / Math.max(1, last12.length);
     return {
-      title: 'Runway (reserva real)',
-      what: 'Quantos meses os ativos LÍQUIDOS (caixa + renda fixa) bancam o gasto recorrente se a renda parar hoje.',
+      title: 'Runway',
+      what: 'Quantos meses o patrimônio investível banca seus gastos se a renda parar hoje.',
       calc: [
-        ['Ativos líquidos: caixa + RF (exclui RV, FII, imóvel, prev)', fmt(liquid)],
-        [usaRec ? '÷ Gasto recorrente médio 12m (col. J)' : '÷ Gasto médio 12m (col. Gastos)', fmt(avgGas) + '/mês'],
+        ['Patrimônio investível (exclui imóvel; RV/FII entram)', fmt(liquid)],
+        ['÷ Gasto médio 12m (Histórico, col. Gastos)', fmt(avgGas) + '/mês'],
         ['= Runway', Math.round(liquid / avgGas) + ' meses (' + (liquid / avgGas / 12).toFixed(1) + ' anos)'],
       ],
-      ignores: 'Rendimento da carteira e inflação dos gastos — trata o dinheiro como caixa parado. Ativos de risco (RV/FII) e ilíquidos (imóvel/prev) ficam de fora de propósito.',
-      assumes: 'Só conta o que dá pra sacar rápido sem realizar perda. Gasto recorrente constante no nível médio dos últimos 12 meses.',
+      ignores: 'Rendimento da carteira e inflação dos gastos — trata o dinheiro como caixa parado. O imóvel fica de fora (não é reserva).',
+      assumes: 'Gasto mensal constante no nível da média dos últimos 12 meses.',
       sim: {
         inputs: [
           { key: 'gasto', label: 'Simular gasto mensal', value: Math.round(avgGas), step: 100, min: 0, unit: 'R$/mês' },
