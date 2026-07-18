@@ -8089,7 +8089,7 @@ function saveDebt(id) {
 }
 
 function deleteDebt(id) {
-  if (!confirm('Excluir esta dívida?')) return;
+  if (!confirm('Excluir este financiamento?')) return;
   S.debts = S.debts.filter(x => x.id !== id);
   saveState(); renderDebts();
 }
