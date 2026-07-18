@@ -8220,27 +8220,20 @@ function renderProtection() {
   `;
 }
 
-// ── 19d. OBJETIVOS (metas paralelas à FI) ─────────────────
-function renderObjetivos() {
-  const el = document.getElementById('page-objetivos');
+// ── 19d. OBJETIVOS (metas paralelas à FI) — subseção da Linha da Vida ──
+function _objetivosBody() {
   const goals = (S.goals || []).slice().sort((a, b) => String(a.dataAlvo).localeCompare(String(b.dataAlvo)));
   const age = currentAge();
-
-  const headerHtml = (sub) => `
-    <div class="page-header"><div>
-      <div class="page-title">Objetivos</div>
-      <div class="page-subtitle">${sub}</div>
-    </div>
-    <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openGoalModal()">+ Nova meta</button></div>
-    </div>`;
+  const addBtn = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span style="font-size:13px;color:var(--text-muted)">Metas paralelas à FI — cada uma vira um marco na Projeção e mostra quanto empurra a data da independência.</span>
+    <button class="btn btn-primary btn-sm" onclick="openGoalModal()">+ Nova meta</button></div>`;
 
   if (!goals.length) {
-    el.innerHTML = headerHtml('Metas paralelas à independência — e quanto cada uma empurra a data da FI') + `
+    return addBtn + `
       <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
         <p style="font-size:16px;margin-bottom:8px">Nenhuma meta cadastrada.</p>
-        <p style="font-size:13px">Cadastre objetivos com data (educação dos filhos, imóvel, sabático, troca de carro). Cada um consome patrimônio na data e o app mostra o impacto na sua FI.</p>
+        <p style="font-size:13px">Cadastre objetivos com data (educação dos filhos, imóvel, sabático, troca de carro). Cada um consome patrimônio na data, aparece como marco na aba Projeção e o app mostra o impacto na sua FI.</p>
       </div>`;
-    return;
   }
 
   const { sem, com } = goalsFIImpact();
