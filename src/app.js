@@ -2866,6 +2866,23 @@ function renderTimeline() {
     });
   }
 
+  // Metas (Objetivos) — marcos na trajetória, sempre visíveis quando há metas
+  if (S.goals && S.goals.length && base) {
+    S.goals.forEach((g, i) => {
+      const off = monthsBetween(startDate, g.dataAlvo);
+      if (off < 0) return;
+      const idx = allLabels.indexOf(addMonths(startDate, off));
+      if (idx < 0) return;
+      const w = base.path[Math.min(off, base.path.length - 1)]?.w;
+      annotations[`goal${i}`] = {
+        type: 'point', xValue: idx,
+        yValue: (w != null ? w * deflate(off) : 0),
+        backgroundColor: '#a78bfa', borderColor: '#fff', borderWidth: 1, radius: 6,
+        label: { content: '◈ ' + g.name, enabled: true, position: 'bottom', color: '#a78bfa', backgroundColor: 'transparent', font: { size: 10 } }
+      };
+    });
+  }
+
   requestAnimationFrame(() => {
     const ctx = document.getElementById('ch-timeline');
     if (!ctx) return;
