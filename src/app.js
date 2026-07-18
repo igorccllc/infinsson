@@ -6460,7 +6460,7 @@ function renderDebts() {
   if (!debts.length) {
     el.innerHTML = headerHtml('Registre financiamentos e acompanhe saldo, juros e quitação') + tabsHtml + `
       <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
-        <p style="font-size:16px;margin-bottom:8px">Nenhuma dívida registrada.</p>
+        <p style="font-size:16px;margin-bottom:8px">Nenhum financiamento registrado.</p>
         <p style="font-size:13px">Cadastre o financiamento uma vez — o saldo evolui sozinho mês a mês pelo cronograma (SAC ou Price).</p>
       </div>`;
     return;
