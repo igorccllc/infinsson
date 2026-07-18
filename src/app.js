@@ -1465,7 +1465,6 @@ function renderPage(p) {
   const map = {
     dashboard:   renderDashboard,
     timeline:    renderTimeline,
-    scenarios:   renderScenarios,
     portfolio:   renderPortfolio,
     cashflow:    renderCashflow,
     assumptions: renderAssumptions,
