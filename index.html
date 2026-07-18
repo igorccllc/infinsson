@@ -4022,13 +4022,21 @@ function renderTimeline() {
     st.real = document.getElementById('tl-real').checked;
   }
 
-  el.innerHTML = `
-    <div class="page-header">
-      <div>
-        <div class="page-title">Linha da Vida</div>
-        <div class="page-subtitle">Trajetória histórica + projeção futura do patrimônio</div>
-      </div>
-    </div>
+  const headerHtml = `<div class="page-header"><div>
+      <div class="page-title">Linha da Vida</div>
+      <div class="page-subtitle">Trajetória histórica + projeção futura do patrimônio</div>
+    </div></div>`;
+  const tabsHtml = `<div class="tabs" style="margin-bottom:16px">
+    <button class="tab-btn ${timelineTab === 'projecao' ? 'active' : ''}" onclick="setTimelineTab('projecao')">Projeção</button>
+    <button class="tab-btn ${timelineTab === 'objetivos' ? 'active' : ''}" onclick="setTimelineTab('objetivos')">Objetivos</button>
+  </div>`;
+
+  if (timelineTab === 'objetivos') {
+    el.innerHTML = headerHtml + tabsHtml + _objetivosBody();
+    return;
+  }
+
+  el.innerHTML = headerHtml + tabsHtml + `
     <div class="card mb-16">
       <div class="timeline-controls">
         <div class="ctrl-group">
