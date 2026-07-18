@@ -6693,7 +6693,7 @@ function openDebtModal(id) {
   const d = id ? S.debts.find(x => x.id === id) : null;
   const now = new Date();
   const curKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-  openModal(d ? 'Editar Dívida' : 'Nova Dívida', `
+  openModal(d ? 'Editar Financiamento' : 'Novo Financiamento', `
     <div class="form-group"><label class="form-label">Nome</label>
       <input class="form-input" id="debt-name" value="${d ? d.name : 'Financiamento AP'}"></div>
     <div class="grid-2" style="gap:12px">
