@@ -8211,8 +8211,8 @@ function renderProtection() {
           <input class="form-input" type="number" min="0" step="1000" value="${p.seguroVida}" onchange="updateProtection('seguroVida', this.value)"></div>
         <div class="form-group"><label class="form-label">Seguro de invalidez já contratado (R$)</label>
           <input class="form-input" type="number" min="0" step="1000" value="${p.seguroInvalidez}" onchange="updateProtection('seguroInvalidez', this.value)"></div>
-        <div class="form-group"><label class="form-label">Dívida coberta por MIP (R$)</label>
-          <input class="form-input" type="number" min="0" step="1000" value="${dividaCoberta}" placeholder="padrão: toda dívida ativa" onchange="updateProtection('dividaCobertaMIP', this.value)"></div>
+        <div class="form-group"><label class="form-label">Financiamento coberto por MIP (R$)</label>
+          <input class="form-input" type="number" min="0" step="1000" value="${dividaCoberta}" placeholder="padrão: todo financiamento ativo" onchange="updateProtection('dividaCobertaMIP', this.value)"></div>
         <div class="form-group"><label class="form-label">Teto do INSS (R$/mês)</label>
           <input class="form-input" type="number" min="0" step="1" value="${p.tetoINSS}" onchange="updateProtection('tetoINSS', this.value)"></div>
       </div>
