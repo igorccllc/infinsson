@@ -4206,13 +4206,14 @@ function renderTimeline() {
     });
   }
 
-  // Metas (Objetivos) — marcos na trajetória, sempre visíveis quando há metas
+  // Metas (Objetivos) — marcos na trajetória, sempre visíveis quando há metas.
+  // Posiciona pelo índice projetado mais próximo (robusto a horizontes que pulam meses, stepProj>1).
   if (S.goals && S.goals.length && base) {
     S.goals.forEach((g, i) => {
       const off = monthsBetween(startDate, g.dataAlvo);
-      if (off < 0) return;
-      const idx = allLabels.indexOf(addMonths(startDate, off));
-      if (idx < 0) return;
+      if (off < 0 || off >= projMonths) return;
+      const idx = histLen + Math.round(off / stepProj);
+      if (idx < 0 || idx >= allLabels.length) return;
       const w = base.path[Math.min(off, base.path.length - 1)]?.w;
       annotations[`goal${i}`] = {
         type: 'point', xValue: idx,
