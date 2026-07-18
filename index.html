@@ -7935,6 +7935,133 @@ function deleteDebt(id) {
   saveState(); renderDebts();
 }
 
+// ── 19c. PROTEÇÃO (SEGUROS) ───────────────────────────────
+// Dimensiona o capital de seguro de VIDA (needs-based) e o gap de INVALIDEZ vs teto do INSS.
+// Não altera nenhum outro número do app — é uma seção própria de gestão de risco.
+function updateProtection(field, value) {
+  const p = S.protection;
+  if (value === '' && field === 'dividaCobertaMIP') p[field] = null;
+  else p[field] = parseFloat(value) || 0;
+  saveState();
+  renderProtection();
+}
+
+function renderProtection() {
+  const el = document.getElementById('page-protection');
+  const p = S.protection;
+
+  // Insumos que o app já tem
+  const last12 = HISTORICAL.slice(-12);
+  const gastoMensal = last12.length ? last12.reduce((s, h) => s + h.gas, 0) / last12.length : 0;
+  const gastoAnual  = gastoMensal * 12;
+  const rendaMensal = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0);
+  const patLiquido  = investableWealth();
+  const dividaTotal = (S.debts || []).reduce((s, d) => { const n = debtNow(d); return s + (n.quitada ? 0 : n.saldoAtual); }, 0);
+  const age = currentAge();
+  const anosApos = Math.max(0, (S.assumptions.retirementAge || 60) - age);
+
+  // ── Seguro de VIDA (needs-based) ──
+  const reposicao = gastoAnual * p.anosDependencia;
+  const dividaCoberta = p.dividaCobertaMIP != null ? p.dividaCobertaMIP : dividaTotal;
+  const dividaDescoberta = Math.max(0, dividaTotal - dividaCoberta);
+  const necessidadeVida = reposicao + dividaDescoberta;
+  const recursosVida = patLiquido + p.seguroVida;
+  const faltaVida = Math.max(0, necessidadeVida - recursosVida);
+  const sobraVida = Math.max(0, recursosVida - necessidadeVida);
+
+  // ── INVALIDEZ (gap vs teto do INSS) ──
+  const gapMensal = Math.max(0, rendaMensal - p.tetoINSS);
+  const necessidadeInval = gapMensal * 12 * anosApos;
+  const faltaInval = Math.max(0, necessidadeInval - p.seguroInvalidez);
+
+  const linha = (label, valor, cls) => `<tr><td>${label}</td><td class="r ${cls || ''}">${valor}</td></tr>`;
+
+  el.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="page-title">Proteção</div>
+        <div class="page-subtitle">Quanto de seguro protege o plano da família se a sua renda parar — por morte ou invalidez</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid mb-16">
+      <div class="kpi">
+        <div class="kpi-label">Seguro de vida a contratar</div>
+        <div class="kpi-value lg" style="color:${faltaVida > 0 ? 'var(--red)' : 'var(--green)'}">${faltaVida > 0 ? fmtK(faltaVida) : '✓ coberto'}</div>
+        <div class="kpi-sub">${faltaVida > 0 ? `necessidade ${fmtK(necessidadeVida)} − recursos ${fmtK(recursosVida)}` : `você tem ${fmtK(sobraVida)} de folga`}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Seguro de invalidez a contratar</div>
+        <div class="kpi-value lg" style="color:${faltaInval > 0 ? 'var(--red)' : 'var(--green)'}">${faltaInval > 0 ? fmtK(faltaInval) : '✓ coberto'}</div>
+        <div class="kpi-sub">${faltaInval > 0 ? `gap de ${fmt(gapMensal)}/mês por ${anosApos} anos` : 'sem gap acima do teto do INSS'}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Renda a proteger</div>
+        <div class="kpi-value">${fmt(rendaMensal)}<span style="font-size:12px;color:var(--text-dim)">/mês</span></div>
+        <div class="kpi-sub">${p.dependentes} dependente(s) · ${p.anosDependencia} anos de dependência</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Teto do INSS</div>
+        <div class="kpi-value">${fmt(p.tetoINSS)}<span style="font-size:12px;color:var(--text-dim)">/mês</span></div>
+        <div class="kpi-sub">o que o INSS paga no máximo — o resto é com você</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Necessidade de Seguro de Vida</div>
+        <div class="table-wrap"><table>
+          <tbody>
+            ${linha('Reposição de renda da família', fmt(reposicao), 'red')}
+            <tr><td style="padding-left:16px;color:var(--text-dim);font-size:12px" colspan="2">${fmt(gastoAnual)}/ano × ${p.anosDependencia} anos de dependência</td></tr>
+            ${linha('+ Dívidas não cobertas por seguro', fmt(dividaDescoberta), 'red')}
+            <tr><td style="padding-left:16px;color:var(--text-dim);font-size:12px" colspan="2">dívida total ${fmt(dividaTotal)} − ${fmt(dividaCoberta)} coberto por MIP</td></tr>
+            ${linha('− Patrimônio líquido da família', fmt(patLiquido), 'green')}
+            ${linha('− Seguro de vida já contratado', fmt(p.seguroVida), 'green')}
+            <tr style="border-top:2px solid var(--border-2)"><td class="bold">= Falta contratar</td><td class="r bold" style="color:${faltaVida > 0 ? 'var(--red)' : 'var(--green)'}">${faltaVida > 0 ? fmt(faltaVida) : 'coberto ✓'}</td></tr>
+          </tbody>
+        </table></div>
+        <div class="form-hint" style="margin-top:10px">Se você faltar, a família precisa deste capital para quitar dívidas e manter o padrão de vida pelos anos de dependência. O MIP do financiamento já extingue a dívida na morte — por isso entra creditado.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Cobertura de Invalidez</div>
+        <div class="table-wrap"><table>
+          <tbody>
+            ${linha('Sua renda mensal', fmt(rendaMensal), '')}
+            ${linha('− Teto do INSS (auxílio/aposentadoria)', fmt(p.tetoINSS), 'green')}
+            ${linha('= Gap mensal descoberto', fmt(gapMensal), 'red')}
+            ${linha('× 12 meses × anos até aposentar', anosApos + ' anos', '')}
+            ${linha('= Capital para cobrir o gap', fmt(necessidadeInval), 'red')}
+            ${linha('− Seguro de invalidez já contratado', fmt(p.seguroInvalidez), 'green')}
+            <tr style="border-top:2px solid var(--border-2)"><td class="bold">= Falta contratar</td><td class="r bold" style="color:${faltaInval > 0 ? 'var(--red)' : 'var(--green)'}">${faltaInval > 0 ? fmt(faltaInval) : 'coberto ✓'}</td></tr>
+          </tbody>
+        </table></div>
+        <div class="form-hint" style="margin-top:10px">Invalidez é mais provável que a morte na fase de trabalho e pior: você perde a renda e ainda cria despesa. O INSS cobre só até o teto — o gap acima disso é 100% seu. Estimativa sem desconto a valor presente (conservadora).</div>
+      </div>
+    </div>
+
+    <div class="card mt-16">
+      <div class="card-title">Premissas da Proteção</div>
+      <div class="grid-2" style="gap:12px">
+        <div class="form-group"><label class="form-label">Nº de dependentes</label>
+          <input class="form-input" type="number" min="0" step="1" value="${p.dependentes}" onchange="updateProtection('dependentes', this.value)"></div>
+        <div class="form-group"><label class="form-label">Anos de dependência</label>
+          <input class="form-input" type="number" min="0" step="1" value="${p.anosDependencia}" onchange="updateProtection('anosDependencia', this.value)"></div>
+        <div class="form-group"><label class="form-label">Seguro de vida já contratado (R$)</label>
+          <input class="form-input" type="number" min="0" step="1000" value="${p.seguroVida}" onchange="updateProtection('seguroVida', this.value)"></div>
+        <div class="form-group"><label class="form-label">Seguro de invalidez já contratado (R$)</label>
+          <input class="form-input" type="number" min="0" step="1000" value="${p.seguroInvalidez}" onchange="updateProtection('seguroInvalidez', this.value)"></div>
+        <div class="form-group"><label class="form-label">Dívida coberta por MIP (R$)</label>
+          <input class="form-input" type="number" min="0" step="1000" value="${dividaCoberta}" placeholder="padrão: toda dívida ativa" onchange="updateProtection('dividaCobertaMIP', this.value)"></div>
+        <div class="form-group"><label class="form-label">Teto do INSS (R$/mês)</label>
+          <input class="form-input" type="number" min="0" step="1" value="${p.tetoINSS}" onchange="updateProtection('tetoINSS', this.value)"></div>
+      </div>
+      <div class="form-hint" style="margin-top:8px">Renda a proteger e gasto da família vêm do que o app já tem (cadastro de receitas e histórico de gastos). Ajuste o teto do INSS conforme o ano.</div>
+    </div>
+  `;
+}
+
 // ── 20. IMPORT / EXPORT ───────────────────────────────────
 function exportData() {
   const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
