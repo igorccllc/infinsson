@@ -1647,6 +1647,11 @@ function loadState() {
   if (S.fi.realRate === undefined) { S.fi.realRate = 5.0; saveState(); }
   // Migração: dívidas registradas.
   if (!Array.isArray(S.debts)) { S.debts = []; saveState(); }
+  // Migração: bloco de proteção (seguros).
+  if (!S.protection) {
+    S.protection = { dependentes: 1, anosDependencia: 20, seguroVida: 0, seguroInvalidez: 0, dividaCobertaMIP: null, tetoINSS: 8157 };
+    saveState();
+  }
 }
 
 function saveState() {
