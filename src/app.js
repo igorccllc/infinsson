@@ -2400,9 +2400,9 @@ function renderDashboard() {
 
   // Balanço honesto: Patrimônio Líquido real = Patrimônio Total − dívidas ativas.
   // O 'pl' da planilha é o Patrimônio Investível (exclui imóvel, ignora passivo) — não confundir.
+  // Sem dívida, PL = Total (redundante), então o card exibe o Investível, que é o número distinto útil.
   const divida = totalDebtNow();
   const plReal = last.pat - divida;
-  const plRealPrev = prev.pat - divida;   // aproxima MoM (o saldo devedor de meses atrás não é reconstruído aqui)
 
   const basePath   = buildScenarioPaths(S.assumptions.projectionYears * 12).find(s => s.id === 'base');
   const fiResult   = basePath ? findFIDate(basePath.path) : null;
