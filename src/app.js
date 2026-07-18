@@ -823,8 +823,11 @@ function simulate() {
   return results;
 }
 
-// Volatilidade anual estimada por classe (% a.a.) — para Monte Carlo
-const VOL_BY_CAT = { rf: 2.5, rv: 18, fii: 12, cash: 0.5 };
+// Volatilidade anual estimada por classe (% a.a.) — para Monte Carlo.
+// Cobre as 8 classes canônicas (assetForm) para não cair no fallback otimista de 10:
+// 'intl' inclui o câmbio (S&P em BRL) e é a mais volátil; 'imovel' fica ilíquido/suavizado,
+// mas entra só como catch-all (a FI roda sobre investável, que exclui imóvel).
+const VOL_BY_CAT = { rf: 2.5, rv: 18, fii: 12, intl: 22, cash: 0.5, prev: 9, imovel: 10, outro: 12 };
 
 function portfolioVol() {
   const total = S.portfolio.reduce((s, a) => s + a.value, 0);
