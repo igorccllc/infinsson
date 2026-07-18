@@ -8604,14 +8604,14 @@ function computeInsights() {
     const best = Math.max(cdbLiq, lciLiq);
     const spread = best - finRate;
     if (spread < 1.5) {
-      push('warn', 'Dívida',
+      push('warn', 'Financiamento',
         'Amortizar o financiamento ganha do investimento em risco ajustado',
-        `Saldo de <b>${fmtK(am.saldo)}</b> a ${fmtPct(am.taxaMes)} a.m. (<b>${fmtPct(finRate)} a.a.</b>). A melhor renda fixa líquida comparável rende ~${fmtPct(best)} — spread de só ${fmtPct(spread)}. Amortizar é retorno garantido, isento e sem marcação a mercado; e a assimetria joga a favor: se a Selic cair, o CDI cai junto, mas o custo da dívida é fixo.`,
+        `Saldo de <b>${fmtK(am.saldo)}</b> a ${fmtPct(am.taxaMes)} a.m. (<b>${fmtPct(finRate)} a.a.</b>). A melhor renda fixa líquida comparável rende ~${fmtPct(best)} — spread de só ${fmtPct(spread)}. Amortizar é retorno garantido, isento e sem marcação a mercado; e a assimetria joga a favor: se a Selic cair, o CDI cai junto, mas o custo do financiamento é fixo.`,
         'Priorizar amortização SAC com caixa disponível — simular na aba Simulador (Amortização).');
     } else {
-      push('info', 'Dívida',
+      push('info', 'Financiamento',
         'Manter o financiamento e investir ainda compensa',
-        `Custo da dívida de ${fmtPct(finRate)} a.a. vs. ~${fmtPct(best)} líquido na renda fixa — spread de ${fmtPct(spread)} a favor de investir. Reavalie a cada corte de Selic: o custo é fixo, o CDI não.`,
+        `Custo do financiamento de ${fmtPct(finRate)} a.a. vs. ~${fmtPct(best)} líquido na renda fixa — spread de ${fmtPct(spread)} a favor de investir. Reavalie a cada corte de Selic: o custo é fixo, o CDI não.`,
         null);
     }
   }
