@@ -5193,7 +5193,6 @@ function _buildParamsHTML() {
           <input type="range" class="sc-slider" min="0" max="150000" step="500"
             value="${totalInc}" oninput="assIncSliderInput(this)" onchange="assIncSliderCommit(this)">
         </div>
-        ${pSlider('incomeGrowth','Crescimento anual receita', A.incomeGrowth, -5, 15, 0.5, fmtPctAA)}
         <div class="slider-group" style="margin-top:8px">
           <div class="slider-label-row">
             <span class="slider-lbl">Gastos mensais iniciais</span>
@@ -5202,7 +5201,7 @@ function _buildParamsHTML() {
           <input type="range" class="sc-slider" min="0" max="80000" step="500"
             value="${totalExp}" oninput="assExpSliderInput(this)" onchange="assExpSliderCommit(this)">
         </div>
-        ${pSlider('expenseGrowth','Crescimento anual gastos', A.expenseGrowth, -5, 15, 0.5, fmtPctAA)}
+        <div class="form-hint" style="margin-top:8px">O crescimento <b>real</b> de cada receita/gasto (acima da inflação) é definido item a item no <a class="src-link" onclick="navigate('cashflow');return false" href="#">Fluxo de Caixa</a> — <b>0 = sobe só com a inflação</b>. Cenários de crescimento agregado ficam na aba Cenários.</div>
       </div>
       <div class="param-panel">
         <div class="param-section-title">PROJEÇÃO &amp; PERFIL</div>
