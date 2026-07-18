@@ -8197,6 +8197,134 @@ function renderProtection() {
   `;
 }
 
+// ── 19d. OBJETIVOS (metas paralelas à FI) ─────────────────
+function renderObjetivos() {
+  const el = document.getElementById('page-objetivos');
+  const goals = (S.goals || []).slice().sort((a, b) => String(a.dataAlvo).localeCompare(String(b.dataAlvo)));
+  const age = currentAge();
+
+  const headerHtml = (sub) => `
+    <div class="page-header"><div>
+      <div class="page-title">Objetivos</div>
+      <div class="page-subtitle">${sub}</div>
+    </div>
+    <div class="page-actions"><button class="btn btn-primary btn-sm" onclick="openGoalModal()">+ Nova meta</button></div>
+    </div>`;
+
+  if (!goals.length) {
+    el.innerHTML = headerHtml('Metas paralelas à independência — e quanto cada uma empurra a data da FI') + `
+      <div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+        <p style="font-size:16px;margin-bottom:8px">Nenhuma meta cadastrada.</p>
+        <p style="font-size:13px">Cadastre objetivos com data (educação dos filhos, imóvel, sabático, troca de carro). Cada um consome patrimônio na data e o app mostra o impacto na sua FI.</p>
+      </div>`;
+    return;
+  }
+
+  const { sem, com } = goalsFIImpact();
+  const fiFmt = r => r ? r.date.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }) + ` · idade ${age + Math.floor(r.months / 12)}` : '> horizonte';
+  let impactoTxt, impactoCor;
+  if (sem && com) {
+    const dm = com.months - sem.months;
+    if (dm <= 0) { impactoTxt = 'as metas cabem sem atrasar a FI'; impactoCor = 'var(--green)'; }
+    else { const a = Math.floor(dm / 12), me = dm % 12; impactoTxt = `as metas empurram a FI em ${a > 0 ? a + ' ano(s)' : ''}${a > 0 && me > 0 ? ' e ' : ''}${me > 0 ? me + ' mes(es)' : ''}`.trim(); impactoCor = 'var(--yellow)'; }
+  } else if (sem && !com) { impactoTxt = 'com as metas, a FI sai do horizonte de projeção'; impactoCor = 'var(--red)'; }
+  else { impactoTxt = 'FI fora do horizonte mesmo sem as metas'; impactoCor = 'var(--red)'; }
+
+  const totalHoje = goals.reduce((s, g) => s + g.valor, 0);
+  const prioBadge = p => {
+    const c = p === 'alta' ? 'var(--red)' : p === 'baixa' ? 'var(--text-dim)' : 'var(--yellow)';
+    return `<span class="sim-badge" style="background:${c}22;color:${c}">${p || 'média'}</span>`;
+  };
+
+  const rows = goals.map(g => {
+    const naData = goalValorNaData(g);
+    const off = Math.max(0, monthsBetween(projectionStart().str, g.dataAlvo));
+    const escala = naData > g.valor;
+    return `<tr>
+      <td class="bold">${g.name} ${prioBadge(g.prioridade)}</td>
+      <td>${monthLabel(g.dataAlvo)}<span class="text-dim" style="font-size:11px"> · em ${Math.floor(off / 12)}a ${off % 12}m</span></td>
+      <td class="r">${fmt(g.valor)}</td>
+      <td class="r ${escala ? 'yellow' : 'muted'}">${fmt(naData)}${(g.inflacaoReal || 0) !== 0 ? `<span class="text-dim" style="font-size:11px"> (+${g.inflacaoReal}%/a real)</span>` : ''}</td>
+      <td class="r">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="openGoalModal('${g.id}')">✎</button>
+        <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--red)" onclick="deleteGoal('${g.id}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = headerHtml(`${goals.length} meta(s) · ${fmt(totalHoje)} em valores de hoje`) + `
+    <div class="card mb-16">
+      <div class="card-title">Impacto na Independência Financeira</div>
+      <div class="kpi-grid-3" style="gap:12px">
+        <div class="kpi"><div class="kpi-label">FI sem as metas</div><div class="kpi-value" style="color:var(--accent)">${fiFmt(sem)}</div></div>
+        <div class="kpi"><div class="kpi-label">FI com as metas</div><div class="kpi-value" style="color:${impactoCor}">${fiFmt(com)}</div></div>
+        <div class="kpi"><div class="kpi-label">Efeito das metas</div><div class="kpi-value" style="color:${impactoCor};font-size:16px">${impactoTxt}</div></div>
+      </div>
+      <div class="form-hint" style="margin-top:10px">Cada meta é uma saída de caixa na data-alvo, em valores de hoje. A projeção base (real) consome esse valor e a data da FI é recalculada. Não altera o Número FI nem o dashboard — é uma análise do trade-off.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Metas</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Meta</th><th>Quando</th><th class="r">Valor hoje</th><th class="r">Custo na data</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>
+  `;
+}
+
+function openGoalModal(id) {
+  const g = id ? S.goals.find(x => x.id === id) : null;
+  const nextYear = projectionStart().str.slice(0, 4);
+  openModal(g ? 'Editar Meta' : 'Nova Meta', `
+    <div class="form-group"><label class="form-label">Nome da meta</label>
+      <input class="form-input" id="goal-name" value="${g ? g.name : ''}" placeholder="Ex: Faculdade da Maria"></div>
+    <div class="grid-2" style="gap:12px">
+      <div class="form-group"><label class="form-label">Valor hoje (R$)</label>
+        <input class="form-input" id="goal-valor" type="number" min="0" step="1000" value="${g ? g.valor : 100000}"></div>
+      <div class="form-group"><label class="form-label">Data-alvo</label>
+        <input class="form-input" id="goal-data" type="month" value="${g ? g.dataAlvo : (Number(nextYear) + 5) + '-01'}"></div>
+      <div class="form-group"><label class="form-label">Inflação real (% a.a. acima do IPCA)</label>
+        <input class="form-input" id="goal-inflacao" type="number" step="0.5" value="${g ? (g.inflacaoReal || 0) : 0}" placeholder="educação ~5"></div>
+      <div class="form-group"><label class="form-label">Prioridade</label>
+        <select class="form-input" id="goal-prio">
+          <option value="alta" ${g && g.prioridade === 'alta' ? 'selected' : ''}>Alta</option>
+          <option value="media" ${!g || g.prioridade === 'media' ? 'selected' : ''}>Média</option>
+          <option value="baixa" ${g && g.prioridade === 'baixa' ? 'selected' : ''}>Baixa</option>
+        </select></div>
+    </div>
+    <div class="form-hint" style="margin-bottom:14px">Tudo em valores de hoje. "Inflação real" é o quanto o custo sobe <b>acima</b> da inflação geral — educação e saúde correm ~4-6% acima do IPCA; a maioria das metas é 0.</div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveGoal('${g ? g.id : ''}')">Salvar</button>
+    </div>
+  `);
+}
+
+function saveGoal(id) {
+  const obj = {
+    name:        document.getElementById('goal-name').value.trim() || 'Meta',
+    valor:       parseFloat(document.getElementById('goal-valor').value) || 0,
+    dataAlvo:    document.getElementById('goal-data').value || projectionStart().str,
+    inflacaoReal: parseFloat(document.getElementById('goal-inflacao').value) || 0,
+    prioridade:  document.getElementById('goal-prio').value,
+  };
+  if (obj.valor <= 0) { showToast('Informe o valor da meta.'); return; }
+  if (id) {
+    const i = S.goals.findIndex(x => x.id === id);
+    if (i >= 0) S.goals[i] = { ...S.goals[i], ...obj };
+  } else {
+    S.goals.push({ id: uid(), ...obj });
+  }
+  saveState(); closeModal(); renderObjetivos();
+}
+
+function deleteGoal(id) {
+  if (!confirm('Excluir esta meta?')) return;
+  S.goals = S.goals.filter(x => x.id !== id);
+  saveState(); renderObjetivos();
+}
+
 // ── 20. IMPORT / EXPORT ───────────────────────────────────
 function exportData() {
   const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
