@@ -6860,8 +6860,8 @@ function computeInsights() {
     const realMonthly = totalPort * (weightedReturnReal() / 100) / 12;
     const covReal = realMonthly / avgGas * 100;
     push(run >= 60 ? 'good' : run >= 24 ? 'info' : 'warn', 'Colchão',
-      `${Math.round(run)} meses de gasto recorrente cobertos pelos ativos líquidos`,
-      `Os ativos líquidos (caixa + RF) bancam <b>${(run / 12).toFixed(1).replace('.', ',')} anos</b> de gasto recorrente sem nenhuma renda. Em termos reais (acima da inflação), o rendimento esperado da carteira já paga <b>${fmtPct(covReal)}</b> do seu gasto médio atual` +
+      `${Math.round(run)} meses de gasto cobertos pela carteira`,
+      `No gasto médio de ${fmt(avgGas)}/mês, o patrimônio investível banca <b>${(run / 12).toFixed(1).replace('.', ',')} anos</b> sem nenhuma renda. Em termos reais (acima da inflação), o rendimento esperado da carteira já paga <b>${fmtPct(covReal)}</b> do seu gasto médio atual` +
       (covReal >= 80 ? ' — pela régua da perpetuidade, você está muito perto da FI do seu padrão de vida de hoje.' : '.'),
       null);
   }
