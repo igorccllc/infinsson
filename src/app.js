@@ -6833,8 +6833,8 @@ function renderProtection() {
           <tbody>
             ${linha('Reposição de renda da família', fmt(reposicao), 'red')}
             <tr><td style="padding-left:16px;color:var(--text-dim);font-size:12px" colspan="2">${fmt(gastoAnual)}/ano × ${p.anosDependencia} anos de dependência</td></tr>
-            ${linha('+ Dívidas não cobertas por seguro', fmt(dividaDescoberta), 'red')}
-            <tr><td style="padding-left:16px;color:var(--text-dim);font-size:12px" colspan="2">dívida total ${fmt(dividaTotal)} − ${fmt(dividaCoberta)} coberto por MIP</td></tr>
+            ${linha('+ Financiamento não coberto por seguro', fmt(dividaDescoberta), 'red')}
+            <tr><td style="padding-left:16px;color:var(--text-dim);font-size:12px" colspan="2">financiamento total ${fmt(dividaTotal)} − ${fmt(dividaCoberta)} coberto por MIP</td></tr>
             ${linha('− Patrimônio líquido da família', fmt(patLiquido), 'green')}
             ${linha('− Seguro de vida já contratado', fmt(p.seguroVida), 'green')}
             <tr style="border-top:2px solid var(--border-2)"><td class="bold">= Falta contratar</td><td class="r bold" style="color:${faltaVida > 0 ? 'var(--red)' : 'var(--green)'}">${faltaVida > 0 ? fmt(faltaVida) : 'coberto ✓'}</td></tr>
