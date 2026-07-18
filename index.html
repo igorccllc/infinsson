@@ -7857,7 +7857,7 @@ function renderDebts() {
       <div class="kpi"><div class="kpi-label">Juros embutidos no mês</div><div class="kpi-value" style="color:var(--yellow)">${fmt(jurosMesTot)}</div>
         <div class="kpi-sub">${parcelaTotal > 0 ? fmtPct(jurosMesTot / parcelaTotal * 100) + ' da parcela é juro' : ''}</div></div>
       <div class="kpi"><div class="kpi-label">Juros até quitar tudo</div><div class="kpi-value" style="color:var(--yellow)">${fmt(jurosRestTot)}</div>
-        <div class="kpi-sub">custo futuro total da dívida</div></div>
+        <div class="kpi-sub">custo futuro total do financiamento</div></div>
     </div>` : '';
 
   el.innerHTML = headerHtml(`${ativos.length} ativa(s) · saldo evolui pelo cronograma desde o registro`) + tabsHtml + `
