@@ -2032,18 +2032,15 @@ function savingsRate(h) {
 // CDI médio anual aproximado (% a.a.) — benchmark histórico
 const CDI_YEARLY = { 2017:9.9, 2018:6.4, 2019:5.9, 2020:2.8, 2021:4.4, 2022:12.4, 2023:13.0, 2024:10.9, 2025:14.7, 2026:13.6 };
 
-// Retorno mensal realizado da carteira: (Δinvestível - aporte) / investível anterior.
-// Usa 'pl' (patrimônio investível, exclui imóvel), não 'pat' — o imóvel é ilíquido e não
-// marcado a mercado, então sua variação polui o retorno da carteira financeira. Cai pro 'pat'
-// só se a linha não tiver 'pl'. O aporte ainda carrega ruído, mas converge na média de 12m+.
+// Retorno mensal realizado da carteira: (Δpatrimônio - aporte) / patrimônio anterior.
+// Aproximação: o aporte do mês carrega ruído (rendimento reinvestido, imóvel),
+// mas na média de 12m+ converge para o retorno de mercado da carteira.
 function realizedReturns() {
   const out = [];
   for (let i = 1; i < HISTORICAL.length; i++) {
     const prev = HISTORICAL[i-1], cur = HISTORICAL[i];
-    const base = prev.pl || prev.pat;
-    const curV = cur.pl || cur.pat;
-    if (!base) continue;
-    out.push({ d: cur.d, r: (curV - base - (cur.apo || 0)) / base });
+    if (!prev.pat) continue;
+    out.push({ d: cur.d, r: (cur.pat - prev.pat - (cur.apo || 0)) / prev.pat });
   }
   return out;
 }
