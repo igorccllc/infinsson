@@ -8024,17 +8024,17 @@ function computeInsights() {
     const recN = norm.reduce((s, h) => s + h.rec, 0);
     const gasN = norm.reduce((s, h) => s + h.gas, 0);
     const srEx = recN > 0 ? (recN - gasN) / recN * 100 : sr;
-    const sev = sr >= 50 ? 'good' : sr >= 30 ? 'warn' : 'bad';
+    const sev = sr >= 40 ? 'good' : sr >= 20 ? 'warn' : 'bad';
     push(sev, 'Poupança',
       `Taxa de poupança de ${fmtPct(sr)} nos últimos 12 meses`,
       `Você recebeu <b>${fmtK(rec12)}</b> e gastou <b>${fmtK(gas12)}</b> (média de ${fmt(avgGas)}/mês). ` +
       (Math.abs(srEx - sr) > 1 ? `Tirando os meses atípicos de receita, a taxa segue em <b>${fmtPct(srEx)}</b>. ` : '') +
-      (sr >= 50
+      (sr >= 40
         ? 'Nesse nível, quem constrói o patrimônio é o aporte — o retorno da carteira é coadjuvante e sua margem de erro é enorme.'
-        : sr >= 30
+        : sr >= 20
           ? 'Bom patamar, mas cada ponto a mais de poupança encurta a data da independência mais que qualquer otimização de carteira.'
-          : 'Abaixo de 30%, o plano fica dependente do retorno da carteira — o lado da equação que você não controla.'),
-      sr < 50 ? 'Revisar os maiores grupos na Análise de Gastos e definir um teto mensal.' : null);
+          : 'Abaixo de 20%, o plano fica dependente do retorno da carteira — o lado da equação que você não controla.'),
+      sr < 40 ? 'Revisar os maiores grupos na Análise de Gastos e definir um teto mensal.' : null);
   }
 
   // ── Rentabilidade recente vs CDI
