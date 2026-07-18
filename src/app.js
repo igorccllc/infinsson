@@ -6719,7 +6719,7 @@ function openDebtModal(id) {
     </div>
     <div class="form-hint" style="margin-bottom:14px">O saldo informado é o da data escolhida — o app evolui o cronograma sozinho a partir dela.
       Se a parcela real difere da teórica (seguros MIP/DFI, taxa de administração, TR), informe-a: o app usa o valor real e mostra a diferença como encargos.
-      Informe o valor total financiado (o valor original, na assinatura do contrato) para o % quitado ser calculado sobre a dívida inteira — sem ele, o app usa o saldo atual como base (e o % começa em 0%, o que subestima o quanto já foi pago).</div>
+      Informe o valor total financiado (o valor original, na assinatura do contrato) para o % quitado ser calculado sobre o financiamento inteiro — sem ele, o app usa o saldo atual como base (e o % começa em 0%, o que subestima o quanto já foi pago).</div>
     <div class="form-actions">
       <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="saveDebt('${d ? d.id : ''}')">Salvar</button>
@@ -6729,7 +6729,7 @@ function openDebtModal(id) {
 
 function saveDebt(id) {
   const obj = {
-    name:     document.getElementById('debt-name').value.trim() || 'Dívida',
+    name:     document.getElementById('debt-name').value.trim() || 'Financiamento',
     saldo:    parseFloat(document.getElementById('debt-saldo').value) || 0,
     dataRef:  document.getElementById('debt-dataref').value || addMonths('2026-01', 0),
     taxaMes:  parseFloat(document.getElementById('debt-taxa').value) || 0,
