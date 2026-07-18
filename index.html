@@ -2020,6 +2020,33 @@ function findFIDate(path) {
   return null;
 }
 
+// ── Metas / Objetivos ─────────────────────────────────────
+// Valor da meta na data-alvo, EM VALORES DE HOJE: o custo escala por inflacaoReal (acima do IPCA).
+// Ex.: educação a +5% real dobra o custo real em ~14 anos, mesmo já descontada a inflação geral.
+function goalValorNaData(g) {
+  const off = Math.max(0, monthsBetween(projectionStart().str, g.dataAlvo));
+  return g.valor * Math.pow(1 + (g.inflacaoReal || 0) / 100, off / 12);
+}
+// Mapa mês→saída (negativa) para injetar as metas no projectPath.
+function goalFlows() {
+  const start = projectionStart().str;
+  const flows = {};
+  for (const g of (S.goals || [])) {
+    const off = monthsBetween(start, g.dataAlvo);
+    if (off < 0) continue;
+    flows[off] = (flows[off] || 0) - goalValorNaData(g);
+  }
+  return flows;
+}
+// FI sem e com as metas — o trade-off "custear os objetivos atrasa a FI em quanto?".
+function goalsFIImpact() {
+  const months = (S.assumptions.projectionYears || 30) * 12;
+  const w0 = investableWealth(), base = weightedReturnReal();
+  const sem = findFIDate(projectPath(months, w0, base, 0, 0));
+  const com = findFIDate(projectPath(months, w0, base, 0, 0, goalFlows()));
+  return { sem, com };
+}
+
 // ── 5. HELPERS ────────────────────────────────────────────
 function fmt(v, d=0) {
   return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:d}).format(v);
