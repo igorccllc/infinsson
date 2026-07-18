@@ -947,19 +947,12 @@ function realBasePath(months) {
   return projectPath(months, investableWealth(), realRet, -ipca, -ipca);
 }
 
-// Runway (reserva real): meses de gasto recorrente cobertos SÓ pelos ativos de fato líquidos.
-// Antes somava a carteira inteira (incluindo imóvel/prev/RV) ÷ gasto total — inflava o colchão.
-// Agora: caixa + renda fixa (sacável rápido) ÷ gasto recorrente (col J; cai pro gasto total se ausente).
-function liquidWealth() {
-  return S.portfolio.reduce((s, a) => s + ((a.cat === 'cash' || a.cat === 'rf') ? a.value : 0), 0);
-}
+// Runway: meses de gasto cobertos pelo patrimônio investível se a renda parar hoje.
+// Base = investável (RV/FII entram — dá pra vender numa emergência; imóvel fica de fora, não é reserva).
 function runwayMonths() {
-  const liquid = liquidWealth();
+  const liquid = investableWealth();
   const last12 = HISTORICAL.slice(-12);
-  const recVals = last12.map(h => h.gasRec).filter(v => v > 0);
-  const avgGas = recVals.length
-    ? recVals.reduce((s, v) => s + v, 0) / recVals.length
-    : last12.reduce((s, h) => s + h.gas, 0) / Math.max(1, last12.length);
+  const avgGas = last12.reduce((s, h) => s + h.gas, 0) / Math.max(1, last12.length);
   return avgGas > 0 ? liquid / avgGas : 0;
 }
 
