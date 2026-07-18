@@ -1476,7 +1476,6 @@ function renderPage(p) {
     insights:    renderInsights,
     debts:       renderDebts,
     protection:  renderProtection,
-    objetivos:   renderObjetivos,
   };
   map[p]?.();
 }
