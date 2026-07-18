@@ -2663,6 +2663,9 @@ function renderDashboard() {
 }
 
 // ── 8. LINHA DA VIDA ──────────────────────────────────────
+let timelineTab = 'projecao';   // 'projecao' = gráfico/tabela · 'objetivos' = metas
+function setTimelineTab(t) { timelineTab = t; destroyCharts(); renderTimeline(); }
+
 function renderTimeline() {
   const el = document.getElementById('page-timeline');
 
