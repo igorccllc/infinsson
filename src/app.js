@@ -6109,8 +6109,8 @@ function renderHistory() {
         datasets:[{
           label:'Taxa de Poupança %',
           data:savingsRates,
-          backgroundColor: savingsRates.map(v=>v>=50?'#22c55e66':v>=30?'#4f8ef766':'#f8717166'),
-          borderColor:     savingsRates.map(v=>v>=50?'#22c55e':v>=30?'#4f8ef7':'#f87171'),
+          backgroundColor: savingsRates.map(v=>v>=40?'#22c55e66':v>=20?'#4f8ef766':'#f8717166'),
+          borderColor:     savingsRates.map(v=>v>=40?'#22c55e':v>=20?'#4f8ef7':'#f87171'),
           borderWidth:1,
         }]
       },
