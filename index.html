@@ -1920,15 +1920,6 @@ function investableWealth() {
   return port || HISTORICAL[HISTORICAL.length-1].pl;
 }
 
-// Saldo devedor total das dívidas ativas HOJE (avança o cronograma de cada uma pela debtNow).
-// É o passivo que o balanço precisa deduzir para o Patrimônio Líquido ser honesto.
-function totalDebtNow() {
-  return (S.debts || []).reduce((s, d) => {
-    const n = debtNow(d);
-    return s + (n.quitada ? 0 : n.saldoAtual);
-  }, 0);
-}
-
 function projectPath(months, startWealth, annualReturn, incDelta, expDelta) {
   const monthlyRate = Math.pow(1 + annualReturn / 100, 1/12) - 1;
   const A = S.assumptions;
