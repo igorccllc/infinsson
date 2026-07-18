@@ -1369,6 +1369,7 @@ function renderPage(p) {
     simulador:   renderSimulador,
     insights:    renderInsights,
     debts:       renderDebts,
+    protection:  renderProtection,
   };
   map[p]?.();
 }
