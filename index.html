@@ -5458,7 +5458,7 @@ function assToggleRetireFI(el) {
 
 function assSliderCommit() {
   saveState();
-  if (document.getElementById('page-scenarios')?.classList.contains('active')) {
+  if (document.getElementById('sc-body')) {   // aba Cenários (dentro da Linha da Vida) está aberta
     const months = S.assumptions.projectionYears * 12;
     const scPaths = buildScenarioPaths(months);
     _renderScCards(scPaths);
