@@ -4718,6 +4718,28 @@ function renderPortfolio() {
     }
   }
 
+  // ── Perfil de risco (Necessidade × Capacidade × Tolerância) ──
+  const rp = riskProfile();
+  const dimBlock = (title, sub, lvl, txt) => `
+    <div style="background:var(--surface-2);border-radius:8px;padding:12px">
+      <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.03em">${title}</div>
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:6px">${sub}</div>
+      <div style="font-size:16px;font-weight:700;text-transform:capitalize">${lvl}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px;line-height:1.4">${txt}</div>
+    </div>`;
+  const riskCard = `<div class="card mb-16">
+    <div class="card-title">Perfil de Risco — Necessidade × Capacidade × Tolerância</div>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">A alocação deve respeitar a <b>menor</b> das três. Recomendação: <b style="color:var(--accent);text-transform:capitalize">${rp.rec}</b>.</p>
+    <div class="kpi-grid-3" style="gap:12px">
+      ${dimBlock('Necessidade', 'risco que você PRECISA', rp.necLvl, rp.necTxt)}
+      ${dimBlock('Capacidade', 'risco que você PODE', rp.capLvl, `Horizonte de ${rp.anos} anos até aposentar.`)}
+      ${dimBlock('Tolerância', 'risco que você AGUENTA', rp.tolLvl, rp.tolTxt)}
+    </div>
+    ${rp.overRisk
+      ? `<div class="form-hint" style="margin-top:12px;color:var(--yellow)">⚠ Você tem <b>${fmtPct(rp.rvPct)}</b> em ativos de risco (RV/FII/internacional), mas sua necessidade de retorno é baixa. <b>Quando você já ganhou o jogo, não precisa continuar apostando</b> — considere reduzir risco e travar o resultado.</div>`
+      : `<div class="form-hint" style="margin-top:12px">Hoje: <b>${fmtPct(rp.rvPct)}</b> da carteira em ativos de risco (RV/FII/internacional).</div>`}
+  </div>`;
+
   // ── Aporte simulator ──
   let aporteHtml = '';
   if (hasTargets && total > 0) {
