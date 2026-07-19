@@ -813,6 +813,19 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
 tr.fi-row td { background: rgba(52,211,153,.07); }
 tr.fi-row td:first-child { font-weight: 700; }
 
+/* Dados Mensais Históricos: coluna Mês fixa + cabeçalho fixo + ordenação por clique */
+.hist-data-wrap { max-height: 560px; overflow: auto; }
+.hist-data-wrap thead th { position: sticky; top: 0; background: var(--surface); z-index: 2; box-shadow: 0 1px 0 var(--border-2); white-space: nowrap; }
+.hist-data-wrap th:first-child, .hist-data-wrap td:first-child {
+  position: sticky; left: 0; text-align: left;
+  background: var(--surface); z-index: 1; box-shadow: 1px 0 0 var(--border-2);
+}
+.hist-data-wrap thead th:first-child { z-index: 3; }
+.hist-data-wrap tr:hover td { background: var(--surface-2); }
+.hist-data-wrap tr:hover td:first-child { background: var(--surface-2); }
+.hist-sortable { cursor: pointer; user-select: none; }
+.hist-sortable:hover { color: var(--accent); }
+
 /* ── PARAMS ACCORDION ───────────────────────────────────── */
 .params-accordion { padding: 0; }
 .params-accordion-header {
