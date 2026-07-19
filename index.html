@@ -8740,6 +8740,21 @@ function computeInsights() {
     }
   }
 
+  // ── Concentração em posição única (só ativos com risco idiossincrático — rf/cash são cestas diversificadas)
+  if (totalPort > 0) {
+    const riskAssets = S.portfolio.filter(a => !['rf', 'cash', 'imovel'].includes(a.cat));
+    const biggest = riskAssets.reduce((m, a) => (!m || a.value > m.value) ? a : m, null);
+    if (biggest) {
+      const pctBig = biggest.value / totalPort * 100;
+      if (pctBig >= 35) {
+        push('warn', 'Carteira',
+          `${fmtPct(pctBig)} da carteira numa única posição de risco (${biggest.name})`,
+          `${fmtK(biggest.value)} concentrados em <b>${biggest.name}</b>. Acima de 35%, o resultado do plano passa a depender de um único ativo — diversificação nas outras classes não compensa concentração aqui. O drawdown que a posição pode ter é o drawdown que o plano vai ter.`,
+          `Direcionar aportes novos para outras classes até ${biggest.name} voltar a um peso confortável.`);
+      }
+    }
+  }
+
   // ── Financiamento: amortizar vs. investir
   const am = S.amort;
   if (am && am.saldo > 0 && am.taxaMes > 0) {
