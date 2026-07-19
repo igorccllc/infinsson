@@ -747,15 +747,18 @@ const CDI_YEARLY = { 2017:9.9, 2018:6.4, 2019:5.9, 2020:2.8, 2021:4.4, 2022:12.4
 
 // Retorno mensal realizado da carteira. Fonte da verdade = coluna Rentabilidade da planilha
 // (h.rent, já em % → ÷100), para o heatmap ficar IDÊNTICO à planilha. Só quando o mês não tem
-// rentabilidade sincronizada é que cai no recálculo (Δpatrimônio - aporte)/patrimônio anterior.
+// rentabilidade sincronizada é que cai no recálculo (Δpl - aporte)/pl anterior — sobre o
+// patrimônio LÍQUIDO (o de fato investido); pat inclui imóvel e poluiria o retorno.
 function realizedReturns() {
   const out = [];
   for (let i = 1; i < HISTORICAL.length; i++) {
     const prev = HISTORICAL[i-1], cur = HISTORICAL[i];
     if (cur.rent != null && cur.rent !== '') {
       out.push({ d: cur.d, r: cur.rent / 100 });
-    } else if (prev.pat) {
-      out.push({ d: cur.d, r: (cur.pat - prev.pat - (cur.apo || 0)) / prev.pat });
+    } else {
+      const base = prev.pl || prev.pat;
+      const curV = cur.pl || cur.pat;
+      if (base) out.push({ d: cur.d, r: (curV - base - (cur.apo || 0)) / base });
     }
   }
   return out;
