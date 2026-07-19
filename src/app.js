@@ -5947,7 +5947,77 @@ function saveFISettings() {
 let historyTab = 'overview';
 let fluxoView = 'mes';   // 'mes' = colunas mensais · 'ano' = só Total/Média por ano
 let fluxoCollapsed = new Set();   // nomes de macro-contas recolhidas (some ao trocar de aba/recarregar)
+let histSort = { col: 'd', dir: 'desc' };   // ordenação da tabela "Dados Mensais Históricos"
 function setHistoryTab(t) { historyTab = t; destroyCharts(); renderHistory(); }
+function setHistSort(col) {
+  if (histSort.col === col) histSort.dir = histSort.dir === 'asc' ? 'desc' : 'asc';
+  else histSort = { col, dir: 'desc' };   // nova coluna começa do maior p/ o menor (ex.: meses de mais gasto)
+  const card = document.getElementById('hist-table-card');
+  if (card) card.innerHTML = _buildHistTableCard();
+}
+
+// Tabela "Dados Mensais Históricos" com coluna Mês fixa e ordenação por qualquer coluna.
+function _buildHistTableCard() {
+  const COLS = [
+    { key: 'd',      label: 'Mês' },
+    { key: 'pat',    label: 'Patrimônio' },
+    { key: 'pl',     label: 'PL' },
+    { key: 'cres',   label: 'Crescimento' },
+    { key: 'apo',    label: 'Aporte' },
+    { key: 'rent',   label: 'Rentabilidade' },
+    { key: 'rate',   label: 'Taxa de Poupança' },
+    { key: 'rec',    label: 'Receita' },
+    { key: 'gas',    label: 'Gastos Totais' },
+    { key: 'gasRec', label: 'Gastos Recorrentes' },
+    { key: 'gasNRec',label: 'Gastos Não-Rec.' },
+    { key: 'taxes',  label: 'Taxes' },
+  ];
+  // Enriquece cada mês com aporte e taxa efetivos (mesma lógica de exibição)
+  const data = HISTORICAL.map(h => ({ ...h, apo: h.apo ?? (h.rec - h.gas), rate: h.txp ?? savingsRate(h) }));
+  const dir = histSort.dir === 'asc' ? 1 : -1;
+  data.sort((a, b) => {
+    if (histSort.col === 'd') return dir * String(a.d).localeCompare(String(b.d));
+    const av = a[histSort.col], bv = b[histSort.col];
+    const aN = (av == null || isNaN(av)), bN = (bv == null || isNaN(bv));
+    if (aN && bN) return 0;
+    if (aN) return 1;            // nulos sempre no fim, independthe da direção
+    if (bN) return -1;
+    return dir * (av - bv);
+  });
+
+  const arrow = c => histSort.col === c ? (histSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  const head = COLS.map(c =>
+    `<th class="${c.key === 'd' ? '' : 'r'} hist-sortable" onclick="setHistSort('${c.key}')" title="Ordenar por ${c.label}">${c.label}${arrow(c.key)}</th>`
+  ).join('');
+
+  const pp   = v => (v == null || isNaN(v)) ? '<span class="muted">—</span>' : (v >= 0 ? '+' : '') + v.toFixed(2).replace('.', ',') + '%';
+  const rr   = v => (v == null || isNaN(v)) ? '<span class="muted">—</span>' : fmt(v);
+  const sign = v => (v == null || isNaN(v)) ? '' : (v >= 0 ? 'green' : 'red');
+
+  const rows = data.map(h => `<tr>
+    <td class="muted">${monthLabel(h.d)}</td>
+    <td class="r accent">${fmt(h.pat)}</td>
+    <td class="r">${fmt(h.pl)}</td>
+    <td class="r ${sign(h.cres)}">${pp(h.cres)}</td>
+    <td class="r ${h.apo >= 0 ? 'green' : 'red'}">${fmt(h.apo)}</td>
+    <td class="r ${sign(h.rent)}">${pp(h.rent)}</td>
+    <td class="r ${h.rate >= 40 ? 'green' : h.rate >= 20 ? 'yellow' : 'red'}">${fmtPct(h.rate)}</td>
+    <td class="r green">${fmt(h.rec)}</td>
+    <td class="r red">${fmt(h.gas)}</td>
+    <td class="r">${rr(h.gasRec)}</td>
+    <td class="r">${rr(h.gasNRec)}</td>
+    <td class="r">${rr(h.taxes)}</td>
+  </tr>`).join('');
+
+  return `
+    <div class="card-title">Dados Mensais Históricos <span style="font-weight:400;font-size:11px;color:var(--text-dim)">· clique num cabeçalho para ordenar</span></div>
+    <div class="table-wrap hist-data-wrap">
+      <table class="history-table">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
 function setFluxoView(v) { fluxoView = v; renderHistory(); }
 function toggleFluxoSection(name) {
   if (fluxoCollapsed.has(name)) fluxoCollapsed.delete(name); else fluxoCollapsed.add(name);
