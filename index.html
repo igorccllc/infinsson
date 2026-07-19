@@ -8148,21 +8148,18 @@ function updateProtection(field, value) {
   renderProtection();
 }
 
-function renderProtection() {
-  const el = document.getElementById('page-protection');
+// Cálculo compartilhado dos gaps de proteção (usado pela aba Proteção e pelo motor de Insights)
+function protectionGaps() {
   const p = S.protection;
-
-  // Insumos que o app já tem
   const last12 = HISTORICAL.slice(-12);
   const gastoMensal = last12.length ? last12.reduce((s, h) => s + h.gas, 0) / last12.length : 0;
   const gastoAnual  = gastoMensal * 12;
   const rendaMensal = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0);
   const patLiquido  = investableWealth();
   const dividaTotal = (S.debts || []).reduce((s, d) => { const n = debtNow(d); return s + (n.quitada ? 0 : n.saldoAtual); }, 0);
-  const age = currentAge();
-  const anosApos = Math.max(0, (S.assumptions.retirementAge || 60) - age);
+  const anosApos = Math.max(0, (S.assumptions.retirementAge || 60) - currentAge());
 
-  // ── Seguro de VIDA (needs-based) ──
+  // Seguro de VIDA (needs-based)
   const reposicao = gastoAnual * p.anosDependencia;
   const dividaCoberta = p.dividaCobertaMIP != null ? p.dividaCobertaMIP : dividaTotal;
   const dividaDescoberta = Math.max(0, dividaTotal - dividaCoberta);
@@ -8171,10 +8168,22 @@ function renderProtection() {
   const faltaVida = Math.max(0, necessidadeVida - recursosVida);
   const sobraVida = Math.max(0, recursosVida - necessidadeVida);
 
-  // ── INVALIDEZ (gap vs teto do INSS) ──
+  // INVALIDEZ (gap vs teto do INSS)
   const gapMensal = Math.max(0, rendaMensal - p.tetoINSS);
   const necessidadeInval = gapMensal * 12 * anosApos;
   const faltaInval = Math.max(0, necessidadeInval - p.seguroInvalidez);
+
+  return { gastoMensal, gastoAnual, rendaMensal, patLiquido, dividaTotal, anosApos,
+           reposicao, dividaCoberta, dividaDescoberta, necessidadeVida, recursosVida, faltaVida, sobraVida,
+           gapMensal, necessidadeInval, faltaInval };
+}
+
+function renderProtection() {
+  const el = document.getElementById('page-protection');
+  const p = S.protection;
+  const { gastoAnual, rendaMensal, patLiquido, dividaTotal, anosApos,
+          reposicao, dividaCoberta, dividaDescoberta, necessidadeVida, recursosVida, faltaVida, sobraVida,
+          gapMensal, necessidadeInval, faltaInval } = protectionGaps();
 
   const linha = (label, valor, cls) => `<tr><td>${label}</td><td class="r ${cls || ''}">${valor}</td></tr>`;
 
