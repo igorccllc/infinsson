@@ -8553,6 +8553,24 @@ function computeInsights() {
     }
   }
 
+  // ── Drawdown corrente (distância do pico histórico)
+  if (HISTORICAL.length >= 12) {
+    let peakV = -Infinity, peakD = null;
+    for (const h of HISTORICAL) {
+      const v = h.pl || h.pat;
+      if (v > peakV) { peakV = v; peakD = h.d; }
+    }
+    const curV = lastH.pl || lastH.pat;
+    const ddCur = peakV > 0 ? (peakV - curV) / peakV * 100 : 0;
+    if (ddCur >= 5) {
+      const ddMax = maxDrawdownHist();
+      push('info', 'Drawdown',
+        `Patrimônio ${fmtPct(ddCur)} abaixo do pico (${monthLabel(peakD)})`,
+        `Pico de <b>${fmtK(peakV)}</b> vs. ${fmtK(curV)} hoje. Contexto anti-pânico: a maior queda que você já atravessou foi <b>${fmtPct(ddMax)}</b> — e seguiu o plano. Drawdown é o preço de ter ativos que rendem acima do CDI; a decisão errada aqui costuma ser vender.`,
+        null);
+    }
+  }
+
   // ── Tendência de receita (ex-meses atípicos)
   const recentR = last12.slice(-3).filter(h => !isOutlier(h) && h.rec > 0);
   const beforeR = last12.slice(0, 9).filter(h => !isOutlier(h) && h.rec > 0);
