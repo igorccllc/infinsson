@@ -7305,6 +7305,27 @@ function computeInsights() {
     }
   }
 
+  // ── Velocidade do plano: progresso à FI hoje vs. 12 meses atrás (derivada, não a foto)
+  if (HISTORICAL.length >= 13 && fin > 0) {
+    const plNow = lastH.pl || lastH.pat;
+    const h12 = HISTORICAL[HISTORICAL.length - 13];
+    const pl12 = h12.pl || h12.pat;
+    const pctNow = plNow / fin * 100, pct12 = pl12 / fin * 100;
+    const ppAno = pctNow - pct12;
+    if (ppAno > 0.5) {
+      const anosRestantes = (fin - plNow) / (plNow - pl12);
+      push('info', 'Velocidade',
+        `Você avançou ${ppAno.toFixed(1).replace('.', ',')}pp rumo à FI nos últimos 12 meses (${fmtPct(pct12)} → ${fmtPct(pctNow)})`,
+        `O patrimônio investível cresceu <b>${fmtK(plNow - pl12)}</b> no ano. Régua empírica — só o que de fato aconteceu, extrapolado sem premissa de retorno: nesse ritmo, a meta de ${fmtK(fin)} chega em <b>~${anosRestantes.toFixed(1).replace('.', ',')} anos</b>.`,
+        null);
+    } else if (ppAno < -0.5) {
+      push('info', 'Velocidade',
+        `Progresso à FI recuou ${Math.abs(ppAno).toFixed(1).replace('.', ',')}pp em 12 meses (${fmtPct(pct12)} → ${fmtPct(pctNow)})`,
+        `O patrimônio investível caiu ${fmtK(Math.abs(plNow - pl12))} no ano — normalmente é mercado, não comportamento (confira o card de Rentabilidade). Um ano ruim não muda o plano; três seguidos mudam.`,
+        null);
+    }
+  }
+
   // ── Coast FI: aportar já virou escolha?
   const cyIns = coastFIYears();
   if (cyIns != null && cyIns > 0) {
