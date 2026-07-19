@@ -7258,6 +7258,27 @@ function computeInsights() {
       null);
   }
 
+  // ── Modelo vs. realidade: a poupança que as projeções assumem existe de fato?
+  const modelSav = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0)
+                 - S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+  if (modelSav > 0 && avgApo12 > 0 && HISTORICAL.length >= 12) {
+    const ratio = modelSav / avgApo12;
+    if (ratio > 1.2 || ratio < 0.8) {
+      const otimista = ratio > 1.2;
+      const fin0 = fiNumber(), w0 = investableWealth(), rR0 = weightedReturnReal();
+      const mModel = _monthsToTarget(w0, modelSav, rR0, fin0);
+      const mReal  = _monthsToTarget(w0, avgApo12, rR0, fin0);
+      push(otimista ? 'warn' : 'info', 'Modelo vs Real',
+        otimista
+          ? `As projeções assumem ${fmt(modelSav)}/mês de poupança — sua realidade média é ${fmt(avgApo12)}`
+          : `Você aporta mais do que o modelo assume: ${fmt(avgApo12)}/mês real vs. ${fmt(modelSav)} no cadastro`,
+        `O cadastro do Fluxo de Caixa (que alimenta data FI, cenários e Monte Carlo) prevê sobra de <b>${fmt(modelSav)}/mês</b>; o aporte real médio de 12 meses foi <b>${fmt(avgApo12)}/mês</b>. Com a poupança do modelo, a meta chega em <b>${_fmtAnos(mModel)}</b>; com a realidade, em <b>${_fmtAnos(mReal)}</b>. ${otimista
+          ? 'As projeções estão mais otimistas que a sua vida real — ou o cadastro se ajusta, ou o comportamento.'
+          : 'As projeções estão conservadoras — a data real tende a ser <b>melhor</b> que a exibida. Bom problema, mas vale atualizar o cadastro para o plano refletir a verdade.'}`,
+        otimista ? 'Atualizar receitas/gastos no Fluxo de Caixa para bater com a realidade — ou tratar a diferença como meta de aporte.' : null);
+    }
+  }
+
   // ── Meta FI: calibragem vs. gasto real
   const fin = fiNumber();
   const w = investableWealth();
