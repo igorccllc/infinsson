@@ -8627,6 +8627,44 @@ function computeInsights() {
     }
   }
 
+  // ── Coast FI: aportar já virou escolha?
+  const cyIns = coastFIYears();
+  if (cyIns != null && cyIns > 0) {
+    const coastAge = Math.ceil(age + cyIns);
+    const retAge = S.assumptions.retirementAge || 60;
+    if (coastAge <= retAge) {
+      push('good', 'Coast FI',
+        `Se parar de aportar hoje, a FI chega aos ${coastAge} anos — antes da sua aposentadoria (${retAge})`,
+        `Só o juro real composto sobre os ${fmtK(investableWealth())} atuais alcança a meta em ~${cyIns.toFixed(1).replace('.', ',')} anos. <b>Aportar deixou de ser obrigação e virou acelerador</b>: cada aporte antecipa a data, mas o plano já se sustenta sem ele. Isso muda o peso de decisões como trocar de trabalho ou reduzir ritmo.`,
+        null);
+    }
+  }
+
+  // ── Objetivos: quanto as metas empurram a FI
+  if ((S.goals || []).length) {
+    const gi = goalsFIImpact();
+    if (gi.sem && !gi.com) {
+      push('warn', 'Objetivos',
+        'Com as metas cadastradas, a FI sai do horizonte de projeção',
+        `Sem as metas, a FI chegaria em ${gi.sem.date.getFullYear()}. Custeando todas (${S.goals.length} meta(s)), o patrimônio não recupera dentro do horizonte de ${S.assumptions.projectionYears} anos. Ou as metas encolhem, ou o aporte cresce, ou a FI espera.`,
+        'Revisar valores e prioridades na Linha da Vida → Objetivos.');
+    } else if (gi.sem && gi.com) {
+      const dm = gi.com.months - gi.sem.months;
+      if (dm >= 6) {
+        const a = Math.floor(dm / 12), me = dm % 12;
+        push('info', 'Objetivos',
+          `Suas metas empurram a FI em ${a > 0 ? a + ' ano(s)' : ''}${a > 0 && me > 0 ? ' e ' : ''}${me > 0 ? me + ' mês(es)' : ''}`,
+          `FI sem as metas: <b>${gi.sem.date.getFullYear()}</b> · com as metas: <b>${gi.com.date.getFullYear()}</b>. Esse é o preço, em tempo, dos objetivos cadastrados — não é bom nem ruim, é o trade-off explícito. Detalhe por meta na Linha da Vida → Objetivos.`,
+          null);
+      } else if (dm <= 0) {
+        push('good', 'Objetivos',
+          'As metas cadastradas cabem sem atrasar a FI',
+          `Custear ${S.goals.length} meta(s) não move a data da independência — a folga de poupança absorve as saídas.`,
+          null);
+      }
+    }
+  }
+
   // ── Perfil de risco: Necessidade × Capacidade × Tolerância
   if (totalPort > 0) {
     const rp = riskProfile();
