@@ -7501,6 +7501,20 @@ function computeInsights() {
     }
   }
 
+  // ── Qualidade de dados: histórico desatualizado
+  {
+    const lastD = lastH.d;                        // "YYYY-MM" do último mês sincronizado
+    const nowD = new Date();
+    const curKey = nowD.getFullYear() + '-' + String(nowD.getMonth() + 1).padStart(2, '0');
+    const atras = monthsBetween(lastD, curKey);
+    if (atras >= 2) {
+      push('info', 'Dados',
+        `Histórico parado em ${monthLabel(lastD)} — ${atras} meses atrás`,
+        `Todos os insights desta página estão calculados sobre dados que param em <b>${monthLabel(lastD)}</b>. Antes de tomar decisão com base neles, sincronize a planilha.`,
+        'Clicar em ↻ Sync Sheets e gerar os insights de novo.');
+    }
+  }
+
   // ── Qualidade de dados: Mobills × Histórico divergindo
   const divs = window._mobillsDivergences;
   if (MOBILLS.length && Array.isArray(divs) && divs.length) {
