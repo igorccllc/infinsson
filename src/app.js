@@ -7162,7 +7162,7 @@ function computeInsights() {
       const metaFutura = S.fi.targetMonthlyIncome * Math.pow(1 + realCreep / 100, 5);
       push('warn', 'Inflação Pessoal',
         `Seu custo de vida sobe ${fmtPct(infP.pct)} a.a. — ${fmtPct(realCreep)} acima do IPCA`,
-        `Gasto ${infP.src === 'rec' ? 'recorrente' : 'total'} médio foi de ${fmt(infP.avgPrev12)}/mês para <b>${fmt(infP.avgLast12)}/mês</b> em 12 meses. Isso é o denominador da FI inflando em silêncio: se o ritmo continuar, a meta de ${fmt(S.fi.targetMonthlyIncome)}/mês vale <b>${fmt(metaFutura)}/mês</b> em poder de compra daqui a 5 anos — e o Número FI cresce junto. As projeções assumem gasto constante em termos reais; o seu não está sendo.`,
+        `Gasto ${infP.src.includes('Recorrentes') ? 'recorrente' : 'total'} médio foi de ${fmt(infP.avgPrev12)}/mês para <b>${fmt(infP.avgLast12)}/mês</b> em 12 meses. Isso é o denominador da FI inflando em silêncio: se o ritmo continuar, a meta de ${fmt(S.fi.targetMonthlyIncome)}/mês vale <b>${fmt(metaFutura)}/mês</b> em poder de compra daqui a 5 anos — e o Número FI cresce junto. As projeções assumem gasto constante em termos reais; o seu não está sendo.`,
         'Identificar na Análise de Gastos quais seções puxam a deriva — spike é evento, deriva é hábito.');
     } else if (infP.pct > ipca) {
       push('info', 'Inflação Pessoal',
