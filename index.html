@@ -8681,6 +8681,25 @@ function computeInsights() {
     }
   }
 
+  // ── Proteção: gaps de seguro de vida e invalidez
+  if (S.protection) {
+    const pg = protectionGaps();
+    const gaps = [];
+    if (S.protection.dependentes > 0 && pg.faltaVida > 0) gaps.push(`<b>${fmtK(pg.faltaVida)}</b> de seguro de vida (a família precisa de ${fmtK(pg.necessidadeVida)} e tem ${fmtK(pg.recursosVida)})`);
+    if (pg.faltaInval > 0) gaps.push(`<b>${fmtK(pg.faltaInval)}</b> de cobertura de invalidez (gap de ${fmt(pg.gapMensal)}/mês acima do teto do INSS por ${pg.anosApos} anos)`);
+    if (gaps.length) {
+      push('warn', 'Proteção',
+        `Falta${gaps.length > 1 ? 'm' : ''} ${gaps.length > 1 ? 'duas coberturas' : 'cobertura'} de seguro no plano`,
+        `${gaps.join('. ')}. Morte ou invalidez é o único cenário que zera o plano inteiro que o resto do app modela — e é o mais barato de transferir. Premissas ajustáveis na aba Proteção.`,
+        'Cotar seguro de vida resgatável não — term life puro — e cobertura de invalidez no valor do gap.');
+    } else if (S.protection.dependentes > 0 && (S.protection.seguroVida > 0 || S.protection.seguroInvalidez > 0)) {
+      push('good', 'Proteção',
+        'Coberturas de seguro dimensionadas para o plano',
+        `Vida e invalidez cobertos pela régua da aba Proteção (patrimônio + apólices ≥ necessidade). Revise quando a renda ou os dependentes mudarem.`,
+        null);
+    }
+  }
+
   // ── Alocação vs. meta (bandas de rebalanceamento)
   const targets = S.targetAllocation || {};
   if (totalPort > 0 && Object.keys(targets).length) {
