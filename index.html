@@ -8516,7 +8516,7 @@ function computeInsights() {
     } else if (infP.pct > ipca) {
       push('info', 'Inflação Pessoal',
         `Inflação pessoal de ${fmtPct(infP.pct)} a.a. — pouco acima do IPCA (${fmtPct(ipca)})`,
-        `Gasto ${infP.src === 'rec' ? 'recorrente' : 'total'} médio: ${fmt(infP.avgPrev12)} → <b>${fmt(infP.avgLast12)}/mês</b>. Dentro do tolerável, mas vale acompanhar: a premissa das projeções é gasto constante em termos reais.`,
+        `Gasto ${infP.src.includes('Recorrentes') ? 'recorrente' : 'total'} médio: ${fmt(infP.avgPrev12)} → <b>${fmt(infP.avgLast12)}/mês</b>. Dentro do tolerável, mas vale acompanhar: a premissa das projeções é gasto constante em termos reais.`,
         null);
     }
   }
