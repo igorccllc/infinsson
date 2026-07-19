@@ -7177,10 +7177,13 @@ function computeInsights() {
   if (rs.length >= 6) {
     let streak = 0;
     for (let i = rs.length - 1; i >= 0 && rs[i].r < 0; i--) streak++;
+    // Resultado de mercado sobre o patrimônio LÍQUIDO (o de fato investido) — pat inclui imóvel e poluiria a conta
     let gain3 = 0;
     const n3 = Math.min(3, HISTORICAL.length - 1);
     for (let i = HISTORICAL.length - n3; i < HISTORICAL.length; i++) {
-      gain3 += HISTORICAL[i].pat - HISTORICAL[i - 1].pat - (HISTORICAL[i].apo || 0);
+      const cur = HISTORICAL[i].pl || HISTORICAL[i].pat;
+      const prev = HISTORICAL[i - 1].pl || HISTORICAL[i - 1].pat;
+      gain3 += cur - prev - (HISTORICAL[i].apo || 0);
     }
     const t12 = twr(12), c12 = cdiAnnualized(12);
     const rvPct = totalPort > 0
