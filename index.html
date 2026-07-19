@@ -8802,6 +8802,25 @@ function computeInsights() {
     }
   }
 
+  // ── Qualidade de dados: Mobills × Histórico divergindo
+  const divs = window._mobillsDivergences;
+  if (MOBILLS.length && Array.isArray(divs) && divs.length) {
+    const worst = divs.reduce((m, d) => d.diff > m.diff ? d : m);
+    push('warn', 'Dados',
+      `Mobills e Histórico divergem em ${divs.length} mês(es) fechado(s)`,
+      `Pior caso: <b>${monthLabel(worst.d)}</b> — planilha ${fmt(worst.hist)} vs. Mobills ${fmt(worst.mobills)} (${fmtPct(worst.diff)} de diferença). Quando as duas fontes discordam, a Análise de Gastos e o Histórico contam histórias diferentes — e algum número está errado.`,
+      'Conferir lançamentos faltantes ou duplicados nos meses divergentes (ou ajustar os termos excluídos na Análise de Gastos).');
+  }
+
+  // ── Qualidade de dados: tabela CDI desatualizada
+  const anoAtual = new Date().getFullYear();
+  if (!(anoAtual in CDI_YEARLY)) {
+    push('info', 'Dados',
+      `Tabela de CDI sem o ano de ${anoAtual}`,
+      `O benchmark (CDI_YEARLY, no código) vai até ${Math.max(...Object.keys(CDI_YEARLY).map(Number))} — anos ausentes caem num fallback de 10% a.a., o que distorce o Alpha e a comparação com o CDI. Atualize a tabela com o CDI médio do ano.`,
+      null);
+  }
+
   return ins;
 }
 
