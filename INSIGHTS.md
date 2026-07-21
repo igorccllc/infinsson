@@ -9,7 +9,7 @@ Localização no código: `src/app.js`, seção `── 20b. INSIGHTS ──` (p
 Não tem IA nem chamada de rede. É uma função JS, `computeInsights()`, que:
 
 1. Lê o estado atual do app (`HISTORICAL`, `S.portfolio`, `S.fi`, `S.amort`, `S.targetAllocation`, `S.protection`, `S.goals` etc.) — os mesmos dados que alimentam o Dashboard.
-2. Roda ~20 blocos de regra independentes (`if`/threshold), cada um empurrando 0 ou 1 insight pra um array via `push(sev, tag, title, body, action)`.
+2. Roda ~23 blocos de regra independentes (`if`/threshold), cada um empurrando 0 ou 1 insight pra um array via `push(sev, tag, title, body, action)`.
 3. Devolve a lista. `generateInsights()` ordena por severidade e renderiza os cards + o card final de "Plano de ação" (junta o campo `action` de quem tiver).
 
 Cada vez que você clica em **⚡ Gerar insights**, tudo é recalculado do zero — não fica nada em cache. Se você sincronizar a planilha (Sync Sheets) e gerar de novo, os números refletem o dado novo.
@@ -47,7 +47,7 @@ Na ordem em que aparecem dentro de `computeInsights()`.
 **Severidade:** `warn` se rentabilidade < 0, senão `info`. Sem ação associada.
 
 ### 3.2 Taxa de poupança 12m
-**O que faz:** `(receita − gasto) / receita` nos últimos 12 meses. Também recalcula excluindo "meses atípicos" de receita (ver 3.21) pra dar uma taxa "normalizada".
+**O que faz:** `(receita − gasto) / receita` nos últimos 12 meses. Também recalcula excluindo "meses atípicos" de receita (ver 3.24) pra dar uma taxa "normalizada".
 **Limiares:** ≥40% → `good` · ≥20% → `warn` · <20% → `bad`. (Mesma régua 40/20 usada no Dashboard, na tabela e no gráfico do Histórico — unificada.)
 **Ação:** só aparece se <40%, sugerindo revisar os maiores grupos de gasto.
 
@@ -57,77 +57,91 @@ Na ordem em que aparecem dentro de `computeInsights()`.
 **Limiares:** inflação pessoal > IPCA + 2pp → `warn` (mostra a meta equivalente em 5 anos se o ritmo continuar) · > IPCA → `info` · ≤ IPCA → nada.
 
 ### 3.4 Rentabilidade recente vs. CDI
-**O que faz:** conta quantos meses seguidos (a partir do mais recente) a carteira rendeu negativo (`realizedReturns()`); compara TWR anualizado de 12m (`twr(12)`) contra CDI anualizado (`cdiAnnualized(12)`).
+**O que faz:** conta quantos meses seguidos (a partir do mais recente) a carteira rendeu negativo (`realizedReturns()`); compara TWR anualizado de 12m (`twr(12)`) contra CDI anualizado (`cdiAnnualized(12)`). O "resultado de mercado" do trimestre é `Δpl − aporte` sobre o **patrimônio líquido** (o de fato investido — `pat` incluiria o imóvel e poluiria a conta).
 **Gatilho de alerta:** streak ≥ 3 meses negativos → `bad`, com o argumento de "não vender, mercado é assim, ficar de olho só se persistir vs CDI em 12m+".
 **Caso contrário:** `good` se bateu o CDI em 12m, `warn` se ficou abaixo.
-**Nota importante:** `realizedReturns()` agora **prefere a coluna Rentabilidade da planilha** (`h.rent`, sincronizada) e só recalcula por `(Δpat − aporte)/pat` nos meses sem essa coluna. Ou seja: com sync em dia, o streak/TWR/Alpha batem 1:1 com o heatmap e com a planilha.
+**Nota importante:** `realizedReturns()` **prefere a coluna Rentabilidade da planilha** (`h.rent`, sincronizada) e só recalcula `(Δpl − aporte)/pl` nos meses sem essa coluna. Com sync em dia, streak/TWR/Alpha batem 1:1 com o heatmap e com a planilha.
 
 ### 3.5 Drawdown corrente
 **O que faz:** acha o pico histórico do patrimônio investível (`pl`) e mede a distância do valor atual até ele. Se ≥5% abaixo do pico, mostra um `info` com contexto anti-pânico: a maior queda já atravessada (`maxDrawdownHist()`) e o lembrete de que a decisão errada em drawdown costuma ser vender.
 **Não dispara** se o patrimônio está a menos de 5% do recorde (situação normal de acumulação).
 
 ### 3.6 Tendência de receita recorrente
-**O que faz:** compara a média de receita dos últimos 3 meses com a média dos 9 meses anteriores a esses — **excluindo meses atípicos** dos dois lados (ver 3.21), pra não deixar um bônus disfarçar a tendência real.
+**O que faz:** compara a média de receita dos últimos 3 meses com a média dos 9 meses anteriores a esses — **excluindo meses atípicos** dos dois lados (ver 3.24), pra não deixar um bônus disfarçar a tendência real.
 **Gatilho:** queda ≥10% → `bad` ("linha mais importante a atacar"); alta ≥10% → `good`. Variação dentro de ±10% é ruído — nada é reportado.
 
 ### 3.7 Tendência de aportes
 **O que faz:** compara aporte médio do último trimestre com a média de 12 meses.
 **Gatilho:** trimestre <60% da média de 12m → `warn`, com nota de que parte disso pode ser sazonal (bônus concentrados) mas vale acompanhar junto com a receita.
 
-### 3.8 Meta FI — calibragem vs. gasto real
+### 3.8 Modelo vs. realidade — a poupança das projeções existe?
+**O que faz:** compara a poupança que o **cadastro** assume (receita − gasto do Fluxo de Caixa — o número que alimenta data FI, cenários e Monte Carlo) com o **aporte real médio** de 12 meses (`apo` do histórico). Se divergem >20% pra qualquer lado, simula a data da meta com cada um (`_monthsToTarget`) e mostra as duas.
+**Direções:** modelo > realidade ×1,2 → `warn` (projeções otimistas — a data exibida assume uma disciplina que não está acontecendo) · realidade > modelo ×1,25 → `info` (projeções conservadoras — a data real tende a ser melhor; atualize o cadastro).
+**Por que importa:** é a reconciliação entre o mundo do cadastro e o mundo do histórico — sem ela, o número principal do app pode estar descolado da sua vida real sem ninguém avisar.
+
+### 3.9 Meta FI — calibragem vs. gasto real
 **O que faz:** compara `S.fi.targetMonthlyIncome` com o gasto médio real (últimos 12m). Se a meta for >1,8× o gasto real, calcula uma meta alternativa = gasto médio × 1,5 (arredondado pra R$500) e simula quantos meses faltam pra cada uma (`_monthsToTarget`).
 **Por que 1,8× e 1,5×:** thresholds arbitrários — 1,8× dispara o alerta ("meta claramente descolada"), 1,5× é a sugestão de "folga generosa". Ajuste em `computeInsights()` se sua noção de razoável for outra.
 **Caso não dispare:** mostra só o progresso normal (`info`).
 
-### 3.9 Coast FI — aportar virou escolha?
-**O que faz:** usa `coastFIYears()` (anos até a meta com **zero aporte novo**, só juro real composto). Se `idade atual + coastFIYears ≤ idade de aposentadoria`, dispara `good`: o plano já se sustenta sem aportes — aportar deixou de ser obrigação e virou acelerador.
-**Por que importa:** muda o peso de decisões de vida (trocar de trabalho, reduzir ritmo). Não dispara se a meta já foi atingida (o 3.8 cobre) nem se coast passa da idade de aposentadoria.
+### 3.10 Velocidade do plano — a derivada do progresso
+**O que faz:** compara o % da meta FI de hoje com o de 12 meses atrás (`pl` de ambos ÷ Número FI). Mostra os pontos percentuais ganhos por ano e o **ETA empírico**: quanto falta ÷ quanto andou no último ano — extrapolação do que de fato aconteceu, sem premissa de retorno.
+**Limiares:** avanço >0,5pp → `info` com o ritmo e o ETA · recuo >0,5pp → `info` com contexto ("um ano ruim não muda o plano; três seguidos mudam") · entre −0,5 e +0,5pp → nada (flat).
+**Por que importa:** o Dashboard mostra a foto (% da meta); esta regra mostra o filme.
 
-### 3.10 Objetivos — quanto as metas empurram a FI
+### 3.11 Coast FI — aportar virou escolha?
+**O que faz:** usa `coastFIYears()` (anos até a meta com **zero aporte novo**, só juro real composto). Se `idade atual + coastFIYears ≤ idade de aposentadoria`, dispara `good`: o plano já se sustenta sem aportes — aportar deixou de ser obrigação e virou acelerador.
+**Por que importa:** muda o peso de decisões de vida (trocar de trabalho, reduzir ritmo). Não dispara se a meta já foi atingida (o 3.9 cobre) nem se coast passa da idade de aposentadoria.
+
+### 3.12 Objetivos — quanto as metas empurram a FI
 **O que faz:** se há metas cadastradas (Linha da Vida → Objetivos), roda `goalsFIImpact()` — a projeção base com e sem as saídas das metas — e mede o delta na data da FI.
 **Limiares:** metas tiram a FI do horizonte → `warn` · empurram ≥6 meses → `info` com o delta · não atrasam nada → `good`. Entre 0 e 6 meses → nada (ruído).
 
-### 3.11 Perfil de risco — Necessidade × Capacidade × Tolerância
+### 3.13 Perfil de risco — Necessidade × Capacidade × Tolerância
 **O que faz:** usa `riskProfile()` (mesma régua do card na aba Patrimônio): retorno real *necessário* pra bater a meta no prazo (`requiredRealReturn()`, busca binária sobre o fluxo atual), horizonte até aposentar (capacidade) e maior queda já vivida (tolerância comprovada, `maxDrawdownHist()`).
 **Gatilhos:** necessidade **baixa** + >40% da carteira em ativos de risco (rv/fii/intl) → `warn` "quando você já ganhou o jogo, não precisa continuar apostando" · necessidade **alta** → `info` (o plano depende de retorno alto — aporte, prazo ou risco).
 
-### 3.12 Proteção — gaps de seguro de vida e invalidez
+### 3.14 Proteção — gaps de seguro de vida e invalidez
 **O que faz:** usa `protectionGaps()` (mesmo cálculo da aba Proteção): capital de vida needs-based (gasto anual × anos de dependência + financiamento não coberto por MIP − patrimônio − apólices) e gap de invalidez (renda − teto INSS, × 12 × anos até aposentar, − apólice).
 **Gatilhos:** qualquer gap > 0 → `warn` com os valores ("o único cenário que zera o plano inteiro — e o mais barato de transferir") · gaps zerados com apólice cadastrada → `good`. O gap de vida só conta se `dependentes > 0`.
 **Premissas editáveis** na aba Proteção (dependentes, anos, apólices, MIP, teto INSS).
 
-### 3.13 Alocação vs. banda de rebalanceamento
+### 3.15 Alocação vs. banda de rebalanceamento
 **O que faz:** usa `S.targetAllocation` e `S.rebalanceBand` (regra 5/25, mesma da aba Patrimônio) pra achar classes fora da banda. Se houver, sugere direcionar aporte novo pra mais abaixo da meta e pausar na mais acima (sem vender, sem IR).
 **Se nada estiver fora:** `good`, "nada a fazer".
 
-### 3.14 Concentração em juros (sensibilidade à Selic)
+### 3.16 Concentração em juros (sensibilidade à Selic)
 **O que faz:** soma % da carteira em `rf` + `cash`. Se ≥55%, avisa que a projeção depende do CDI/Selic se manterem altos e sugere rodar o cenário Pessimista com CDI ~10%.
 
-### 3.15 Concentração em posição única
+### 3.17 Concentração em posição única
 **O que faz:** acha a maior posição entre os ativos com **risco idiossincrático** (exclui `rf`, `cash` e `imovel` — cestas diversificadas ou fora do investível). Se ela passa de 35% da carteira total → `warn`: "o drawdown que a posição pode ter é o drawdown que o plano vai ter".
 **Ação:** direcionar aportes novos para outras classes até o peso voltar ao confortável.
 
-### 3.16 Financiamento — amortizar vs. investir
+### 3.18 Financiamento — amortizar vs. investir
 **O que faz:** converte a taxa mensal do financiamento (`S.amort.taxaMes`) em taxa anual efetiva, compara com o melhor rendimento líquido comparável em renda fixa (CDB líquido de IR a 15%, ou LCI isenta a 95% do CDI — usa o maior).
 **Gatilho:** spread (RF líquida − custo) < 1,5pp → `warn`, priorizar amortização. Spread maior → `info`, manter posição.
 **Simplificação:** IR de 15% fixo pro CDB (prazo longo) — não simula a tabela regressiva completa.
 
-### 3.17 Colchão / cobertura do gasto (runway)
+### 3.19 Colchão / cobertura do gasto (runway)
 **O que faz:** `runwayMonths()` = patrimônio investível ÷ gasto médio mensal (12m). Também calcula quanto do gasto o *rendimento real* esperado da carteira já paga (régua da perpetuidade).
 **Limiares:** ≥60 meses → `good` · ≥24 → `info` · <24 → `warn`.
 
-### 3.18 Receita dependente de eventos atípicos
-**O que faz:** nos últimos 24 meses, identifica meses atípicos (ver 3.21) e calcula que % da receita total eles representam.
+### 3.20 Receita dependente de eventos atípicos
+**O que faz:** nos últimos 24 meses, identifica meses atípicos (ver 3.24) e calcula que % da receita total eles representam.
 **Gatilho:** ≥2 meses atípicos **e** ≥20% da receita → `info`, listando os meses ("o plano funciona *se* eles continuarem").
 
-### 3.19 Qualidade de dados — Mobills × Histórico
+### 3.21 Qualidade de dados — histórico desatualizado
+**O que faz:** compara o último mês do `HISTORICAL` com o mês corrente. Se a diferença é ≥2 meses, `info`: "todos os insights desta página estão calculados sobre dados que param em [mês] — sincronize antes de decidir".
+**Por que importa:** decisão sobre foto velha é decisão errada com confiança.
+
+### 3.22 Qualidade de dados — Mobills × Histórico
 **O que faz:** lê `window._mobillsDivergences` (preenchido no Sync por `validateMobillsVsHistorical()`: meses fechados onde a soma do Mobills diverge >15% do `gas` da planilha). Se houver divergência (e houver dados Mobills), `warn` com o pior mês.
 **Por que importa:** quando as duas fontes discordam, a Análise de Gastos e o Histórico contam histórias diferentes — algum número está errado.
 
-### 3.20 Qualidade de dados — tabela CDI desatualizada
+### 3.23 Qualidade de dados — tabela CDI desatualizada
 **O que faz:** se o ano corrente não está em `CDI_YEARLY`, `info` avisando que anos ausentes caem no fallback de 10% a.a., distorcendo Alpha e comparações. (Antes esse aviso só existia aqui no manual — agora o app cobra sozinho.)
 
-### 3.21 Detecção de "mês atípico" (usada em 3.2, 3.6 e 3.18)
+### 3.24 Detecção de "mês atípico" (usada em 3.2, 3.6 e 3.20)
 ```js
 recMed = mediana(receita dos últimos 24 meses, excluindo zeros)
 isOutlier(mês) = mês.rec > 1.8 × recMed
@@ -139,11 +153,11 @@ Separa receita recorrente de bônus/eventos pontuais (13º, prêmio, venda de at
 | Função | O que faz |
 |---|---|
 | `_median(arr)` | mediana de um array numérico |
-| `isOutlier(h)` | ver 3.21 |
+| `isOutlier(h)` | ver 3.24 |
 | `_monthsToTarget(w0, sav, rAnnual, target)` | meses até `target` com aporte fixo e retorno real composto, cap 600 meses |
 | `_fmtAnos(months)` | formata meses em texto ("~8 anos", "já atingida", "mais de 50 anos") |
 
-Reaproveitadas do resto do app (não redefinidas): `realizedReturns()`, `twr()`, `cdiAnnualized()`, `runwayMonths()`, `weightedReturn()`, `weightedReturnReal()`, `investableWealth()`, `fiNumber()`, `fiRate()`, `currentAge()`, `inflacaoPessoal()`, `coastFIYears()`, `maxDrawdownHist()`, `riskProfile()` / `requiredRealReturn()`, `protectionGaps()`, `goalsFIImpact()`, `fmt()` / `fmtK()` / `fmtPct()`.
+Reaproveitadas do resto do app (não redefinidas): `realizedReturns()`, `twr()`, `cdiAnnualized()`, `runwayMonths()`, `weightedReturn()`, `weightedReturnReal()`, `investableWealth()`, `fiNumber()`, `fiRate()`, `currentAge()`, `inflacaoPessoal()`, `coastFIYears()`, `maxDrawdownHist()`, `riskProfile()` / `requiredRealReturn()`, `protectionGaps()`, `goalsFIImpact()`, `monthsBetween()`, `fmt()` / `fmtK()` / `fmtPct()`.
 
 ## 5. Como adicionar uma regra nova
 
@@ -178,26 +192,30 @@ Todos os limiares estão **hardcoded dentro de `computeInsights()`** (ou nas fun
 | Drawdown mínimo pra aparecer | bloco 3.5 | 5% abaixo do pico |
 | Variação de receita que conta como tendência | bloco 3.6 | ±10% |
 | Queda de aporte que dispara alerta | bloco 3.7 | trimestre <60% da média 12m |
-| Meta FI "descolada" do gasto real | bloco 3.8 | meta > 1,8× gasto; alternativa = 1,5× gasto |
-| Delta mínimo das metas pra virar insight | bloco 3.10 | 6 meses |
-| Risco "demais" com necessidade baixa | bloco 3.11 (`riskProfile`) | >40% em rv/fii/intl |
-| Carteira "concentrada" em juro | bloco 3.14 | ≥55% em `rf`+`cash` |
-| Posição única "concentrada" | bloco 3.15 | ≥35% da carteira |
-| Spread mínimo pra preferir investir sobre amortizar | bloco 3.16 | 1,5pp |
-| Runway bom/ok/curto | bloco 3.17 | 60 / 24 meses |
+| Divergência modelo vs. realidade | bloco 3.8 | ±20% (ratio >1,2 ou <0,8) |
+| Meta FI "descolada" do gasto real | bloco 3.9 | meta > 1,8× gasto; alternativa = 1,5× gasto |
+| Movimento mínimo pra reportar velocidade | bloco 3.10 | ±0,5pp no ano |
+| Delta mínimo das metas pra virar insight | bloco 3.12 | 6 meses |
+| Risco "demais" com necessidade baixa | bloco 3.13 (`riskProfile`) | >40% em rv/fii/intl |
+| Carteira "concentrada" em juro | bloco 3.16 | ≥55% em `rf`+`cash` |
+| Posição única "concentrada" | bloco 3.17 | ≥35% da carteira |
+| Spread mínimo pra preferir investir sobre amortizar | bloco 3.18 | 1,5pp |
+| Runway bom/ok/curto | bloco 3.19 | 60 / 24 meses |
+| Histórico "velho" | bloco 3.21 | ≥2 meses atrás do mês corrente |
 | Divergência Mobills×Histórico | `validateMobillsVsHistorical` | >15% |
-| Multiplicador de "mês atípico" | bloco 3.21 | 1,8× a mediana |
+| Multiplicador de "mês atípico" | bloco 3.24 | 1,8× a mediana |
 
 Não há testes automatizados desses limiares — a validação é o smoke-test manual (seção 5, passo 6).
 
 ## 7. Limitações conhecidas (para lembrar antes de "corrigir")
 
-- **Não é IA.** Não generaliza, não aprende, não pondera fora das ~20 regras escritas. Padrão novo = regra nova.
-- **CDI_YEARLY é tabela fixa** com o CDI médio por ano. Anos ausentes caem no fallback de 10% — e agora a regra 3.20 avisa quando o ano corrente falta.
-- **`realizedReturns()` prefere a coluna Rentabilidade da planilha** (`rent`, quando sincronizada) e só recalcula `(Δpat − aporte)/pat` nos meses sem ela. Sem sync, o recálculo carrega ruído do aporte (converge em janelas 12m+).
-- **IR do CDB no bloco 3.16 usa alíquota fixa de 15%**, não a tabela regressiva completa.
-- **`_monthsToTarget` assume poupança e retorno constantes** — não usa o motor de cenários completo. É aproximação pra estimar o efeito de mudar a meta.
-- **A régua de invalidez (3.12) não desconta a valor presente** — soma simples do gap até a aposentadoria, deliberadamente conservadora.
+- **Não é IA.** Não generaliza, não aprende, não pondera fora das ~23 regras escritas. Padrão novo = regra nova.
+- **CDI_YEARLY é tabela fixa** com o CDI médio por ano. Anos ausentes caem no fallback de 10% — e a regra 3.23 avisa quando o ano corrente falta.
+- **`realizedReturns()` prefere a coluna Rentabilidade da planilha** (`rent`, quando sincronizada) e só recalcula `(Δpl − aporte)/pl` — sobre o patrimônio líquido — nos meses sem ela. Sem sync, o recálculo carrega ruído do aporte (converge em janelas 12m+).
+- **IR do CDB no bloco 3.18 usa alíquota fixa de 15%**, não a tabela regressiva completa.
+- **`_monthsToTarget` assume poupança e retorno constantes** — não usa o motor de cenários completo. É aproximação pra estimar o efeito de mudar a meta (3.8/3.9).
+- **A régua de invalidez (3.14) não desconta a valor presente** — soma simples do gap até a aposentadoria, deliberadamente conservadora.
+- **O ETA empírico da velocidade (3.10) extrapola um único ano** — um ano excepcional (pra cima ou pra baixo) distorce; leia junto com o card de Rentabilidade.
 - **Tendências de receita/aporte comparam períodos curtos** — sensíveis a um mês fora da curva mesmo após excluir outliers.
 
 ## 8. Onde tudo mora (referência rápida)
