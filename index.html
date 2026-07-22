@@ -7491,11 +7491,14 @@ function _buildFluxoGridTab() {
     const caret = section ? `<span class="fx-caret">${collapsed ? '▸' : '▾'}</span>` : '';
     const trAttrs = section ? ` onclick="toggleFluxoSection('${esc(toggleKey)}')" style="cursor:pointer"` : '';
     const rowCls = topo ? 'fx-top' : section ? 'fx-section' : 'fx-detail';
+    // A 1ª coluna é fixa (sticky): o fundo precisa ser OPACO, senão as colunas que passam por
+    // baixo ao rolar vazam através do tint semi-transparente. Compõe o tint sobre o --surface sólido.
+    const firstBg = hasColor ? `linear-gradient(${bg}, ${bg}), var(--surface)` : 'var(--surface)';
     return `<tr class="${rowCls}"${trAttrs}>${visibleCols.map((j, idx) => {
       const v = cells[j];
       const isNum = typeof v === 'number';
       const cls = `${j > 0 ? 'r ' : ''}${!section && colKind[j] === 'resumo' ? 'accent ' : ''}${isNum && v < 0 ? 'red' : ''}`.trim();
-      const style = idx === 0 ? `background:${bg};border-left:${borderW}px solid ${borderColor}` : `background:${bg}`;
+      const style = idx === 0 ? `background:${firstBg};border-left:${borderW}px solid ${borderColor}` : `background:${bg}`;
       const content = idx === 0 ? `${caret}${fmtCell(v)}` : fmtCell(v);
       return `<td class="${cls}" style="${style}">${content}</td>`;
     }).join('')}</tr>`;
