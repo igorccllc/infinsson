@@ -5311,12 +5311,12 @@ function saveCF(type, id) {
   const arr = type==='inc' ? S.incomes : S.expenses;
   if (id) { Object.assign(arr.find(x=>x.id===id), obj); }
   else { arr.push({ id:uid(), ...obj }); }
-  saveState(); closeModal(); renderCashflow();
+  saveState(); closeModal(); renderTimeline();
 }
 function removeCF(type, id) {
   if (type==='inc') S.incomes  = S.incomes.filter(x=>x.id!==id);
   else              S.expenses = S.expenses.filter(x=>x.id!==id);
-  saveState(); renderCashflow();
+  saveState(); renderTimeline();
 }
 
 // ── 12. PREMISSAS ─────────────────────────────────────────
