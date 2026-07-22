@@ -3786,13 +3786,10 @@ function removeAsset(id) {
   saveState(); renderPortfolio();
 }
 
-// ── 11. FLUXO DE CAIXA ────────────────────────────────────
-function renderCashflow() {
-  const el = document.getElementById('page-cashflow');
-  const totalInc = S.incomes.filter(i=>i.active).reduce((s,i)=>s+i.amount,0);
-  const totalExp = S.expenses.filter(e=>e.active).reduce((s,e)=>s+e.amount,0);
-  const savings  = totalInc - totalExp;
-
+// ── 11. FLUXO DE CAIXA / CADASTRO ─────────────────────────
+// Cadastro de receitas e despesas (editores). Vive na aba Cenários (Linha da Vida),
+// pois é onde as premissas do fluxo são configuradas.
+function _cadastroBody() {
   const incRows = S.incomes.map(i=>`
     <tr>
       <td><label class="toggle"><input type="checkbox" ${i.active?'checked':''} onchange="toggleCF('inc','${i.id}',this.checked)"><span class="toggle-slider"></span></label></td>
@@ -3819,30 +3816,63 @@ function renderCashflow() {
       </td>
     </tr>`).join('');
 
-  // Projection for next 24 months
+  return `<div class="grid-2 mb-16">
+    <div class="card">
+      <div class="flex-between mb-12">
+        <div class="card-title" style="margin-bottom:0">Receitas</div>
+        <button class="btn btn-primary btn-sm" onclick="openAddCF('inc')">+ Receita</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Nome</th><th class="r">Mensal</th><th class="r">Crescimento</th><th class="r">Anual</th><th></th></tr></thead>
+          <tbody>${incRows || '<tr><td colspan="6" class="muted" style="text-align:center;padding:14px">Nenhuma receita</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="flex-between mb-12">
+        <div class="card-title" style="margin-bottom:0">Despesas</div>
+        <button class="btn btn-primary btn-sm" onclick="openAddCF('exp')">+ Despesa</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Nome</th><th class="r">Mensal</th><th class="r">Crescimento</th><th class="r">Anual</th><th></th></tr></thead>
+          <tbody>${expRows || '<tr><td colspan="6" class="muted" style="text-align:center;padding:14px">Nenhuma despesa</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Aba "Fluxo de Caixa" (Linha da Vida): só os KPIs iniciais + a projeção mensal (60 meses),
+// que torna VISÍVEL a evolução da poupança quando receita e gasto crescem em ritmos diferentes.
+function _fluxoCaixaBody() {
+  const totalInc = S.incomes.filter(i=>i.active).reduce((s,i)=>s+i.amount,0);
+  const totalExp = S.expenses.filter(e=>e.active).reduce((s,e)=>s+e.amount,0);
+  const savings  = totalInc - totalExp;
+
   const projRows = [];
-  for (let m = 0; m < 24; m++) {
+  let sav0 = null;
+  for (let m = 0; m < 60; m++) {
     const y = m / 12;
     const inc = S.incomes.filter(i=>i.active).reduce((s,i)=>s+i.amount*Math.pow(1+i.growthRate/100,y),0);
     const exp = S.expenses.filter(e=>e.active).reduce((s,e)=>s+e.amount*Math.pow(1+e.growthRate/100,y),0);
     const sv = inc - exp;
+    if (m === 0) sav0 = sv;
+    const delta = sv - sav0;   // variação da poupança vs hoje — deixa a "depreciação" explícita
     const label = monthLabel(addMonths(projectionStart().str, m));
-    projRows.push(`<tr>
+    const yearMark = (m % 12 === 0);   // destaca o início de cada ano de projeção
+    projRows.push(`<tr${yearMark ? ' style="background:var(--surface-2)"' : ''}>
       <td>${label}</td>
       <td class="r green">${fmt(inc)}</td>
       <td class="r red">${fmt(exp)}</td>
       <td class="r ${sv>=0?'green':'red'}">${fmt(sv)}</td>
       <td class="r muted">${fmtPct(inc>0?(sv/inc)*100:0)}</td>
+      <td class="r ${delta<0?'red':delta>0?'green':'muted'}">${m===0?'—':(delta>=0?'+':'−')+fmt(Math.abs(delta))}</td>
     </tr>`);
   }
 
-  el.innerHTML = `
-    <div class="page-header">
-      <div><div class="page-title">Fluxo de Caixa</div>
-        <div class="page-subtitle">Receitas e despesas em valores de hoje · crescimento real (acima da inflação)</div>
-      </div>
-    </div>
-
+  return `
     <div class="kpi-grid mb-16">
       <div class="kpi">
         <div class="kpi-label">Receita Mensal</div>
@@ -3864,38 +3894,14 @@ function renderCashflow() {
       </div>
     </div>
 
-    <div class="grid-2 mb-16">
-      <div class="card">
-        <div class="flex-between mb-12">
-          <div class="card-title" style="margin-bottom:0">Receitas</div>
-          <button class="btn btn-primary btn-sm" onclick="openAddCF('inc')">+ Receita</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th></th><th>Nome</th><th class="r">Mensal</th><th class="r">Crescimento</th><th class="r">Anual</th><th></th></tr></thead>
-            <tbody>${incRows || '<tr><td colspan="6" class="muted" style="text-align:center;padding:14px">Nenhuma receita</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>
-      <div class="card">
-        <div class="flex-between mb-12">
-          <div class="card-title" style="margin-bottom:0">Despesas</div>
-          <button class="btn btn-primary btn-sm" onclick="openAddCF('exp')">+ Despesa</button>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th></th><th>Nome</th><th class="r">Mensal</th><th class="r">Crescimento</th><th class="r">Anual</th><th></th></tr></thead>
-            <tbody>${expRows || '<tr><td colspan="6" class="muted" style="text-align:center;padding:14px">Nenhuma despesa</td></tr>'}</tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
     <div class="card">
-      <div class="card-title">Projeção de Caixa — Próximos 24 Meses</div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Mês</th><th class="r">Receita</th><th class="r">Gastos</th><th class="r">Poupança</th><th class="r">Taxa</th></tr></thead>
+      <div class="flex-between mb-8">
+        <div class="card-title" style="margin-bottom:0">Projeção de Caixa — Próximos 60 Meses</div>
+        <span style="font-size:11px;color:var(--text-dim)">valores de hoje · Δ = variação da poupança vs. o mês atual · edite receitas/despesas na aba Cenários</span>
+      </div>
+      <div class="table-wrap hist-data-wrap">
+        <table class="history-table">
+          <thead><tr><th>Mês</th><th class="r">Receita</th><th class="r">Gastos</th><th class="r">Poupança</th><th class="r">Taxa</th><th class="r">Δ Poupança</th></tr></thead>
           <tbody>${projRows.join('')}</tbody>
         </table>
       </div>
