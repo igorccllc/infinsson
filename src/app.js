@@ -2606,7 +2606,7 @@ function renderDashboard() {
         <div style="font-size:11px;color:var(--text-dim);margin:-4px 0 8px">fontes:
           <a class="src-link" onclick="navigate('history');return false" href="#" title="Patrimônio inicial = último valor do Histórico">patrimônio inicial</a> ·
           <a class="src-link" onclick="navigate('portfolio');return false" href="#" title="Retorno ponderado dos ativos">retorno</a> ·
-          <a class="src-link" onclick="navigate('cashflow');return false" href="#" title="Receitas e gastos (e seus crescimentos)">receitas/gastos</a> ·
+          <a class="src-link" onclick="navigate('scenarios');return false" href="#" title="Receitas e gastos (e seus crescimentos) — cadastro na aba Cenários">receitas/gastos</a> ·
           <a class="src-link" onclick="navigate('scenarios');return false" href="#" title="Premissas e cenário Base (anos de projeção, deltas)">premissas</a>
         </div>
         <div class="chart-wrap chart-med"><canvas id="ch-dash-proj"></canvas></div>
