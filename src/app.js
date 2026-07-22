@@ -2694,12 +2694,17 @@ function renderTimeline() {
   const tabsHtml = `<div class="tabs" style="margin-bottom:16px">
     <button class="tab-btn ${timelineTab === 'cenarios' ? 'active' : ''}" onclick="setTimelineTab('cenarios')">Cenários</button>
     <button class="tab-btn ${timelineTab === 'projecao' ? 'active' : ''}" onclick="setTimelineTab('projecao')">Projeção</button>
+    <button class="tab-btn ${timelineTab === 'caixa' ? 'active' : ''}" onclick="setTimelineTab('caixa')">Fluxo de Caixa</button>
     <button class="tab-btn ${timelineTab === 'objetivos' ? 'active' : ''}" onclick="setTimelineTab('objetivos')">Objetivos</button>
   </div>`;
 
   if (timelineTab === 'cenarios') {
     el.innerHTML = headerHtml + tabsHtml + '<div id="sc-body"></div>';
     renderScenarios();
+    return;
+  }
+  if (timelineTab === 'caixa') {
+    el.innerHTML = headerHtml + tabsHtml + _fluxoCaixaBody();
     return;
   }
   if (timelineTab === 'objetivos') {
