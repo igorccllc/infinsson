@@ -1472,7 +1472,6 @@ function renderPage(p) {
     dashboard:   renderDashboard,
     timeline:    renderTimeline,
     portfolio:   renderPortfolio,
-    cashflow:    renderCashflow,
     assumptions: renderAssumptions,
     expenses:    renderExpenses,
     fi:          renderFI,
