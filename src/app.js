@@ -7226,14 +7226,14 @@ function computeInsights() {
     }
   }
 
-  // ── Drawdown corrente (distância do pico histórico)
-  if (HISTORICAL.length >= 12) {
+  // ── Drawdown corrente (distância do pico histórico) — sempre sobre o líquido (pl)
+  if (HISTORICAL.length >= 12 && lastH.pl != null) {
     let peakV = -Infinity, peakD = null;
     for (const h of HISTORICAL) {
-      const v = h.pl || h.pat;
-      if (v > peakV) { peakV = v; peakD = h.d; }
+      if (h.pl == null) continue;
+      if (h.pl > peakV) { peakV = h.pl; peakD = h.d; }
     }
-    const curV = lastH.pl || lastH.pat;
+    const curV = lastH.pl;
     const ddCur = peakV > 0 ? (peakV - curV) / peakV * 100 : 0;
     if (ddCur >= 5) {
       const ddMax = maxDrawdownHist();
