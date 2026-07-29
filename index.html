@@ -1216,6 +1216,15 @@ tr.fi-row td:first-child { font-weight: 700; }
   color: var(--text-muted);
   line-height: 1.6;
 }
+.insight-clickable { cursor: pointer; transition: background .12s; }
+.insight-clickable:hover { background: var(--surface-2); }
+.insight-goto {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.insight-clickable:hover .insight-goto { color: var(--accent); }
 .insight-body b { color: var(--text); font-weight: 700; }
 .insight-actions {
   margin: 0;
