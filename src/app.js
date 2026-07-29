@@ -755,10 +755,9 @@ function realizedReturns() {
     const prev = HISTORICAL[i-1], cur = HISTORICAL[i];
     if (cur.rent != null && cur.rent !== '') {
       out.push({ d: cur.d, r: cur.rent / 100 });
-    } else {
-      const base = prev.pl || prev.pat;
-      const curV = cur.pl || cur.pat;
-      if (base) out.push({ d: cur.d, r: (curV - base - (cur.apo || 0)) / base });
+    } else if (prev.pl > 0 && cur.pl != null) {
+      // recálculo SEMPRE sobre o líquido (pl) — nunca 'pat', que inclui o imóvel e distorce
+      out.push({ d: cur.d, r: (cur.pl - prev.pl - (cur.apo || 0)) / prev.pl });
     }
   }
   return out;
