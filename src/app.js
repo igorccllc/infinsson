@@ -4042,7 +4042,7 @@ function _buildParamsHTML() {
           <input type="range" class="sc-slider" min="0" max="80000" step="500"
             value="${totalExp}" oninput="assExpSliderInput(this)" onchange="assExpSliderCommit(this)">
         </div>
-        <div class="form-hint" style="margin-top:8px">O crescimento <b>real</b> de cada receita/gasto (acima da inflação) é definido item a item no <b>Cadastro de Receitas &amp; Despesas</b> (acima, nesta aba) — <b>0 = sobe só com a inflação</b>. A projeção mês a mês da poupança fica na aba <b>Fluxo de Caixa</b>.</div>
+        <div class="form-hint" style="margin-top:8px">Ajuste os totais de receita e gasto pelos controles acima (em valores de hoje). A projeção mês a mês da poupança fica na aba <b>Fluxo de Caixa</b>.</div>
       </div>
       <div class="param-panel">
         <div class="param-section-title">PROJEÇÃO &amp; PERFIL</div>
