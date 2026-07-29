@@ -7321,11 +7321,11 @@ function computeInsights() {
     }
   }
 
-  // ── Velocidade do plano: progresso à FI hoje vs. 12 meses atrás (derivada, não a foto)
-  if (HISTORICAL.length >= 13 && fin > 0) {
-    const plNow = lastH.pl || lastH.pat;
+  // ── Velocidade do plano: progresso à FI hoje vs. 12 meses atrás (derivada, não a foto) — sobre o líquido (pl)
+  if (HISTORICAL.length >= 13 && fin > 0 && lastH.pl != null && HISTORICAL[HISTORICAL.length - 13].pl > 0) {
+    const plNow = lastH.pl;
     const h12 = HISTORICAL[HISTORICAL.length - 13];
-    const pl12 = h12.pl || h12.pat;
+    const pl12 = h12.pl;
     const pctNow = plNow / fin * 100, pct12 = pl12 / fin * 100;
     const ppAno = pctNow - pct12;
     if (ppAno > 0.5) {
