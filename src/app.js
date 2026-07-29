@@ -7580,6 +7580,22 @@ function renderInsights() {
     <div id="insights-report"></div>`;
 }
 
+// Cada tag de insight → seção do app onde aquele dado vive (clicar no card navega até lá)
+const INS_TAG_NAV = {
+  'Patrimônio': 'history', 'Poupança': 'history', 'Rentabilidade': 'history',
+  'Drawdown': 'history', 'Receita': 'history', 'Aportes': 'history', 'Dados': 'history',
+  'Inflação Pessoal': 'expenses',
+  'Modelo vs Real': 'scenarios',
+  'Meta FI': 'fi', 'Velocidade': 'fi', 'Coast FI': 'fi', 'Colchão': 'fi',
+  'Objetivos': 'objetivos',
+  'Risco': 'portfolio', 'Carteira': 'portfolio', 'Alocação': 'portfolio',
+  'Financiamento': 'debts', 'Proteção': 'protection',
+};
+const INS_NAV_LABEL = {
+  history: 'Histórico', expenses: 'Análise de Gastos', scenarios: 'Cenários', fi: 'Independência FI',
+  objetivos: 'Objetivos', portfolio: 'Patrimônio', debts: 'Financiamento', protection: 'Proteção',
+};
+
 function generateInsights() {
   const box = document.getElementById('insights-report');
   if (!box) return;
