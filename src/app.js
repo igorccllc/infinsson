@@ -1038,14 +1038,14 @@ function requiredRealReturn() {
   return (lo + hi) / 2;
 }
 
-// Maior queda pico-a-vale já vivida no patrimônio investível — tolerância a risco COMPROVADA.
+// Maior queda pico-a-vale já vivida no patrimônio investível (pl) — tolerância a risco COMPROVADA.
+// Usa só o líquido; meses sem pl são ignorados (cair no 'pat' misturaria o imóvel e falsearia a queda).
 function maxDrawdownHist() {
   let peak = -Infinity, maxDD = 0;
   for (const h of HISTORICAL) {
-    const v = h.pl || h.pat;
-    if (!v) continue;
-    if (v > peak) peak = v;
-    if (peak > 0) maxDD = Math.max(maxDD, (peak - v) / peak);
+    if (h.pl == null) continue;
+    if (h.pl > peak) peak = h.pl;
+    if (peak > 0) maxDD = Math.max(maxDD, (peak - h.pl) / peak);
   }
   return maxDD * 100;
 }
