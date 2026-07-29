@@ -8967,14 +8967,21 @@ function generateInsights() {
       }).join('')}
       <span class="ins-chip" style="color:var(--text-dim)">gerado em ${ts}</span>
     </div>
-    ${ins.map(i => `
-      <div class="card insight-card" style="border-left-color:${INS_SEV[i.sev].color}">
+    ${ins.map(i => {
+      const dest = INS_TAG_NAV[i.tag];
+      const attrs = dest
+        ? ` insight-clickable" style="border-left-color:${INS_SEV[i.sev].color}" onclick="navigate('${dest}')" title="Abrir ${INS_NAV_LABEL[dest] || dest}"`
+        : `" style="border-left-color:${INS_SEV[i.sev].color}"`;
+      return `
+      <div class="card insight-card${attrs}>
         <div class="insight-head">
           <span class="insight-tag" style="color:${INS_SEV[i.sev].color};background:${INS_SEV[i.sev].color}1c">${i.tag}</span>
           <span class="insight-title">${i.title}</span>
+          ${dest ? `<span class="insight-goto">${INS_NAV_LABEL[dest] || dest} ↗</span>` : ''}
         </div>
         <div class="insight-body">${i.body}</div>
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
     ${actions.length ? `
       <div class="card insight-card" style="border-left-color:var(--accent-2)">
         <div class="insight-head">
