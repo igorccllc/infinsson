@@ -395,6 +395,15 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
 .cb-text  { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
 .cb-text b { color: var(--text); }
 
+/* Aporte vs Rendimento — decomposição do patrimônio */
+.ar-split { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 10px; }
+.ar-lbl { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+.ar-val { font-size: 22px; font-weight: 800; color: var(--accent); letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.ar-sub { font-size: 11px; color: var(--text-muted); }
+.ar-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--surface-2); }
+.ar-bar > div { height: 100%; transition: width .4s; }
+.ar-insight { font-size: 13px; color: var(--text); line-height: 1.6; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; margin-top: 14px; }
+
 /* Marcos de Patrimônio — lista com barra de tempo até cada marco */
 .ms-list { display: flex; flex-direction: column; }
 .ms-row {
