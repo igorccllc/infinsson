@@ -4930,6 +4930,7 @@ function setGastosNameQuery(q) {
 
 function buildGastosTabHtml() {
   const allNaturezas = [...new Set(MOBILLS.map(r => r.cat || '').filter(Boolean))].sort();
+  const allNomes = [...new Set(MOBILLS.map(r => r.name || '').filter(Boolean))].sort();
   const searchHtml = `<div class="card mb-16" style="padding:16px">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div style="flex:1;min-width:220px">
@@ -4943,31 +4944,47 @@ function buildGastosTabHtml() {
           ${allNaturezas.map(n => `<option value="${n}">`).join('')}
         </datalist>
       </div>
-      ${expGastosQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosQuery('')">✕ Limpar</button>` : ''}
+      ${expGastosQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosQuery('')">✕</button>` : ''}
+      <div style="flex:1;min-width:220px">
+        <input type="text" id="gastos-name-input" class="form-input"
+          placeholder="Nome do lançamento… ex: Mercado Angeloni, iFood"
+          value="${expGastosNameQuery.replace(/"/g, '&quot;')}"
+          list="gastos-nome-list"
+          oninput="setGastosNameQuery(this.value)"
+          style="width:100%;font-size:14px">
+        <datalist id="gastos-nome-list">
+          ${allNomes.map(n => `<option value="${n}">`).join('')}
+        </datalist>
+      </div>
+      ${expGastosNameQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosNameQuery('')">✕</button>` : ''}
     </div>
-    <div style="font-size:11px;color:var(--text-dim);margin-top:8px">${allNaturezas.length} naturezas disponíveis — busca parcial, ex: "bar" encontra "Bar", "Bar GF"</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:8px">${allNaturezas.length} naturezas · ${allNomes.length} nomes — busca parcial em cada campo; os dois juntos combinam (E lógico)</div>
   </div>`;
 
-  const q = expGastosQuery.trim().toLowerCase();
+  const qNat  = expGastosQuery.trim().toLowerCase();
+  const qName = expGastosNameQuery.trim().toLowerCase();
 
-  if (!q) {
+  if (!qNat && !qName) {
     return {
       html: searchHtml + `<div style="text-align:center;padding:60px 0;color:var(--text-muted)">
-        <div style="font-size:13px;color:var(--text-dim)">Digite uma natureza acima para ver o histórico, gráfico e insights</div>
+        <div style="font-size:13px;color:var(--text-dim)">Digite uma natureza ou um nome acima para ver o histórico, gráfico e insights</div>
       </div>`,
       chartData: null
     };
   }
 
-  const isExactNat = allNaturezas.some(n => n.toLowerCase() === q);
-  const matched = MOBILLS.filter(r => r.cat && (
-    isExactNat ? r.cat.toLowerCase() === q : r.cat.toLowerCase().includes(q)
-  ));
+  const isExactNat = qNat && allNaturezas.some(n => n.toLowerCase() === qNat);
+  const matched = MOBILLS.filter(r => {
+    const natOk  = !qNat  || (r.cat  && (isExactNat ? r.cat.toLowerCase()  === qNat  : r.cat.toLowerCase().includes(qNat)));
+    const nameOk = !qName || (r.name && r.name.toLowerCase().includes(qName));
+    return natOk && nameOk;
+  });
 
   if (!matched.length) {
+    const termos = [qNat && `natureza "${expGastosQuery}"`, qName && `nome "${expGastosNameQuery}"`].filter(Boolean).join(' e ');
     return {
       html: searchHtml + `<div style="text-align:center;padding:60px 0;color:var(--text-muted)">
-        Nenhuma transação encontrada para "<strong>${expGastosQuery}</strong>"
+        Nenhuma transação encontrada para ${termos}
       </div>`,
       chartData: null
     };
