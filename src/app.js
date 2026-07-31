@@ -6661,6 +6661,7 @@ function renderHistory() {
 
   requestAnimationFrame(() => {
     _drawHistRealChart();
+    _drawLifestyleChart();
     const step = Math.max(1, Math.floor(HISTORICAL.length/60));
     const sampled = HISTORICAL.filter((_,i)=>i%step===0||i===HISTORICAL.length-1);
     const labels  = sampled.map(h=>monthLabel(h.d));
