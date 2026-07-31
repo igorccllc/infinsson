@@ -6945,9 +6945,9 @@ function renderExpenses() {
             <div style="font-size:14px;font-weight:700;color:var(--text)">${fmt(lastSec)}</div>
             <div style="font-size:11px;color:var(--text-muted)">em ${monthLabel(lastMonth)}</div>
           </div>
+          <div class="exp-var-col">${varBadge(monthlyDelta)}</div>
           <div class="exp-var-col">${varBadge(yoyDelta)}</div>
           <div class="exp-var-col">${varBadge(annualDelta)}</div>
-          <div class="exp-var-col">${varBadge(monthlyDelta)}</div>
           <span id="exp-arrow-${secId}" style="color:var(--text-muted);font-size:12px;width:14px;text-align:center">▸</span>
         </div>
       </div>
