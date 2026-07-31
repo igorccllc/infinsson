@@ -6654,6 +6654,8 @@ function renderHistory() {
       </div>
     </div>
 
+    ${_buildLifestyleCard()}
+
     <div class="card" id="hist-table-card">${_buildHistTableCard()}</div>
   `;
 
