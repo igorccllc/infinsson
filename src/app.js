@@ -5737,9 +5737,9 @@ function renderExpenses() {
       <div class="flex-between mb-8" style="padding:0 24px">
         <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted)">Seções de Gasto <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim);font-size:11px">· clique para expandir</span></div>
         <div style="display:flex;align-items:center;gap:12px">
+          <div class="exp-var-col exp-var-head" title="Variação vs. o mês anterior">Var. mês</div>
           <div class="exp-var-col exp-var-head" title="Variação vs. o mesmo mês do ano passado">Var. YoY</div>
           <div class="exp-var-col exp-var-head" title="Acumulado dos últimos 12 meses vs. os 12 meses anteriores">Var. anual</div>
-          <div class="exp-var-col exp-var-head" title="Variação vs. o mês anterior">Var. mês</div>
           <span style="width:14px"></span>
         </div>
       </div>
