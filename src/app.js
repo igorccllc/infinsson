@@ -2616,6 +2616,92 @@ function _drawAporteRendChart() {
   });
 }
 
+// Patrimônio deflacionado: expressa todo o histórico em reais de HOJE, usando IPCA_YEARLY.
+function patrimonioRealSeries() {
+  const n = HISTORICAL.length;
+  const idx = [];
+  let acc = 1;
+  for (let i = 0; i < n; i++) {
+    const y = parseInt(HISTORICAL[i].d.slice(0, 4), 10);
+    const mRate = Math.pow(1 + (IPCA_YEARLY[y] ?? 4.5) / 100, 1 / 12) - 1;
+    if (i > 0) acc *= (1 + mRate);   // índice de preços acumulado mês a mês
+    idx.push(acc);
+  }
+  const idxNow = idx[n - 1];
+  const nominal = HISTORICAL.map(h => h.pat);
+  const real = HISTORICAL.map((h, i) => h.pat * (idxNow / idx[i]));   // traz o passado p/ reais de hoje
+  const years = n / 12;
+  const nomMult = nominal[n - 1] / nominal[0];
+  const realMult = real[n - 1] / real[0];
+  return {
+    nominal, real,
+    nomMult, realMult,
+    nomCAGR: (Math.pow(nomMult, 1 / years) - 1) * 100,
+    realCAGR: (Math.pow(realMult, 1 / years) - 1) * 100,
+    inflAcum: (idxNow / idx[0] - 1) * 100,
+    nomStart: nominal[0], realStart: real[0], curPat: nominal[n - 1],
+  };
+}
+
+function _buildPatrimonioRealCard() {
+  if (!HISTORICAL || HISTORICAL.length < 13) return '';
+  const s = patrimonioRealSeries();
+  const first = HISTORICAL[0];
+  return `
+    <div class="card mb-16">
+      <div class="flex-between mb-8">
+        <div class="card-title" style="margin-bottom:0">Patrimônio Real — em reais de hoje</div>
+        <span style="font-size:11px;color:var(--text-dim)">deflacionado pelo IPCA</span>
+      </div>
+      <div class="ar-split">
+        <div>
+          <div class="ar-lbl" style="color:var(--text-muted)">Início · ${monthLabel(first.d)}</div>
+          <div class="ar-val" style="color:var(--text)">${fmt(s.nomStart)}</div>
+          <div class="ar-sub">nominal — valia ${fmt(s.realStart)} em R$ de hoje</div>
+        </div>
+        <div style="text-align:right">
+          <div class="ar-lbl" style="color:var(--green)">Crescimento REAL</div>
+          <div class="ar-val" style="color:var(--green)">${s.realMult.toFixed(1)}×</div>
+          <div class="ar-sub">nominal aparenta ${s.nomMult.toFixed(1)}×</div>
+        </div>
+      </div>
+      <div class="chart-wrap chart-med mt-12"><canvas id="ch-hist-real"></canvas></div>
+      <div class="ar-insight">
+        A inflação acumulou <b style="color:var(--text)">${fmtPct(s.inflAcum)}</b> no período. Descontando ela, seu poder de compra cresceu
+        <b style="color:var(--green)">${s.realMult.toFixed(1)}×</b> — não os ${s.nomMult.toFixed(1)}× que o número nominal sugere.
+        CAGR real <b style="color:var(--green)">${fmtPct(s.realCAGR)}</b> vs ${fmtPct(s.nomCAGR)} nominal.
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:8px">IPCA por tabela anual (2025/2026 estimados). A linha "Real" traz cada mês do passado para o poder de compra de hoje; por isso encontra a nominal só no presente.</div>
+    </div>`;
+}
+
+function _drawHistRealChart() {
+  const ctx = document.getElementById('ch-hist-real');
+  if (!ctx) return;
+  destroyChart('histReal');
+  const s = patrimonioRealSeries();
+  const step = Math.max(1, Math.floor(HISTORICAL.length / 60));
+  const idx = HISTORICAL.map((_, i) => i).filter(i => i % step === 0 || i === HISTORICAL.length - 1);
+  activeCharts.histReal = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: idx.map(i => monthLabel(HISTORICAL[i].d)),
+      datasets: [
+        { label: 'Real (poder de compra em R$ de hoje)', data: idx.map(i => s.real[i]), borderColor: '#22c55e', backgroundColor: '#22c55e20', fill: true, tension: .4, pointRadius: 0, borderWidth: 2 },
+        { label: 'Nominal (valor da época)', data: idx.map(i => s.nominal[i]), borderColor: '#64748b', backgroundColor: 'transparent', tension: .4, pointRadius: 0, borderWidth: 1.5, borderDash: [5, 4] },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: '#8ca3c1', font: { size: 11 } } }, tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmtK(c.parsed.y)}` } } },
+      scales: {
+        x: { grid: { color: '#1e2d4230' }, ticks: { color: '#8ca3c1', font: { size: 10 }, maxTicksLimit: 12 } },
+        y: { grid: { color: '#1e2d4250' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+}
+
 // Marcos de patrimônio de 100k em 100k: quando cada um foi atingido e quanto levou.
 function _buildMilestonesCard() {
   if (!HISTORICAL || HISTORICAL.length < 2) return '';
