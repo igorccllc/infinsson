@@ -6333,7 +6333,7 @@ function buildGastosTabHtml() {
           ${allNaturezas.map(n => `<option value="${n}">`).join('')}
         </datalist>
       </div>
-      ${expGastosNameQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosNameQuery('')">✕</button>` : ''}
+      ${expGastosQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosQuery('')">✕</button>` : ''}
     </div>
     <div style="font-size:11px;color:var(--text-dim);margin-top:8px">${allNaturezas.length} naturezas · ${allNomes.length} nomes — busca parcial em cada campo; os dois juntos combinam (E lógico)</div>
   </div>`;
