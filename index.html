@@ -7224,13 +7224,17 @@ function renderExpenses() {
         <span class="params-accordion-arrow">▼</span>
       </summary>
       <div class="params-accordion-body" style="padding-top:12px">
+        <div class="flex-between mb-12" style="flex-wrap:wrap;gap:8px">
+          <div style="font-size:11px;color:var(--text-dim)">Escopo: <b style="color:var(--text-muted)" id="exp-adv-scope-label">${_expAdvScopeLabel()}</b></div>
+          <div id="exp-adv-filter" style="display:flex;gap:6px">${_buildExpAdvFilterBar()}</div>
+        </div>
         <div class="grid-2">
           <div>
             <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:8px">Distribuição por Seção</div>
             <div class="chart-wrap chart-med"><canvas id="ch-exp-pie"></canvas></div>
           </div>
           <div>
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:8px">Ranking de Seções</div>
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:8px">Ranking de Seções — maior para menor</div>
             <div class="chart-wrap chart-med"><canvas id="ch-exp-bar"></canvas></div>
           </div>
         </div>
