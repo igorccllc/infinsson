@@ -3868,6 +3868,73 @@ function _buildReturnsCard() {
     </div>`;
 }
 
+// Marcos de patrimônio de 100k em 100k: quando cada um foi atingido e quanto levou.
+function _buildMilestonesCard() {
+  if (!HISTORICAL || HISTORICAL.length < 2) return '';
+  const step = 100000;
+  const curPat = HISTORICAL[HISTORICAL.length - 1].pat;
+  const startD = HISTORICAL[0].d;
+
+  const fmtDur = m => {
+    if (m <= 0) return '—';
+    const y = Math.floor(m / 12), mo = m % 12;
+    return (y ? y + 'a' : '') + (y && mo ? ' ' : '') + (mo || !y ? mo + 'm' : '');
+  };
+
+  const rows = [];
+  let prevD = startD, prevDelta = null;
+  for (let t = step; t <= curPat; t += step) {
+    const h = HISTORICAL.find(x => x.pat >= t);
+    if (!h) continue;
+    const delta = monthsBetween(prevD, h.d);
+    rows.push({
+      t, d: h.d,
+      fromStart: monthsBetween(startD, h.d),
+      delta,
+      faster: prevDelta != null && delta < prevDelta,
+      slower: prevDelta != null && delta > prevDelta,
+    });
+    prevD = h.d; prevDelta = delta;
+  }
+  if (!rows.length) return '';
+
+  // Próximo marco (ainda não atingido)
+  const nextT = (Math.floor(curPat / step) + 1) * step;
+  const progress = (curPat - (nextT - step)) / step * 100;
+
+  const body = rows.map(r => `
+    <tr>
+      <td class="bold">${fmtK(r.t)}</td>
+      <td class="muted">${monthLabel(r.d)}</td>
+      <td class="r ${r.faster ? 'green' : r.slower ? 'yellow' : ''}">${fmtDur(r.delta)}${r.faster ? ' ↓' : r.slower ? ' ↑' : ''}</td>
+      <td class="r muted">${fmtDur(r.fromStart)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="card mt-16">
+      <div class="flex-between mb-8">
+        <div class="card-title" style="margin-bottom:0">Marcos de Patrimônio</div>
+        <span style="font-size:11px;color:var(--text-dim)">de R$ 100 mil em 100 mil · patrimônio total</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Marco</th><th>Atingido em</th><th class="r">Desde o anterior</th><th class="r">Total desde o início</th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <div class="mt-12" style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px">
+        <div class="flex-between" style="margin-bottom:6px">
+          <span style="font-size:12px;color:var(--text-muted)">Próximo marco: <b style="color:var(--text)">${fmtK(nextT)}</b></span>
+          <span style="font-size:12px;color:var(--yellow)">faltam ${fmt(nextT - curPat)}</span>
+        </div>
+        <div class="progress-bar-wrap"><div class="progress-bar" style="width:${progress}%;background:var(--accent)"></div></div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:4px">${fmtPct(progress)} do caminho · atual ${fmt(curPat)}</div>
+      </div>
+    </div>`;
+}
+
 function renderDashboard() {
   const el  = document.getElementById('page-dashboard');
   const w   = investableWealth();
