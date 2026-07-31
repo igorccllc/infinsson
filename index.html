@@ -395,6 +395,19 @@ tr.sim-best td:first-child { border-left: 3px solid var(--accent); }
 .cb-text  { font-size: 12px; color: var(--text-muted); line-height: 1.6; }
 .cb-text b { color: var(--text); }
 
+/* Marcos de Patrimônio — lista com barra de tempo até cada marco */
+.ms-list { display: flex; flex-direction: column; }
+.ms-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+}
+.ms-row:last-child { border-bottom: none; }
+.ms-val { width: 74px; flex-shrink: 0; font-weight: 700; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+.ms-date { width: 66px; flex-shrink: 0; font-size: 12px; color: var(--text-muted); }
+.ms-track { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ms-bar { height: 14px; border-radius: 7px; min-width: 3px; transition: width .3s; }
+.ms-dur { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 /* Botão ⓘ — explica como cada métrica é calculada */
 .info-btn {
   display: inline-block; cursor: pointer;
