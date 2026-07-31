@@ -2687,8 +2687,8 @@ function renderDashboard() {
       </div>
     </div>
 
-    ${_buildMilestonesCard()}
     ${_buildReturnsCard()}
+    ${_buildMilestonesCard()}
   `;
 
   requestAnimationFrame(() => {
