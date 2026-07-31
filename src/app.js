@@ -6534,6 +6534,8 @@ function renderHistory() {
       <div class="chart-wrap chart-tall"><canvas id="ch-hist-pat"></canvas></div>
     </div>
 
+    ${_buildPatrimonioRealCard()}
+
     <div class="card mb-16">
       <div class="card-title">Retorno Realizado Anualizado (12m móveis) vs CDI</div>
       <div class="chart-wrap chart-med"><canvas id="ch-hist-twr"></canvas></div>
