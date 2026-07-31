@@ -4889,6 +4889,80 @@ function toggleExpSection(secId) {
 
 let expFilter = { period: '6m', section: '', refMonth: '' };   // refMonth '' = mês corrente
 let expTab = 'overview';
+let expAdvPeriod = 'mensal';   // escopo do ranking/distribuição em Gráficos Avançados: 'mensal' | 'trimestre' | 'ano'
+
+// Meses incluídos no escopo atual dos Gráficos Avançados, ancorados no mês de referência da página.
+function _expAdvPeriodMonths() {
+  const now = new Date();
+  const realCurKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const ref = (expFilter && expFilter.refMonth) || realCurKey;
+  if (expAdvPeriod === 'trimestre') return Array.from({ length: 3 }, (_, i) => addMonths(ref, i - 2));
+  if (expAdvPeriod === 'ano')       return Array.from({ length: 12 }, (_, i) => addMonths(ref, i - 11));
+  return [ref];   // mensal
+}
+
+function _expAdvScopeLabel() {
+  const m = _expAdvPeriodMonths();
+  return m.length === 1 ? monthLabel(m[0]) : `${monthLabel(m[0])} – ${monthLabel(m[m.length - 1])}`;
+}
+
+// Total por seção dentro do escopo, do MAIOR gasto para o menor.
+function _expAdvSecEntries() {
+  const win = _expAdvPeriodMonths();
+  const map = {};
+  MOBILLS.forEach(r => {
+    if (!win.includes(r.d)) return;
+    const sec = getSecao(r.cat || 'Sem categoria');
+    map[sec] = (map[sec] || 0) + Math.abs(r.val);
+  });
+  return Object.entries(map).sort((a, b) => b[1] - a[1]);
+}
+
+function _buildExpAdvFilterBar() {
+  const opts = [['mensal', 'Mês'], ['trimestre', 'Trimestre'], ['ano', 'Ano']];
+  return opts.map(([v, l]) => `<button class="btn ${expAdvPeriod === v ? 'btn-primary' : 'btn-ghost'} btn-sm" onclick="setExpAdvPeriod('${v}')">${l}</button>`).join('');
+}
+
+function setExpAdvPeriod(p) {
+  expAdvPeriod = p;
+  const bar = document.getElementById('exp-adv-filter');
+  if (bar) bar.innerHTML = _buildExpAdvFilterBar();
+  const lbl = document.getElementById('exp-adv-scope-label');
+  if (lbl) lbl.textContent = _expAdvScopeLabel();
+  _drawExpAdvCharts();
+}
+
+// Recria só os 2 gráficos do acordeão (sem re-render da página — preserva scroll e o accordion aberto).
+function _drawExpAdvCharts() {
+  const entries = _expAdvSecEntries();
+  destroyChart('expPie'); destroyChart('expBar');
+  const pieCtx = document.getElementById('ch-exp-pie');
+  if (pieCtx && entries.length) {
+    activeCharts.expPie = makePieChart('ch-exp-pie',
+      entries.map(([s, v]) => `${s}  ${fmtK(v)}`),
+      entries.map(([, v]) => v),
+      entries.map(([s]) => SECAO_COLORS[s] || '#475569')
+    );
+  }
+  const barCtx = document.getElementById('ch-exp-bar');
+  if (barCtx && entries.length) {
+    activeCharts.expBar = new Chart(barCtx, {
+      type: 'bar',
+      data: {
+        labels: entries.map(([s]) => s),
+        datasets: [{ label: 'Total', data: entries.map(([, v]) => v), backgroundColor: entries.map(([s]) => SECAO_COLORS[s] || '#475569'), borderRadius: 4 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.x)}` } } },
+        scales: {
+          x: { grid: { color: '#1e2d4230' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } },
+          y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 11 } } }
+        }
+      }
+    });
+  }
+}
 let expGastosQuery = '';
 let expGastosNameQuery = '';
 
