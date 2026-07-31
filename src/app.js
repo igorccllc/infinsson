@@ -2554,7 +2554,7 @@ function _buildMilestonesCard() {
 
   const list = rows.map(r => {
     const w = Math.max(5, r.delta / maxDelta * 100);
-    const col = r.faster ? 'var(--green)' : r.slower ? 'var(--yellow)' : 'var(--accent)';
+    const col = r.faster ? 'var(--green)' : r.slower ? 'var(--yellow)' : 'var(--text-dim)';
     return `
       <div class="ms-row">
         <div class="ms-val">${fmtK(r.t)}</div>
@@ -2572,10 +2572,15 @@ function _buildMilestonesCard() {
         <div class="card-title" style="margin-bottom:0">Marcos de Patrimônio</div>
         <span style="font-size:11px;color:var(--text-dim)">de 100 em 100 mil · patrimônio total</span>
       </div>
-      <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
-        Cada barra = tempo desde o marco anterior. Mais curta = veio mais rápido —
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
+        Cada barra = tempo desde o marco anterior. Mais curta = veio mais rápido:
         <b style="color:var(--green)">o mais veloz foi ${fmtK(fastest.t)}</b> (${fmtDur(fastest.delta)}),
         o mais lento ${fmtK(slowest.t)} (${fmtDur(slowest.delta)}).
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--text-dim);margin-bottom:12px">
+        <span><span class="ms-dot" style="background:var(--green)"></span> mais rápido que o anterior</span>
+        <span><span class="ms-dot" style="background:var(--yellow)"></span> mais lento que o anterior</span>
+        <span><span class="ms-dot" style="background:var(--text-dim)"></span> 1º marco (sem base de comparação)</span>
       </div>
       <div class="ms-list">${list}</div>
       <div class="mt-12" style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:10px">
