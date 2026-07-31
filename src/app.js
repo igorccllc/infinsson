@@ -2679,6 +2679,7 @@ function renderDashboard() {
       </div>
     </div>
 
+    ${_buildMilestonesCard()}
     ${_buildReturnsCard()}
   `;
 
