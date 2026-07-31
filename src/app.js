@@ -4934,18 +4934,6 @@ function buildGastosTabHtml() {
   const searchHtml = `<div class="card mb-16" style="padding:16px">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <div style="flex:1;min-width:220px">
-        <input type="text" id="gastos-search-input" class="form-input"
-          placeholder="Natureza… ex: Cabelereiro, Mercado, Uber"
-          value="${expGastosQuery.replace(/"/g, '&quot;')}"
-          list="gastos-nat-list"
-          oninput="setGastosQuery(this.value)"
-          style="width:100%;font-size:14px">
-        <datalist id="gastos-nat-list">
-          ${allNaturezas.map(n => `<option value="${n}">`).join('')}
-        </datalist>
-      </div>
-      ${expGastosQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosQuery('')">✕</button>` : ''}
-      <div style="flex:1;min-width:220px">
         <input type="text" id="gastos-name-input" class="form-input"
           placeholder="Nome do lançamento… ex: Mercado Angeloni, iFood"
           value="${expGastosNameQuery.replace(/"/g, '&quot;')}"
@@ -4954,6 +4942,18 @@ function buildGastosTabHtml() {
           style="width:100%;font-size:14px">
         <datalist id="gastos-nome-list">
           ${allNomes.map(n => `<option value="${n}">`).join('')}
+        </datalist>
+      </div>
+      ${expGastosNameQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosNameQuery('')">✕</button>` : ''}
+      <div style="flex:1;min-width:220px">
+        <input type="text" id="gastos-search-input" class="form-input"
+          placeholder="Natureza… ex: Cabelereiro, Mercado, Uber"
+          value="${expGastosQuery.replace(/"/g, '&quot;')}"
+          list="gastos-nat-list"
+          oninput="setGastosQuery(this.value)"
+          style="width:100%;font-size:14px">
+        <datalist id="gastos-nat-list">
+          ${allNaturezas.map(n => `<option value="${n}">`).join('')}
         </datalist>
       </div>
       ${expGastosNameQuery ? `<button class="btn btn-ghost btn-sm" onclick="setGastosNameQuery('')">✕</button>` : ''}
