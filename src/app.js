@@ -5610,14 +5610,15 @@ function renderExpenses() {
     return { sec, total, lastSec, monthlyDelta, yoyDelta, annualDelta };
   });
 
-  // Ordena pela MAIOR variação (em módulo) da coluna escolhida — 'default' mantém a ordem das seções.
+  // Ordena pela MAIOR variação da coluna escolhida — do aumento mais forte pra queda mais forte
+  // (sinal importa: +25, +10, −15 — não por módulo). 'default' mantém a ordem das seções.
   const sortKeyBySec = { mes: 'monthlyDelta', yoy: 'yoyDelta', anual: 'annualDelta' };
   const sortedSecs = expSecSort === 'default' ? enrichedSecs : enrichedSecs.slice().sort((a, b) => {
     const ka = a[sortKeyBySec[expSecSort]], kb = b[sortKeyBySec[expSecSort]];
     if (ka == null && kb == null) return 0;
     if (ka == null) return 1;
     if (kb == null) return -1;
-    return Math.abs(kb) - Math.abs(ka);
+    return kb - ka;
   });
 
   let sectionCardsHtml = sortedSecs.map(({ sec, total, lastSec, monthlyDelta, yoyDelta, annualDelta }) => {
