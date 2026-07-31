@@ -2702,6 +2702,108 @@ function _drawHistRealChart() {
   });
 }
 
+// Lifestyle creep: a taxa de poupança se manteve conforme a renda cresceu?
+// Médias anuais (mês a mês é ruidoso demais). "Creep marginal" = quanto da renda
+// extra virou gasto ao comparar o 1º ano completo com o último.
+function lifestyleCreepData() {
+  const byYear = {};
+  HISTORICAL.forEach(h => {
+    const y = h.d.slice(0, 4);
+    (byYear[y] = byYear[y] || { rec: 0, gas: 0, n: 0 });
+    byYear[y].rec += (h.rec || 0); byYear[y].gas += (h.gas || 0); byYear[y].n++;
+  });
+  const years = Object.keys(byYear).sort().filter(y => byYear[y].n >= 6);   // ignora anos parciais
+  if (years.length < 2) return null;
+  const rows = years.map(y => {
+    const b = byYear[y];
+    const rec = b.rec / b.n, gas = b.gas / b.n;
+    return { y, rec, gas, sr: rec > 0 ? (rec - gas) / rec * 100 : 0, parcial: b.n < 12 };
+  });
+  const first = rows[0], last = rows[rows.length - 1];
+  const dRec = last.rec - first.rec, dGas = last.gas - first.gas;
+  const creepPct = dRec > 0 ? dGas / dRec * 100 : 0;   // % da renda extra que virou gasto
+  return {
+    rows, first, last,
+    recMult: first.rec > 0 ? last.rec / first.rec : 0,
+    gasMult: first.gas > 0 ? last.gas / first.gas : 0,
+    creepPct, savedPct: 100 - creepPct,
+  };
+}
+
+function _buildLifestyleCard() {
+  const d = lifestyleCreepData();
+  if (!d) return '';
+  const creepBad = d.creepPct > 60;   // >60% da renda extra indo pra gasto = alerta
+  const col = creepBad ? 'var(--red)' : d.creepPct > 40 ? 'var(--yellow)' : 'var(--green)';
+  const veredito = creepBad
+    ? 'boa parte dos seus aumentos foi absorvida por mais gasto — atenção ao lifestyle creep.'
+    : d.creepPct > 40
+      ? 'você segurou razoavelmente o padrão de vida conforme a renda subiu.'
+      : 'disciplina forte: a maior parte de cada aumento virou poupança, não estilo de vida.';
+
+  return `
+    <div class="card mb-16">
+      <div class="flex-between mb-8">
+        <div class="card-title" style="margin-bottom:0">Lifestyle Creep — a renda subiu; e o padrão de vida?</div>
+        <span style="font-size:11px;color:var(--text-dim)">médias anuais · ${d.first.y}–${d.last.y}</span>
+      </div>
+      <div class="ar-split">
+        <div>
+          <div class="ar-lbl" style="color:var(--accent)">Renda cresceu</div>
+          <div class="ar-val">${d.recMult.toFixed(1)}×</div>
+          <div class="ar-sub">${fmt(d.first.rec)} → ${fmt(d.last.rec)}/mês</div>
+        </div>
+        <div style="text-align:center">
+          <div class="ar-lbl" style="color:var(--red)">Gasto cresceu</div>
+          <div class="ar-val" style="color:var(--red)">${d.gasMult.toFixed(1)}×</div>
+          <div class="ar-sub">${fmt(d.first.gas)} → ${fmt(d.last.gas)}/mês</div>
+        </div>
+        <div style="text-align:right">
+          <div class="ar-lbl" style="color:${col}">Cada R$1 extra virou</div>
+          <div class="ar-val" style="color:${col}">${fmtPct(d.savedPct)}</div>
+          <div class="ar-sub">poupança · ${fmtPct(d.creepPct)} gasto</div>
+        </div>
+      </div>
+      <div class="chart-wrap chart-med mt-12"><canvas id="ch-hist-creep"></canvas></div>
+      <div class="ar-insight">
+        Comparando ${d.first.y} com ${d.last.y}, de cada <b>R$1</b> a mais de renda mensal,
+        <b style="color:${col}">${fmt(d.savedPct/100)}</b> virou poupança e ${fmt(d.creepPct/100)} virou gasto — ${veredito}
+        Taxa de poupança foi de <b>${fmtPct(d.first.sr)}</b> (${d.first.y}) para <b style="color:${col}">${fmtPct(d.last.sr)}</b> (${d.last.y}).
+      </div>
+    </div>`;
+}
+
+function _drawLifestyleChart() {
+  const ctx = document.getElementById('ch-hist-creep');
+  if (!ctx) return;
+  destroyChart('creep');
+  const d = lifestyleCreepData();
+  if (!d) return;
+  activeCharts.creep = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: d.rows.map(r => r.y + (r.parcial ? '*' : '')),
+      datasets: [
+        { type: 'bar', label: 'Renda média/mês', data: d.rows.map(r => Math.round(r.rec)), backgroundColor: '#4f8ef755', borderColor: '#4f8ef7', borderWidth: 1, yAxisID: 'y' },
+        { type: 'bar', label: 'Gasto médio/mês', data: d.rows.map(r => Math.round(r.gas)), backgroundColor: '#f8717155', borderColor: '#f87171', borderWidth: 1, yAxisID: 'y' },
+        { type: 'line', label: 'Taxa de poupança', data: d.rows.map(r => +r.sr.toFixed(1)), borderColor: '#22c55e', backgroundColor: 'transparent', borderWidth: 2, tension: .3, pointRadius: 3, yAxisID: 'y1' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#8ca3c1', font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.dataset.yAxisID === 'y1' ? c.parsed.y.toFixed(0) + '%' : fmtK(c.parsed.y)}` } }
+      },
+      scales: {
+        x: { grid: { color: '#1e2d4230' }, ticks: { color: '#8ca3c1', font: { size: 10 } } },
+        y: { grid: { color: '#1e2d4250' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } },
+        y1: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { color: '#22c55e', font: { size: 10 }, callback: v => v + '%' } }
+      }
+    }
+  });
+}
+
 // Marcos de patrimônio de 100k em 100k: quando cada um foi atingido e quanto levou.
 function _buildMilestonesCard() {
   if (!HISTORICAL || HISTORICAL.length < 2) return '';
