@@ -4920,6 +4920,14 @@ function setGastosQuery(q) {
   if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
 }
 
+function setGastosNameQuery(q) {
+  expGastosNameQuery = q;
+  destroyCharts();
+  renderExpenses();
+  const inp = document.getElementById('gastos-name-input');
+  if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+}
+
 function buildGastosTabHtml() {
   const allNaturezas = [...new Set(MOBILLS.map(r => r.cat || '').filter(Boolean))].sort();
   const searchHtml = `<div class="card mb-16" style="padding:16px">
