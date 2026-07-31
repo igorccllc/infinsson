@@ -2121,6 +2121,8 @@ function savingsRate(h) {
 
 // CDI médio anual aproximado (% a.a.) — benchmark histórico
 const CDI_YEARLY = { 2017:9.9, 2018:6.4, 2019:5.9, 2020:2.8, 2021:4.4, 2022:12.4, 2023:13.0, 2024:10.9, 2025:14.7, 2026:13.6 };
+// IPCA anual (%) — inflação oficial. 2025/2026 estimados. Usado p/ deflacionar o patrimônio.
+const IPCA_YEARLY = { 2017:2.95, 2018:3.75, 2019:4.31, 2020:4.52, 2021:10.06, 2022:5.79, 2023:4.62, 2024:4.83, 2025:4.80, 2026:4.50 };
 
 // Retorno mensal realizado da carteira. Fonte da verdade = coluna Rentabilidade da planilha
 // (h.rent, já em % → ÷100), para o heatmap ficar IDÊNTICO à planilha. Só quando o mês não tem
