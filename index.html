@@ -6964,12 +6964,34 @@ function renderExpenses() {
   const varBadge = d => d == null
     ? '<span style="font-size:12px;color:var(--text-dim)">—</span>'
     : `<span class="${d <= 0 ? 'badge-up' : 'badge-down'}" style="font-size:12px">${d > 0 ? '↑' : '↓'} ${d > 0 ? '+' : ''}${fmtPct(d)}</span>`;
-  let sectionCardsHtml = displaySecEntries.map(([sec, total]) => {
-    const secColor = SECAO_COLORS[sec] || '#475569';
-    const avg = total / numMonths;
+
+  // Pré-computa as 3 variações de cada seção (necessário tanto pro card quanto pra ordenação abaixo).
+  const enrichedSecs = displaySecEntries.map(([sec, total]) => {
     const lastSec = bySecMonthMap[sec + '|' + lastMonth] || 0;
     const prevSec = bySecMonthMap[sec + '|' + prevMonth] || 0;
     const monthlyDelta = prevSec > 0 ? ((lastSec - prevSec) / prevSec * 100) : null;
+    const yoySec = bySecMonthMap[sec + '|' + yoyMonth] || 0;
+    const yoyDelta = yoySec > 0 ? ((lastSec - yoySec) / yoySec * 100) : null;
+    // variação anual: soma dos últimos 12 meses vs. os 12 meses anteriores
+    const a12 = months.slice(-12), p12 = months.slice(-24, -12);
+    const sum12  = a12.reduce((s, m) => s + (bySecMonthMap[sec + '|' + m] || 0), 0);
+    const sumP12 = p12.reduce((s, m) => s + (bySecMonthMap[sec + '|' + m] || 0), 0);
+    const annualDelta = sumP12 > 0 ? ((sum12 - sumP12) / sumP12 * 100) : null;
+    return { sec, total, lastSec, monthlyDelta, yoyDelta, annualDelta };
+  });
+
+  // Ordena pela MAIOR variação (em módulo) da coluna escolhida — 'default' mantém a ordem das seções.
+  const sortKeyBySec = { mes: 'monthlyDelta', yoy: 'yoyDelta', anual: 'annualDelta' };
+  const sortedSecs = expSecSort === 'default' ? enrichedSecs : enrichedSecs.slice().sort((a, b) => {
+    const ka = a[sortKeyBySec[expSecSort]], kb = b[sortKeyBySec[expSecSort]];
+    if (ka == null && kb == null) return 0;
+    if (ka == null) return 1;
+    if (kb == null) return -1;
+    return Math.abs(kb) - Math.abs(ka);
+  });
+
+  let sectionCardsHtml = sortedSecs.map(({ sec, total, lastSec, monthlyDelta, yoyDelta, annualDelta }) => {
+    const secColor = SECAO_COLORS[sec] || '#475569';
     const budgetLimit = budgets[sec];
     const secId = sec.replace(/[^a-zA-Z]/g, '');
 
@@ -6979,15 +7001,6 @@ function renderExpenses() {
       const bColor = pct > 100 ? 'tag-red' : pct > 85 ? 'tag-yellow' : 'tag-green';
       budgetBadge = `<span class="tag ${bColor}" style="margin-left:8px">${fmtPct(pct)} do budget</span>`;
     }
-
-    const yoySec = bySecMonthMap[sec + '|' + yoyMonth] || 0;
-    const yoyDelta = yoySec > 0 ? ((lastSec - yoySec) / yoySec * 100) : null;
-
-    // variação anual: soma dos últimos 12 meses vs. os 12 meses anteriores
-    const a12 = months.slice(-12), p12 = months.slice(-24, -12);
-    const sum12  = a12.reduce((s, m) => s + (bySecMonthMap[sec + '|' + m] || 0), 0);
-    const sumP12 = p12.reduce((s, m) => s + (bySecMonthMap[sec + '|' + m] || 0), 0);
-    const annualDelta = sumP12 > 0 ? ((sum12 - sumP12) / sumP12 * 100) : null;
 
     const nats = natsBySecao[sec] || [];
     const natRows = nats.map(nat => {
