@@ -5935,39 +5935,13 @@ function renderExpenses() {
       });
     }
 
-    // Lazy-init for accordion charts
+    // Lazy-init for accordion charts (Gráficos Avançados: ranking maior→menor por escopo mês/trimestre/ano)
     const accDetails = el.querySelectorAll('details.params-accordion');
     accDetails.forEach(det => {
       det.addEventListener('toggle', () => {
         if (!det.open) return;
         setTimeout(() => {
-          if (!activeCharts.expPie) {
-            activeCharts.expPie = makePieChart('ch-exp-pie',
-              secEntries.map(([s, v]) => `${s}  ${fmtK(v)}`),
-              secEntries.map(([, v]) => v),
-              secEntries.map(([s]) => SECAO_COLORS[s] || '#475569')
-            );
-          }
-          if (!activeCharts.expBar) {
-            const barCtx = document.getElementById('ch-exp-bar');
-            if (barCtx) {
-              activeCharts.expBar = new Chart(barCtx, {
-                type: 'bar',
-                data: {
-                  labels: secEntries.map(([s]) => s),
-                  datasets: [{ label: 'Total', data: secEntries.map(([, v]) => v), backgroundColor: secEntries.map(([s]) => SECAO_COLORS[s] || '#475569'), borderRadius: 4 }]
-                },
-                options: {
-                  responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-                  plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.x)}` } } },
-                  scales: {
-                    x: { grid: { color: '#1e2d4230' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } },
-                    y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 11 } } }
-                  }
-                }
-              });
-            }
-          }
+          if (!activeCharts.expPie && !activeCharts.expBar) _drawExpAdvCharts();
         }, 50);
       });
     });
