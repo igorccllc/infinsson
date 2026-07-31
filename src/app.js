@@ -4890,6 +4890,13 @@ function toggleExpSection(secId) {
 let expFilter = { period: '6m', section: '', refMonth: '' };   // refMonth '' = mês corrente
 let expTab = 'overview';
 let expAdvPeriod = 'mensal';   // escopo do ranking/distribuição em Gráficos Avançados: 'mensal' | 'trimestre' | 'ano'
+let expSecSort = 'default';    // ordenação das Seções de Gasto: 'default' | 'mes' | 'yoy' | 'anual' (maior variação primeiro)
+
+function setExpSecSort(v) {
+  expSecSort = v;
+  destroyCharts();
+  renderExpenses();
+}
 
 // Meses incluídos no escopo atual dos Gráficos Avançados, ancorados no mês de referência da página.
 function _expAdvPeriodMonths() {
