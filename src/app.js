@@ -2793,10 +2793,12 @@ function renderDashboard() {
     </div>
 
     ${_buildReturnsCard()}
+    ${_buildAporteRendimentoCard()}
     ${_buildMilestonesCard()}
   `;
 
   requestAnimationFrame(() => {
+    _drawAporteRendChart();
     // Patrimônio últimos 12m
     activeCharts.dashPat = makeLineChart('ch-dash-pat', {
       labels: last12.map(h => monthLabel(h.d)),
