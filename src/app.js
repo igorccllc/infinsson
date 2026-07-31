@@ -2514,6 +2514,106 @@ function _buildReturnsCard() {
     </div>`;
 }
 
+// Decomposição do patrimônio: quanto veio de aporte (bolso) vs rendimento (juros).
+// pat[m] = aporteAcum[m] + rendAcum[m]  (por construção).
+function aporteRendimentoSeries() {
+  const labels = [], aporte = [], rend = [], pat = [];
+  let aAcum = 0, rAcum = 0, crossMonth = null;
+  let last12A = 0, last12R = 0;
+  const n = HISTORICAL.length;
+  for (let i = 0; i < n; i++) {
+    const h = HISTORICAL[i];
+    const apo = h.apo ?? 0;
+    let rMes;
+    if (i === 0) { aAcum = apo; rAcum = h.pat - apo; rMes = rAcum; }
+    else { rMes = (h.pat - HISTORICAL[i - 1].pat) - apo; aAcum += apo; rAcum += rMes; }
+    if (!crossMonth && rAcum > aAcum) crossMonth = h.d;
+    if (i >= n - 12) { last12A += apo; last12R += rMes; }
+    labels.push(h.d); aporte.push(aAcum); rend.push(rAcum); pat.push(h.pat);
+  }
+  const curPat = pat[n - 1], curA = aporte[n - 1], curR = rend[n - 1];
+  return {
+    labels, aporte, rend, pat, crossMonth,
+    curPat, curA, curR,
+    aPct: curPat ? curA / curPat * 100 : 0,
+    rPct: curPat ? curR / curPat * 100 : 0,
+    last12A, last12R,
+  };
+}
+
+function _buildAporteRendimentoCard() {
+  if (!HISTORICAL || HISTORICAL.length < 3) return '';
+  const s = aporteRendimentoSeries();
+  const first = HISTORICAL[0];
+  const crossed = !!s.crossMonth;
+  const l12Total = s.last12A + s.last12R;
+  const l12rPct = l12Total > 0 ? s.last12R / l12Total * 100 : 0;
+
+  const insight = crossed
+    ? `🎯 Em <b style="color:var(--text)">${monthLabel(s.crossMonth)}</b> seus juros acumulados passaram a valer mais que tudo que você já aportou. De lá pra cá, seu dinheiro trabalha mais do que você.`
+    : `Seus juros já são <b style="color:var(--green)">${fmtPct(s.rPct)}</b> do patrimônio. Quando passarem de 50%, seu dinheiro terá construído mais que o seu bolso.`;
+
+  return `
+    <div class="card mt-16">
+      <div class="flex-between mb-8">
+        <div class="card-title" style="margin-bottom:0">Aporte vs Rendimento — de onde veio seu patrimônio</div>
+        <span style="font-size:11px;color:var(--text-dim)">desde ${monthLabel(first.d)}</span>
+      </div>
+
+      <div class="ar-split">
+        <div>
+          <div class="ar-lbl" style="color:var(--accent)">● Você aportou</div>
+          <div class="ar-val">${fmt(s.curA)}</div>
+          <div class="ar-sub">${fmtPct(s.aPct)} do patrimônio</div>
+        </div>
+        <div style="text-align:right">
+          <div class="ar-lbl" style="color:var(--green)">Juros geraram ●</div>
+          <div class="ar-val" style="color:var(--green)">${fmt(s.curR)}</div>
+          <div class="ar-sub">${fmtPct(s.rPct)} do patrimônio</div>
+        </div>
+      </div>
+      <div class="ar-bar">
+        <div style="width:${s.aPct}%;background:var(--accent)"></div>
+        <div style="width:${s.rPct}%;background:var(--green)"></div>
+      </div>
+
+      <div class="chart-wrap chart-med mt-12"><canvas id="ch-aporte-rend"></canvas></div>
+
+      <div class="ar-insight">${insight}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px">
+        Nos últimos 12 meses: <b style="color:var(--green)">${fmt(s.last12R)} de juros</b> vs <b style="color:var(--accent)">${fmt(s.last12A)} de aporte</b>
+        — ${fmtPct(l12rPct)} do crescimento recente veio do dinheiro trabalhando.
+      </div>
+    </div>`;
+}
+
+function _drawAporteRendChart() {
+  const ctx = document.getElementById('ch-aporte-rend');
+  if (!ctx) return;
+  destroyChart('aporteRend');
+  const s = aporteRendimentoSeries();
+  const step = Math.max(1, Math.floor(s.labels.length / 60));
+  const idx = s.labels.map((_, i) => i).filter(i => i % step === 0 || i === s.labels.length - 1);
+  activeCharts.aporteRend = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: idx.map(i => monthLabel(s.labels[i])),
+      datasets: [
+        { label: 'Aporte acumulado', data: idx.map(i => s.aporte[i]), borderColor: '#4f8ef7', backgroundColor: '#4f8ef755', fill: true, tension: .3, pointRadius: 0, borderWidth: 1.5 },
+        { label: 'Rendimento acumulado', data: idx.map(i => s.rend[i]), borderColor: '#22c55e', backgroundColor: '#22c55e55', fill: true, tension: .3, pointRadius: 0, borderWidth: 1.5 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: '#8ca3c1', font: { size: 11 } } }, tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmtK(c.parsed.y)}` } } },
+      scales: {
+        x: { stacked: true, grid: { color: '#1e2d4230' }, ticks: { color: '#8ca3c1', font: { size: 10 }, maxTicksLimit: 12 } },
+        y: { stacked: true, grid: { color: '#1e2d4250' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } }
+      }
+    }
+  });
+}
+
 // Marcos de patrimônio de 100k em 100k: quando cada um foi atingido e quanto levou.
 function _buildMilestonesCard() {
   if (!HISTORICAL || HISTORICAL.length < 2) return '';
