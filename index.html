@@ -4268,7 +4268,13 @@ function renderDashboard() {
   const fin = fiNumber();
   const pct = Math.min(100, (w / fin) * 100);
   const last = HISTORICAL[HISTORICAL.length-1];
-  const prev = HISTORICAL[HISTORICAL.length-2];
+  // Mês anterior pelo CALENDÁRIO (addMonths), não pela posição no array — se um mês ficou sem
+  // patrimônio preenchido na planilha, extractHistorical descarta a linha e o índice -2 pularia
+  // 2+ meses, comparando "vs mês anterior" com um período que na verdade é mais longo.
+  const prevKey = addMonths(last.d, -1);
+  const prev = HISTORICAL.find(h => h.d === prevKey) || HISTORICAL[HISTORICAL.length-2];
+  const prevGapMonths = prev ? monthsBetween(prev.d, last.d) : null;
+  const prevLabel = prev ? (prevGapMonths === 1 ? 'mês anterior' : `${monthLabel(prev.d)} (${prevGapMonths} meses atrás)`) : 'mês anterior';
 
   const basePath   = buildScenarioPaths(S.assumptions.projectionYears * 12).find(s => s.id === 'base');
   const fiResult   = basePath ? findFIDate(basePath.path) : null;
