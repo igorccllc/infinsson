@@ -5039,7 +5039,7 @@ function buildMetodoTabHtml() {
   const filterHtml = `<div class="card mb-16" style="padding:14px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <span style="font-size:12px;color:var(--text-muted);font-weight:600">Filtrar por mês:</span>
     <select class="ctrl-select" style="font-size:13px" onchange="setExpMetFilter(this.value)">${monthOptions}</select>
-    <span style="font-size:11px;color:var(--text-dim);margin-left:auto">${rows.length} lançamento(s) no período selecionado</span>
+    <span style="font-size:11px;color:var(--text-dim);margin-left:auto">${rows.length} lançamento(s) no período selecionado${(S.expenseExclude || []).length ? ' · inclui itens ignorados nos gastos (' + S.expenseExclude.join(', ') + ')' : ''}</span>
   </div>`;
 
   const hasMetodoData = rows.some(r => r.met && String(r.met).trim());
