@@ -5056,20 +5056,24 @@ function buildMetodoTabHtml() {
   const maisUsado = comMetodo[0] || entries[0];
 
   const kpiHtml = `<div class="kpi-grid mb-16">
-    <div class="kpi"><div class="kpi-label">Total no período</div><div class="kpi-value" style="color:var(--accent)">${fmt(total)}</div></div>
+    <div class="kpi"><div class="kpi-label">Total no período</div><div class="kpi-value" style="color:var(--accent)">${fmt(total, 2)}</div></div>
     <div class="kpi"><div class="kpi-label">Métodos distintos</div><div class="kpi-value">${comMetodo.length}</div></div>
     <div class="kpi"><div class="kpi-label">Mais usado</div><div class="kpi-value" style="color:${colors[maisUsado[0]]};font-size:18px">${maisUsado[0]}</div>
       <div class="kpi-sub">${fmtPct(total > 0 ? maisUsado[1] / total * 100 : 0)} do período</div></div>
-    <div class="kpi"><div class="kpi-label">Sem método informado</div><div class="kpi-value" style="color:${naoInformadoVal > 0 ? 'var(--yellow)' : 'var(--green)'}">${fmt(naoInformadoVal)}</div>
+    <div class="kpi"><div class="kpi-label">Sem método informado</div><div class="kpi-value" style="color:${naoInformadoVal > 0 ? 'var(--yellow)' : 'var(--green)'}">${fmt(naoInformadoVal, 2)}</div>
       <div class="kpi-sub">${fmtPct(total > 0 ? naoInformadoVal / total * 100 : 0)} do período</div></div>
   </div>`;
 
+  const esc = s => String(s).replace(/'/g, "\\'");
+  const drillAtivo = entries.some(([n]) => n === expMetDrill) ? expMetDrill : null;
+
   const listHtml = entries.map(([name, val]) => {
     const pct = total > 0 ? val / total * 100 : 0;
-    return `<div style="margin-bottom:10px">
+    const ativo = name === drillAtivo;
+    return `<div style="margin-bottom:10px;cursor:pointer;${ativo ? 'outline:1.5px solid ' + colors[name] + ';border-radius:6px;padding:4px 6px;margin:-4px -6px 6px' : ''}" onclick="setExpMetDrill('${esc(name)}')" title="Clique para ver as transações">
       <div class="flex-between mb-4 text-sm">
         <span><span class="color-dot" style="background:${colors[name]}"></span>${name}</span>
-        <span class="text-muted">${fmtPct(pct)} · ${fmt(val)}</span>
+        <span class="text-muted">${fmtPct(pct)} · ${fmt(val, 2)}</span>
       </div>
       <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%;background:${colors[name]}"></div></div>
     </div>`;
@@ -5086,24 +5090,52 @@ function buildMetodoTabHtml() {
 
   const tableRows = entries.map(([name, val]) => {
     const pct = total > 0 ? val / total * 100 : 0;
-    return `<tr>
-      <td><span class="color-dot" style="background:${colors[name]}"></span>${name}</td>
-      <td class="r">${fmt(val)}</td>
+    const ativo = name === drillAtivo;
+    return `<tr style="cursor:pointer;${ativo ? 'background:var(--surface-2)' : ''}" onclick="setExpMetDrill('${esc(name)}')" title="Clique para ver as transações">
+      <td><span class="color-dot" style="background:${colors[name]}"></span>${name}${ativo ? ' <span class="text-dim" style="font-size:10px">▾</span>' : ''}</td>
+      <td class="r">${fmt(val, 2)}</td>
       <td class="r muted">${fmtPct(pct)}</td>
       <td class="r muted">${countMet[name]}</td>
     </tr>`;
   }).join('');
-  const tableCard = `<div class="card">
-    <div class="card-title">Valores Exatos por Modalidade</div>
+  const tableCard = `<div class="card mb-16">
+    <div class="card-title">Valores Exatos por Modalidade <span style="font-weight:400;font-size:11px;color:var(--text-dim)">· clique numa linha para ver as transações</span></div>
     <div class="table-wrap"><table class="history-table">
       <thead><tr><th>Método</th><th class="r">Valor gasto</th><th class="r">% do período</th><th class="r">Lançamentos</th></tr></thead>
       <tbody>${tableRows}</tbody>
-      <tfoot><tr style="border-top:2px solid var(--border-2)"><td class="bold">Total</td><td class="r bold">${fmt(total)}</td><td class="r bold">100,0%</td><td class="r bold">${rows.length}</td></tr></tfoot>
+      <tfoot><tr style="border-top:2px solid var(--border-2)"><td class="bold">Total</td><td class="r bold">${fmt(total, 2)}</td><td class="r bold">100,0%</td><td class="r bold">${rows.length}</td></tr></tfoot>
     </table></div>
   </div>`;
 
+  // Drill-down: transações do método clicado, dentro do mesmo filtro de mês da aba
+  let drillCard = '';
+  if (drillAtivo) {
+    const txs = rows
+      .filter(r => ((r.met && String(r.met).trim()) || 'Não informado') === drillAtivo)
+      .slice()
+      .sort((a, b) => (b.dt || '').localeCompare(a.dt || ''));
+    const fmtDia = dt => { const m = String(dt || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : (dt || '—'); };
+    const txRows = txs.map(r => `<tr>
+      <td>${fmtDia(r.dt)}</td>
+      <td>${r.name || '<span class="muted">—</span>'}</td>
+      <td class="muted">${r.cat || '—'}</td>
+      <td class="r red">${fmt(Math.abs(r.val), 2)}</td>
+    </tr>`).join('');
+    drillCard = `<div class="card mb-16">
+      <div class="flex-between mb-8">
+        <div class="card-title" style="margin-bottom:0">Transações — ${drillAtivo}</div>
+        <button class="btn btn-ghost btn-sm" onclick="setExpMetDrill('${esc(drillAtivo)}')">✕ fechar</button>
+      </div>
+      <div class="table-wrap" style="max-height:400px;overflow:auto"><table class="history-table">
+        <thead><tr><th>Data</th><th>Nome</th><th>Categoria</th><th class="r">Valor</th></tr></thead>
+        <tbody>${txRows}</tbody>
+        <tfoot><tr style="border-top:2px solid var(--border-2)"><td class="bold" colspan="3">Total — ${txs.length} lançamento(s)</td><td class="r bold">${fmt(byMet[drillAtivo], 2)}</td></tr></tfoot>
+      </table></div>
+    </div>`;
+  }
+
   return {
-    html: filterHtml + kpiHtml + chartCard + tableCard,
+    html: filterHtml + kpiHtml + chartCard + tableCard + drillCard,
     chartData: { labels: entries.map(e => e[0]), data: entries.map(e => e[1]), colors: entries.map(([name]) => colors[name]) },
   };
 }
