@@ -6394,6 +6394,79 @@ function setGastosNameQuery(q) {
   if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
 }
 
+// Aba "Método de Pagamento": distribuição por método (cartão, pix, ifood...), filtrável por mês.
+function buildMetodoTabHtml() {
+  const MET_PALETTE = ['#4f8ef7', '#22c55e', '#f97316', '#a78bfa', '#ec4899', '#fbbf24', '#22d3ee', '#64748b', '#f87171', '#34d399'];
+
+  const allMonths = [...new Set(MOBILLS.map(r => r.d))].sort().reverse();
+  const filterMonth = allMonths.includes(expMetFilter) ? expMetFilter : 'all';
+  const rows = filterMonth === 'all' ? MOBILLS : MOBILLS.filter(r => r.d === filterMonth);
+
+  const monthOptions = `<option value="all" ${filterMonth === 'all' ? 'selected' : ''}>Todos os meses (${MOBILLS.length} lançamentos)</option>` +
+    allMonths.map(m => `<option value="${m}" ${filterMonth === m ? 'selected' : ''}>${monthLabel(m)}</option>`).join('');
+
+  const filterHtml = `<div class="card mb-16" style="padding:14px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span style="font-size:12px;color:var(--text-muted);font-weight:600">Filtrar por mês:</span>
+    <select class="ctrl-select" style="font-size:13px" onchange="setExpMetFilter(this.value)">${monthOptions}</select>
+    <span style="font-size:11px;color:var(--text-dim);margin-left:auto">${rows.length} lançamento(s) no período selecionado</span>
+  </div>`;
+
+  const hasMetodoData = rows.some(r => r.met && String(r.met).trim());
+  if (!hasMetodoData) {
+    return { html: filterHtml + `<div class="card mb-16" style="padding:20px;text-align:center;color:var(--text-muted)">
+      <p style="font-size:13px">Nenhum lançamento com a coluna <b>Método</b> preenchida ${filterMonth === 'all' ? 'ainda' : 'neste mês'}. Preencha na planilha (cartão, pix, ifood...) e clique em <strong>↻ Sync Sheets</strong> para ver a distribuição aqui.</p>
+    </div>`, chartData: null };
+  }
+
+  const byMet = {};
+  rows.forEach(r => {
+    const met = (r.met && String(r.met).trim()) || 'Não informado';
+    byMet[met] = (byMet[met] || 0) + Math.abs(r.val);
+  });
+  const entries = Object.entries(byMet).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, e) => s + e[1], 0);
+  const colors = {};
+  entries.forEach(([name], i) => { colors[name] = name === 'Não informado' ? '#475569' : MET_PALETTE[i % MET_PALETTE.length]; });
+
+  const naoInformadoVal = byMet['Não informado'] || 0;
+  const comMetodo = entries.filter(([n]) => n !== 'Não informado');
+  const maisUsado = comMetodo[0] || entries[0];
+
+  const kpiHtml = `<div class="kpi-grid mb-16">
+    <div class="kpi"><div class="kpi-label">Total no período</div><div class="kpi-value" style="color:var(--accent)">${fmt(total)}</div></div>
+    <div class="kpi"><div class="kpi-label">Métodos distintos</div><div class="kpi-value">${comMetodo.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Mais usado</div><div class="kpi-value" style="color:${colors[maisUsado[0]]};font-size:18px">${maisUsado[0]}</div>
+      <div class="kpi-sub">${fmtPct(total > 0 ? maisUsado[1] / total * 100 : 0)} do período</div></div>
+    <div class="kpi"><div class="kpi-label">Sem método informado</div><div class="kpi-value" style="color:${naoInformadoVal > 0 ? 'var(--yellow)' : 'var(--green)'}">${fmt(naoInformadoVal)}</div>
+      <div class="kpi-sub">${fmtPct(total > 0 ? naoInformadoVal / total * 100 : 0)} do período</div></div>
+  </div>`;
+
+  const listHtml = entries.map(([name, val]) => {
+    const pct = total > 0 ? val / total * 100 : 0;
+    return `<div style="margin-bottom:10px">
+      <div class="flex-between mb-4 text-sm">
+        <span><span class="color-dot" style="background:${colors[name]}"></span>${name}</span>
+        <span class="text-muted">${fmtPct(pct)} · ${fmtK(val)}</span>
+      </div>
+      <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%;background:${colors[name]}"></div></div>
+    </div>`;
+  }).join('');
+
+  const chartCard = `<div class="card mb-16">
+    <div class="card-title">Distribuição por Método — ${filterMonth === 'all' ? 'Todo o período' : monthLabel(filterMonth)}</div>
+    <div class="grid-2">
+      <div class="chart-wrap chart-med"><canvas id="ch-exp-met-pie"></canvas></div>
+      <div style="align-self:center">${listHtml}</div>
+    </div>
+    ${naoInformadoVal > 0 ? `<div class="form-hint" style="margin-top:4px">Lançamentos sem <b>Método</b> preenchido na planilha entram em "Não informado" — vale revisar os mais antigos conforme o hábito de preencher a coluna pega.</div>` : ''}
+  </div>`;
+
+  return {
+    html: filterHtml + kpiHtml + chartCard,
+    chartData: { labels: entries.map(e => e[0]), data: entries.map(e => e[1]), colors: entries.map(([name]) => colors[name]) },
+  };
+}
+
 function buildGastosTabHtml() {
   const allNaturezas = [...new Set(MOBILLS.map(r => r.cat || '').filter(Boolean))].sort();
   const allNomes = [...new Set(MOBILLS.map(r => r.name || '').filter(Boolean))].sort();
