@@ -5848,6 +5848,30 @@ function renderExpenses() {
       <div class="chart-wrap" style="height:260px"><canvas id="ch-exp-stacked"></canvas></div>
     </div>
 
+    ${hasMetodoData ? `
+    <div class="card mb-16">
+      <div class="card-title">Método de Pagamento — ${periodN} Meses</div>
+      <div class="grid-2">
+        <div class="chart-wrap chart-med"><canvas id="ch-exp-met-pie"></canvas></div>
+        <div style="align-self:center">
+          ${metEntries.map(([name, val]) => {
+            const pct = metTotal > 0 ? (val / metTotal * 100) : 0;
+            return `<div style="margin-bottom:10px">
+              <div class="flex-between mb-4 text-sm">
+                <span><span class="color-dot" style="background:${metColors[name]}"></span>${name}</span>
+                <span class="text-muted">${fmtPct(pct)} · ${fmtK(val)}</span>
+              </div>
+              <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%;background:${metColors[name]}"></div></div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+      ${byMetMap['Não informado'] ? `<div class="form-hint" style="margin-top:4px">Lançamentos sem <b>Método</b> preenchido na planilha entram em "Não informado" — vale revisar os mais antigos conforme o hábito de preencher a coluna pega.</div>` : ''}
+    </div>` : `
+    <div class="card mb-16" style="padding:20px;text-align:center;color:var(--text-muted)">
+      <p style="font-size:13px">Nenhum lançamento com a coluna <b>Método</b> preenchida ainda. Preencha na planilha (cartão, pix, ifood...) e clique em <strong>↻ Sync Sheets</strong> para ver a distribuição aqui.</p>
+    </div>`}
+
     <div class="mb-16">
       <div class="flex-between mb-8" style="padding:0 24px;flex-wrap:wrap;gap:8px">
         <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted)">Seções de Gasto <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-dim);font-size:11px">· clique para expandir</span></div>
