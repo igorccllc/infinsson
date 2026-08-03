@@ -5219,9 +5219,7 @@ function renderExpenses() {
 
   const byNatMap = {}, bySecMap = {}, byMonthMap = {};
   const byNatMonthMap = {}, bySecMonthMap = {};
-  const byMetMap = {}, byMetMonthMap = {};
   let totalGastos = 0;
-  let hasMetodoData = false;
 
   MOBILLS.forEach(r => {
     const v = Math.abs(r.val);
@@ -5233,12 +5231,6 @@ function renderExpenses() {
     byNatMonthMap[nat + '|' + r.d] = (byNatMonthMap[nat + '|' + r.d] || 0) + v;
     bySecMonthMap[sec + '|' + r.d] = (bySecMonthMap[sec + '|' + r.d] || 0) + v;
     totalGastos += v;
-
-    // Método de pagamento (coluna nova da planilha) — só marca "com dado" se algo vier preenchido
-    if (r.met && String(r.met).trim()) hasMetodoData = true;
-    const met = (r.met && String(r.met).trim()) || 'Não informado';
-    byMetMap[met] = (byMetMap[met] || 0) + v;
-    byMetMonthMap[met + '|' + r.d] = (byMetMonthMap[met + '|' + r.d] || 0) + v;
   });
 
   const months = Object.keys(byMonthMap).sort();
