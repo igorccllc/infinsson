@@ -5282,18 +5282,6 @@ function renderExpenses() {
   const periodMonthsWithData = last6m.filter(m => byMonthMap[m] > 0).length;
   const periodAvg = periodTotal / Math.max(1, periodMonthsWithData);
 
-  // Distribuição por Método de Pagamento — mesmo escopo de período da Composição por Seção
-  const MET_PALETTE = ['#4f8ef7', '#22c55e', '#f97316', '#a78bfa', '#ec4899', '#fbbf24', '#22d3ee', '#64748b', '#f87171', '#34d399'];
-  const metPeriodMap = {};
-  Object.keys(byMetMap).forEach(met => {
-    const v = last6m.reduce((s, m) => s + (byMetMonthMap[met + '|' + m] || 0), 0);
-    if (v > 0) metPeriodMap[met] = v;
-  });
-  const metEntries = Object.entries(metPeriodMap).sort((a, b) => b[1] - a[1]);
-  const metTotal = metEntries.reduce((s, e) => s + e[1], 0);
-  const metColors = {};
-  metEntries.forEach(([name], i) => { metColors[name] = name === 'Não informado' ? '#475569' : MET_PALETTE[i % MET_PALETTE.length]; });
-
   const { budgets, isAuto: budgetsAuto } = getEffectiveBudgets(bySecMonthMap, secNames, months);
   const hasBudgets = Object.keys(budgets).length > 0;
 
