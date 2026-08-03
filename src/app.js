@@ -5849,7 +5849,7 @@ function renderExpenses() {
       <button class="tab-btn ${expTab === 'metodo' ? 'active' : ''}" onclick="setExpTab('metodo')">Método de Pagamento</button>
     </div>
 
-    ${expTab === 'gastos' ? gastosHtml : `
+    ${expTab === 'gastos' ? gastosHtml : expTab === 'metodo' ? metodoHtml : `
     ${(window._mobillsDivergences || []).length ? `
     <div class="card mb-16" style="border-left:3px solid var(--yellow);padding:12px 16px">
       <div style="font-size:13px;color:var(--yellow);font-weight:600;margin-bottom:4px">⚠ Divergência entre Mobills e Histórico</div>
