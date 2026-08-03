@@ -2901,9 +2901,9 @@ function renderDashboard() {
   const basePath   = buildScenarioPaths(S.assumptions.projectionYears * 12).find(s => s.id === 'base');
   const fiResult   = basePath ? findFIDate(basePath.path) : null;
 
-  const last12h = HISTORICAL.slice(-12).filter(h => h.rec > 0);
-  const avgSavingsRate = last12h.length > 0
-    ? last12h.reduce((s, h) => s + savingsRate(h), 0) / last12h.length
+  const last3h = HISTORICAL.slice(-3).filter(h => h.rec > 0);
+  const avgSavingsRate = last3h.length > 0
+    ? last3h.reduce((s, h) => s + savingsRate(h), 0) / last3h.length
     : 0;
 
   const fiDate = fiResult
