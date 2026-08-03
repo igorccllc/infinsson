@@ -4305,12 +4305,16 @@ function renderDashboard() {
       <div class="kpi">
         <div class="kpi-label">Patrimônio Total</div>
         <div class="kpi-value lg">${fmtK(last.pat)}</div>
-        <div class="kpi-sub"><span class="${(last.pat - prev.pat) >= 0 ? 'badge-up' : 'badge-down'}">${(last.pat - prev.pat) >= 0 ? '↑ +' : '↓ -'}${fmtK(Math.abs(last.pat - prev.pat))}</span> vs mês anterior</div>
+        <div class="kpi-sub">${prev
+          ? `<span class="${(last.pat - prev.pat) >= 0 ? 'badge-up' : 'badge-down'}">${(last.pat - prev.pat) >= 0 ? '↑ +' : '↓ -'}${fmtK(Math.abs(last.pat - prev.pat))}</span> vs ${prevLabel}`
+          : 'sem mês anterior para comparar'}</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Patrimônio Líquido</div>
         <div class="kpi-value lg" style="color:var(--accent)">${fmtK(last.pl)}</div>
-        <div class="kpi-sub"><span class="${(last.pl - prev.pl) >= 0 ? 'badge-up' : 'badge-down'}">${(last.pl - prev.pl) >= 0 ? '↑ +' : '↓ -'}${fmtK(Math.abs(last.pl - prev.pl))}</span> vs mês anterior</div>
+        <div class="kpi-sub">${prev
+          ? `<span class="${(last.pl - prev.pl) >= 0 ? 'badge-up' : 'badge-down'}">${(last.pl - prev.pl) >= 0 ? '↑ +' : '↓ -'}${fmtK(Math.abs(last.pl - prev.pl))}</span> vs ${prevLabel}`
+          : 'sem mês anterior para comparar'}</div>
       </div>
       <div class="kpi">
         <div class="kpi-label">Taxa de Poupança ${infoBtn('savingsrate')}</div>
