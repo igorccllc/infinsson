@@ -5069,7 +5069,7 @@ function buildMetodoTabHtml() {
     return `<div style="margin-bottom:10px">
       <div class="flex-between mb-4 text-sm">
         <span><span class="color-dot" style="background:${colors[name]}"></span>${name}</span>
-        <span class="text-muted">${fmtPct(pct)} · ${fmtK(val)}</span>
+        <span class="text-muted">${fmtPct(pct)} · ${fmt(val)}</span>
       </div>
       <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%;background:${colors[name]}"></div></div>
     </div>`;
@@ -5084,8 +5084,26 @@ function buildMetodoTabHtml() {
     ${naoInformadoVal > 0 ? `<div class="form-hint" style="margin-top:4px">Lançamentos sem <b>Método</b> preenchido na planilha entram em "Não informado" — vale revisar os mais antigos conforme o hábito de preencher a coluna pega.</div>` : ''}
   </div>`;
 
+  const tableRows = entries.map(([name, val]) => {
+    const pct = total > 0 ? val / total * 100 : 0;
+    return `<tr>
+      <td><span class="color-dot" style="background:${colors[name]}"></span>${name}</td>
+      <td class="r">${fmt(val)}</td>
+      <td class="r muted">${fmtPct(pct)}</td>
+      <td class="r muted">${countMet[name]}</td>
+    </tr>`;
+  }).join('');
+  const tableCard = `<div class="card">
+    <div class="card-title">Valores Exatos por Modalidade</div>
+    <div class="table-wrap"><table class="history-table">
+      <thead><tr><th>Método</th><th class="r">Valor gasto</th><th class="r">% do período</th><th class="r">Lançamentos</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border-2)"><td class="bold">Total</td><td class="r bold">${fmt(total)}</td><td class="r bold">100,0%</td><td class="r bold">${rows.length}</td></tr></tfoot>
+    </table></div>
+  </div>`;
+
   return {
-    html: filterHtml + kpiHtml + chartCard,
+    html: filterHtml + kpiHtml + chartCard + tableCard,
     chartData: { labels: entries.map(e => e[0]), data: entries.map(e => e[1]), colors: entries.map(([name]) => colors[name]) },
   };
 }
