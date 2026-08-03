@@ -4891,6 +4891,13 @@ let expFilter = { period: '6m', section: '', refMonth: '' };   // refMonth '' = 
 let expTab = 'overview';
 let expAdvPeriod = 'mensal';   // escopo do ranking/distribuição em Gráficos Avançados: 'mensal' | 'trimestre' | 'ano'
 let expSecSort = 'default';    // ordenação das Seções de Gasto: 'default' | 'mes' | 'yoy' | 'anual' (maior variação primeiro)
+let expMetFilter = 'all';      // filtro de mês da aba Método de Pagamento: 'all' ou 'YYYY-MM'
+
+function setExpMetFilter(v) {
+  expMetFilter = v;
+  destroyCharts();
+  renderExpenses();
+}
 
 function setExpSecSort(v) {
   expSecSort = v;
