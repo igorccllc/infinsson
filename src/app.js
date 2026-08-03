@@ -1363,14 +1363,14 @@ const METRIC_DOCS = {
     };
   },
   savingsrate: () => {
-    const last12h = HISTORICAL.slice(-12).filter(h => h.rec > 0);
-    const avg = last12h.length ? last12h.reduce((s, h) => s + savingsRate(h), 0) / last12h.length : 0;
+    const last3h = HISTORICAL.slice(-3).filter(h => h.rec > 0);
+    const avg = last3h.length ? last3h.reduce((s, h) => s + savingsRate(h), 0) / last3h.length : 0;
     return {
       title: 'Taxa de Poupança',
       what: 'De tudo que entrou, quanto sobrou — mês a mês, depois média.',
       calc: [
         ['Cada mês: (Receita − Gastos) ÷ Receita', 'da planilha (col. G quando disponível)'],
-        ['Média dos últimos 12 meses', fmtPct(avg)],
+        ['Média dos últimos 3 meses', fmtPct(avg)],
       ],
       ignores: 'O "apo" — de propósito: aporte inclui rendimento reinvestido e estouraria 100%.',
       assumes: 'Meses sem receita ficam de fora da média.',
