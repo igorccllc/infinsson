@@ -7205,6 +7205,10 @@ function renderExpenses() {
   const gastosHtml = gastosResult ? gastosResult.html : '';
   const gastosChartData = gastosResult ? gastosResult.chartData : null;
 
+  const metodoResult = expTab === 'metodo' ? buildMetodoTabHtml() : null;
+  const metodoHtml = metodoResult ? metodoResult.html : '';
+  const metodoChartData = metodoResult ? metodoResult.chartData : null;
+
   el.innerHTML = `
     <div class="page-header">
       <div>
@@ -7220,6 +7224,7 @@ function renderExpenses() {
     <div class="tabs" style="margin-bottom:16px">
       <button class="tab-btn ${expTab === 'overview' ? 'active' : ''}" onclick="setExpTab('overview')">Visão Geral</button>
       <button class="tab-btn ${expTab === 'gastos' ? 'active' : ''}" onclick="setExpTab('gastos')">Gastos</button>
+      <button class="tab-btn ${expTab === 'metodo' ? 'active' : ''}" onclick="setExpTab('metodo')">Método de Pagamento</button>
     </div>
 
     ${expTab === 'gastos' ? gastosHtml : `
