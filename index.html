@@ -6402,14 +6402,16 @@ function setGastosNameQuery(q) {
 }
 
 // Aba "Método de Pagamento": distribuição por método (cartão, pix, ifood...), filtrável por mês.
+// Usa MOBILLS_RAW (não MOBILLS) — de propósito ignora "Ignorado nos gastos" (ex: (-) AP):
+// essa exclusão é sobre O QUE conta como gasto de consumo, não sobre COMO você pagou.
 function buildMetodoTabHtml() {
   const MET_PALETTE = ['#4f8ef7', '#22c55e', '#f97316', '#a78bfa', '#ec4899', '#fbbf24', '#22d3ee', '#64748b', '#f87171', '#34d399'];
 
-  const allMonths = [...new Set(MOBILLS.map(r => r.d))].sort().reverse();
+  const allMonths = [...new Set(MOBILLS_RAW.map(r => r.d))].sort().reverse();
   const filterMonth = allMonths.includes(expMetFilter) ? expMetFilter : 'all';
-  const rows = filterMonth === 'all' ? MOBILLS : MOBILLS.filter(r => r.d === filterMonth);
+  const rows = filterMonth === 'all' ? MOBILLS_RAW : MOBILLS_RAW.filter(r => r.d === filterMonth);
 
-  const monthOptions = `<option value="all" ${filterMonth === 'all' ? 'selected' : ''}>Todos os meses (${MOBILLS.length} lançamentos)</option>` +
+  const monthOptions = `<option value="all" ${filterMonth === 'all' ? 'selected' : ''}>Todos os meses (${MOBILLS_RAW.length} lançamentos)</option>` +
     allMonths.map(m => `<option value="${m}" ${filterMonth === m ? 'selected' : ''}>${monthLabel(m)}</option>`).join('');
 
   const filterHtml = `<div class="card mb-16" style="padding:14px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
