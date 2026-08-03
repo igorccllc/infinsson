@@ -4892,10 +4892,17 @@ let expTab = 'overview';
 let expAdvPeriod = 'mensal';   // escopo do ranking/distribuição em Gráficos Avançados: 'mensal' | 'trimestre' | 'ano'
 let expSecSort = 'default';    // ordenação das Seções de Gasto: 'default' | 'mes' | 'yoy' | 'anual' (maior variação primeiro)
 let expMetFilter = 'all';      // filtro de mês da aba Método de Pagamento: 'all' ou 'YYYY-MM'
+let expMetDrill = null;        // método clicado na aba Método de Pagamento — mostra as transações dele
 
 function setExpMetFilter(v) {
   expMetFilter = v;
+  expMetDrill = null;   // troca de mês invalida o drill-down aberto (transações eram de outro período)
   destroyCharts();
+  renderExpenses();
+}
+
+function setExpMetDrill(name) {
+  expMetDrill = (expMetDrill === name) ? null : name;   // clicar de novo no mesmo método fecha
   renderExpenses();
 }
 
