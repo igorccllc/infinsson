@@ -269,8 +269,10 @@ function classifica(nome){
 /* ── parser ── */
 function parseSheet(rows){
   let posDate = null;
+  // Aceita espaçamento irregular entre "Posição" e "Histórica" (alguns exports da XP saem com
+  // espaço duplo) e também relatórios sem a palavra "Histórica" no rótulo da data.
   for (const row of rows) for (const cell of row){
-    const m = String(cell ?? '').match(/Data da Posi[çc][ãa]o Hist[óo]rica:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+    const m = String(cell ?? '').match(/Data da Posi[çc][ãa]o\s*(?:Hist[óo]rica\s*)?:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
     if (m){ posDate = {d:m[1], m:m[2], y:m[3]}; break; }
   }
 
