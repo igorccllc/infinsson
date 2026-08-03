@@ -7351,6 +7351,16 @@ function renderExpenses() {
       });
     }
 
+    // Pizza — distribuição por método de pagamento
+    if (hasMetodoData && document.getElementById('ch-exp-met-pie')) {
+      destroyChart('expMetPie');
+      activeCharts.expMetPie = makePieChart('ch-exp-met-pie',
+        metEntries.map(([name]) => name),
+        metEntries.map(([, val]) => val),
+        metEntries.map(([name]) => metColors[name])
+      );
+    }
+
     // Main trend chart (bar + line overlay)
     const mainCtx = document.getElementById('ch-exp-main-trend');
     if (mainCtx) {
