@@ -6418,10 +6418,11 @@ function buildMetodoTabHtml() {
     </div>`, chartData: null };
   }
 
-  const byMet = {};
+  const byMet = {}, countMet = {};
   rows.forEach(r => {
     const met = (r.met && String(r.met).trim()) || 'Não informado';
     byMet[met] = (byMet[met] || 0) + Math.abs(r.val);
+    countMet[met] = (countMet[met] || 0) + 1;
   });
   const entries = Object.entries(byMet).sort((a, b) => b[1] - a[1]);
   const total = entries.reduce((s, e) => s + e[1], 0);
