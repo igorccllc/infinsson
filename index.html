@@ -7409,11 +7409,24 @@ function renderExpenses() {
       });
     }
 
-    // Pizza — distribuição por método de pagamento (aba Método)
-    if (metodoChartData && document.getElementById('ch-exp-met-pie')) {
+    // Pizza — distribuição por método de pagamento (aba Método) — tooltip com valor EXATO, sem abreviar
+    const metPieCtx = document.getElementById('ch-exp-met-pie');
+    if (metodoChartData && metPieCtx) {
       destroyChart('expMetPie');
-      activeCharts.expMetPie = makePieChart('ch-exp-met-pie',
-        metodoChartData.labels, metodoChartData.data, metodoChartData.colors);
+      activeCharts.expMetPie = new Chart(metPieCtx, {
+        type: 'doughnut',
+        data: {
+          labels: metodoChartData.labels,
+          datasets: [{ data: metodoChartData.data, backgroundColor: metodoChartData.colors.map(c => c + 'cc'), borderColor: metodoChartData.colors, borderWidth: 1.5 }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '55%',
+          plugins: {
+            legend: { position: 'right', labels: { color: '#8ca3c1', font: { size: 11 }, padding: 12 } },
+            tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.raw)}` } },
+          },
+        },
+      });
     }
 
     // Main trend chart (bar + line overlay)
