@@ -1575,6 +1575,7 @@ const SIM_TABS = [
   { id: 'equivalente',   label: 'Rentabilidade Equivalente' },
   { id: 'quitar',        label: 'Quitar vs Investir' },
   { id: 'amort',         label: 'Amortizar vs Investir (SAC)' },
+  { id: 'estresse',      label: 'Estresse de Carteira' },
 ];
 
 function _simTabBar() {
