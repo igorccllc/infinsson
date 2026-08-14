@@ -292,6 +292,7 @@ function loadState() {
   if (S.simulator.preFixado === undefined) { S.simulator.preFixado = 13.5; saveState(); }
   if (S.simulator.eqRate === undefined) { S.simulator.eqRate = 14.95; S.simulator.eqPeriod = 'ano'; saveState(); }
   if (S.simulator.eqMeses === undefined) { S.simulator.eqMeses = 25; saveState(); }
+  if (S.simulator.stress === undefined) { S.simulator.stress = {}; saveState(); }
   // Migração: bloco quitar vs investir.
   if (!S.quitar) {
     S.quitar = { valor: 100000, saldo: 100000, taxaFin: 18.0, prazo: 60, pctCDI: 100 };
