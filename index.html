@@ -3136,6 +3136,198 @@ function eqSetPeriod(p) {
   renderSimTabContent('equivalente');   // rebuild: muda o rótulo/unidade do input
 }
 
+// ── ESTRESSE DE CARTEIRA — choque de % por classe, impacto no portfólio e na FI ──
+const ESTRESSE_CLASSES = [
+  { cat: 'rf',     name: 'Renda Fixa / CDI' },
+  { cat: 'rv',     name: 'Ações / RV' },
+  { cat: 'fii',    name: 'FIIs' },
+  { cat: 'cash',   name: 'Caixa / RF Curto' },
+  { cat: 'intl',   name: 'Internacional' },
+  { cat: 'prev',   name: 'Previdência' },
+  { cat: 'imovel', name: 'Imóveis' },
+  { cat: 'outro',  name: 'Outro' },
+];
+const ESTRESSE_PRESETS = {
+  leve:  { rf: 0,    cash: 0, rv: -15, fii: -10, intl: -15, prev: -5,  outro: -10, imovel: -3  },
+  forte: { rf: -2,   cash: 0, rv: -45, fii: -30, intl: -40, prev: -15, outro: -30, imovel: -10 },
+  juros: { rf: -3,   cash: 0, rv: -20, fii: -25, intl: -10, prev: -8,  outro: -15, imovel: -8  },
+  zerar: { rf: 0,    cash: 0, rv: 0,   fii: 0,   intl: 0,   prev: 0,   outro: 0,   imovel: 0   },
+};
+
+// Calcula o efeito do choque atual (S.simulator.stress) sobre o portfólio e sobre a data de FI.
+// Não altera S.portfolio — é só leitura/projeção.
+function _estresseCompute() {
+  const stress = S.simulator.stress || {};
+  const totals = {};
+  S.portfolio.forEach(a => { totals[a.cat] = (totals[a.cat] || 0) + a.value; });
+
+  const rows = ESTRESSE_CLASSES
+    .filter(c => (totals[c.cat] || 0) > 0)
+    .map(c => {
+      const atual = totals[c.cat];
+      const pct = stress[c.cat] || 0;
+      const novo = atual * (1 + pct / 100);
+      return { cat: c.cat, label: c.name, atual, pct, novo, delta: novo - atual };
+    });
+
+  const totalAtual = rows.reduce((s, r) => s + r.atual, 0);
+  const totalNovo  = rows.reduce((s, r) => s + r.novo, 0);
+  const impacto    = totalNovo - totalAtual;
+  const impactoPct = totalAtual > 0 ? impacto / totalAtual * 100 : 0;
+
+  // Impacto na Independência Financeira: mesma base do resto do app (patrimônio investível, exclui imóvel).
+  const investAtual = rows.filter(r => r.cat !== 'imovel').reduce((s, r) => s + r.atual, 0);
+  const investNovo  = rows.filter(r => r.cat !== 'imovel').reduce((s, r) => s + r.novo, 0);
+  const fin   = fiNumber();
+  const sav   = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0)
+              - S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+  const rReal = weightedReturnReal();
+  const mAtual = _monthsToTarget(investAtual, sav, rReal, fin);
+  const mNovo  = _monthsToTarget(investNovo, sav, rReal, fin);
+
+  let fiImpactText, fiImpactColor;
+  if (mAtual == null) {
+    fiImpactText = 'já fora do horizonte de 50 anos, mesmo sem o choque';
+    fiImpactColor = 'var(--text-muted)';
+  } else if (mNovo == null) {
+    fiImpactText = 'sai do horizonte de 50 anos';
+    fiImpactColor = 'var(--red)';
+  } else {
+    const d = mNovo - mAtual;
+    fiImpactText = d === 0 ? 'sem impacto na data' : d > 0 ? `atrasa ${_fmtAnos(d)}` : `antecipa ${_fmtAnos(-d)}`;
+    fiImpactColor = d > 0 ? 'var(--red)' : d < 0 ? 'var(--green)' : 'var(--text-muted)';
+  }
+
+  return { rows, totalAtual, totalNovo, impacto, impactoPct, investAtual, investNovo, fin, mAtual, mNovo, fiImpactText, fiImpactColor };
+}
+
+function _buildEstresseResults(r) {
+  return `
+    <div class="kpi-grid mb-16">
+      <div class="kpi"><div class="kpi-label">Patrimônio atual</div><div class="kpi-value">${fmt(r.totalAtual)}</div></div>
+      <div class="kpi"><div class="kpi-label">Patrimônio após o choque</div>
+        <div class="kpi-value" style="color:${r.impacto >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(r.totalNovo)}</div></div>
+      <div class="kpi"><div class="kpi-label">Impacto</div>
+        <div class="kpi-value" style="color:${r.impacto >= 0 ? 'var(--green)' : 'var(--red)'}">${r.impacto >= 0 ? '+' : ''}${fmt(r.impacto)}</div>
+        <div class="kpi-sub">${r.impactoPct >= 0 ? '+' : ''}${r.impactoPct.toFixed(1).replace('.', ',')}%</div></div>
+      <div class="kpi"><div class="kpi-label">Impacto na Independência Financeira</div>
+        <div class="kpi-value" style="font-size:16px;color:${r.fiImpactColor}">${r.fiImpactText}</div>
+        <div class="kpi-sub">${r.mAtual == null ? 'mais de 50 anos' : _fmtAnos(r.mAtual)} → ${r.mNovo == null ? 'mais de 50 anos' : _fmtAnos(r.mNovo)}</div></div>
+    </div>
+    <div class="table-wrap"><table class="history-table">
+      <thead><tr><th>Classe</th><th class="r">Valor atual</th><th class="r">Choque</th><th class="r">Após o choque</th><th class="r">Variação</th></tr></thead>
+      <tbody>${r.rows.map(row => `<tr>
+        <td>${row.label}</td>
+        <td class="r">${fmt(row.atual)}</td>
+        <td class="r muted">${row.pct >= 0 ? '+' : ''}${row.pct}%</td>
+        <td class="r ${row.delta >= 0 ? 'green' : 'red'}">${fmt(row.novo)}</td>
+        <td class="r ${row.delta >= 0 ? 'green' : 'red'}">${row.delta >= 0 ? '+' : ''}${fmt(row.delta)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border-2)">
+        <td class="bold">Total</td><td class="r bold">${fmt(r.totalAtual)}</td><td></td>
+        <td class="r bold">${fmt(r.totalNovo)}</td>
+        <td class="r bold ${r.impacto >= 0 ? 'green' : 'red'}">${r.impacto >= 0 ? '+' : ''}${fmt(r.impacto)}</td>
+      </tr></tfoot>
+    </table></div>`;
+}
+
+function _buildEstresseTab() {
+  if (!S.portfolio.some(a => a.value > 0)) {
+    return `<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+      <p style="font-size:15px;margin-bottom:8px">Nenhum ativo cadastrado na carteira ainda.</p>
+      <p style="font-size:13px">Cadastre seus ativos na aba Patrimônio para simular um choque de mercado aqui.</p>
+    </div>`;
+  }
+  const stress = S.simulator.stress || {};
+  const totals = {};
+  S.portfolio.forEach(a => { totals[a.cat] = (totals[a.cat] || 0) + a.value; });
+  const classes = ESTRESSE_CLASSES.filter(c => (totals[c.cat] || 0) > 0);
+
+  const inputRows = classes.map(c => `
+    <div class="sim-param-row">
+      <span class="sim-param-label">${c.name} <span class="text-dim" style="font-size:11px">(${fmt(totals[c.cat])})</span></span>
+      <div class="sim-param-field">
+        <input type="number" class="sim-num-input" value="${stress[c.cat] || 0}" step="1"
+          data-stress-cat="${c.cat}" oninput="estresseInput(this)">
+        <span class="sim-prod-unit">%</span>
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="sim-layout">
+      <div class="sim-params-panel card">
+        <div class="sim-section-title">CHOQUE POR CLASSE (%)</div>
+        <div class="sim-footer-note" style="margin-bottom:12px">Valor negativo = queda. Ex: -30 numa classe que vale R$100.000 vira R$70.000.</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">
+          <button class="btn btn-secondary btn-sm" onclick="estressePreset('leve')" title="RV/FII/Intl ~-15%">Correção leve</button>
+          <button class="btn btn-secondary btn-sm" onclick="estressePreset('forte')" title="RV -45%, FII -30%, Intl -40%">Crash forte</button>
+          <button class="btn btn-secondary btn-sm" onclick="estressePreset('juros')" title="Juros sobem, marcação a mercado cai">Choque de juros</button>
+          <button class="btn btn-ghost btn-sm" onclick="estressePreset('zerar')">↺ Zerar</button>
+        </div>
+        ${inputRows}
+      </div>
+      <div class="sim-results-panel">
+        <div id="estresse-results">${_buildEstresseResults(_estresseCompute())}</div>
+      </div>
+    </div>
+    <div class="card mt-16">
+      <div class="card-title">Antes × Depois por Classe</div>
+      <div class="chart-wrap chart-med"><canvas id="ch-estresse"></canvas></div>
+    </div>`;
+}
+
+function estresseInput(el) {
+  const cat = el.dataset.stressCat;
+  if (!cat) return;
+  const v = parseFloat(el.value);
+  if (!S.simulator.stress) S.simulator.stress = {};
+  S.simulator.stress[cat] = isNaN(v) ? 0 : v;
+  saveState();
+  _estresseRefresh();
+}
+
+function estressePreset(name) {
+  const p = ESTRESSE_PRESETS[name];
+  if (!p) return;
+  S.simulator.stress = { ...p };
+  saveState();
+  renderSimTabContent('estresse');   // rebuild total: os valores dos inputs mudam
+}
+
+function _estresseRefresh() {
+  const wrap = document.getElementById('estresse-results');
+  if (wrap) wrap.innerHTML = _buildEstresseResults(_estresseCompute());
+  _estresseDrawChart();
+}
+
+function _estresseDrawChart() {
+  const ctx = document.getElementById('ch-estresse');
+  if (!ctx) return;
+  if (activeCharts.estresse) { activeCharts.estresse.destroy(); delete activeCharts.estresse; }
+  const r = _estresseCompute();
+  activeCharts.estresse = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: r.rows.map(row => row.label),
+      datasets: [
+        { label: 'Atual', data: r.rows.map(row => row.atual), backgroundColor: '#4f8ef788', borderColor: '#4f8ef7', borderWidth: 1, borderRadius: 4 },
+        { label: 'Após o choque', data: r.rows.map(row => row.novo), backgroundColor: r.rows.map(row => row.delta >= 0 ? '#22c55e88' : '#f8717188'), borderColor: r.rows.map(row => row.delta >= 0 ? '#22c55e' : '#f87171'), borderWidth: 1, borderRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#8ca3c1', font: { size: 11 } } },
+        tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` } },
+      },
+      scales: {
+        x: { grid: { color: '#1e2d4220' }, ticks: { color: '#8ca3c1', font: { size: 10 } } },
+        y: { grid: { color: '#1e2d4240' }, ticks: { color: '#8ca3c1', font: { size: 10 }, callback: v => fmtK(v) } },
+      },
+    },
+  });
+}
+
 function renderSimulador() {
   const el = document.getElementById('page-simulador');
   el.innerHTML = `
