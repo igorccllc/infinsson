@@ -192,6 +192,7 @@ const DEFAULT_STATE = {
     eqRate:     14.95,  // taxa a converter (aba Rentabilidade Equivalente)
     eqPeriod:   'ano',  // período de entrada: 'ano' | 'mes'
     eqMeses:    25,     // prazo p/ cálculo do IR regressivo (líquido)
+    stress:     {},     // % de choque por classe na aba Estresse de Carteira (ex: {rv:-30, fii:-15})
   },
 
   quitar: {
