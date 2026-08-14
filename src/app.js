@@ -1594,9 +1594,10 @@ function _simTabBar() {
 function switchSimTab(id) {
   S.simulator.tab = id;
   saveState();
-  if (activeCharts.sim)   { activeCharts.sim.destroy();   delete activeCharts.sim; }
-  if (activeCharts.quitar){ activeCharts.quitar.destroy(); delete activeCharts.quitar; }
-  if (activeCharts.amort) { activeCharts.amort.destroy();  delete activeCharts.amort; }
+  if (activeCharts.sim)     { activeCharts.sim.destroy();     delete activeCharts.sim; }
+  if (activeCharts.quitar)  { activeCharts.quitar.destroy();  delete activeCharts.quitar; }
+  if (activeCharts.amort)   { activeCharts.amort.destroy();   delete activeCharts.amort; }
+  if (activeCharts.estresse){ activeCharts.estresse.destroy();delete activeCharts.estresse; }
   const bar = document.getElementById('sim-tab-bar');
   if (bar) bar.innerHTML = _simTabBar();
   renderSimTabContent(id);
@@ -1613,6 +1614,9 @@ function renderSimTabContent(id) {
   } else if (id === 'amort') {
     el.innerHTML = _buildAmortTab();
     setTimeout(_amortDrawChart, 0);
+  } else if (id === 'estresse') {
+    el.innerHTML = _buildEstresseTab();
+    setTimeout(_estresseDrawChart, 0);
   } else {
     el.innerHTML = _buildQuitarTab();
     setTimeout(_simDrawQuitarChart, 0);
