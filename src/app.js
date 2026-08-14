@@ -1895,7 +1895,15 @@ function _buildEstresseTab() {
     <div class="card mt-16">
       <div class="card-title">Antes × Depois por Classe</div>
       <div class="chart-wrap chart-med"><canvas id="ch-estresse"></canvas></div>
-    </div>`;
+    </div>
+    <details class="card mt-16">
+      <summary style="cursor:pointer;font-weight:600">ⓘ O que entra em cada classe do choque</summary>
+      <div style="font-size:13px;color:var(--text-dim);margin-top:10px;line-height:1.6">
+        <p><b>Ações / RV</b> agrupa Ações, Fundos de Ações, Cripto e Multimercado (quando existir) — todos levam o mesmo % de choque, mesmo que na vida real cripto caia muito mais forte que ações e multimercado tenha beta bem menor. É uma simplificação proposital do modelo, não um erro.</p>
+        <p><b>FIIs</b>, <b>Renda Fixa / CDI</b>, <b>Caixa / RF Curto</b>, <b>Internacional</b>, <b>Previdência</b> e <b>Imóveis</b> são classes isoladas — cada uma leva só o próprio %.</p>
+        <p>O impacto na data de FI usa o patrimônio investível (mesma base do resto do app: RV/FII/Intl entram, Imóvel fica de fora).</p>
+      </div>
+    </details>`;
 }
 
 function estresseInput(el) {
