@@ -743,6 +743,11 @@ function currentAge() {
 function savingsRate(h) {
   return h.rec > 0 ? ((h.rec - h.gas) / h.rec) * 100 : 0;
 }
+// Prioriza a taxa de poupança já calculada na planilha (h.txp) — é a fonte de verdade que o
+// usuário confere lá; só recalcula (rec-gas)/rec quando a célula está vazia.
+function savingsRateOf(h) {
+  return h.txp ?? savingsRate(h);
+}
 
 // ── 5b. ANALYTICS ENGINE ──────────────────────────────────
 
