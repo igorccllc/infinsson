@@ -5855,6 +5855,7 @@ function renderExpenses() {
     </div>
     <div style="margin-left:auto;font-size:11px;color:var(--text-dim);text-align:right">
       ${fmt(infP.avgPrev12)}/mês → ${fmt(infP.avgLast12)}/mês<br>informativo — não altera projeções
+      ${infP.src.startsWith('Gastos Totais') ? `<br><span style="color:var(--yellow)">⚠ col. J ainda não tem 24m — usando Gastos Totais</span>` : ''}
     </div>
   </div>` : '';
 
