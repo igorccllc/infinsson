@@ -4645,7 +4645,7 @@ function renderDashboard() {
 
   const last3h = HISTORICAL.slice(-3).filter(h => h.rec > 0);
   const avgSavingsRate = last3h.length > 0
-    ? last3h.reduce((s, h) => s + savingsRate(h), 0) / last3h.length
+    ? last3h.reduce((s, h) => s + savingsRateOf(h), 0) / last3h.length
     : 0;
 
   const fiDate = fiResult
