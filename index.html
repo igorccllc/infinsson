@@ -2751,15 +2751,15 @@ const METRIC_DOCS = {
   },
   savingsrate: () => {
     const last3h = HISTORICAL.slice(-3).filter(h => h.rec > 0);
-    const avg = last3h.length ? last3h.reduce((s, h) => s + savingsRate(h), 0) / last3h.length : 0;
+    const avg = last3h.length ? last3h.reduce((s, h) => s + savingsRateOf(h), 0) / last3h.length : 0;
     return {
       title: 'Taxa de Poupança',
       what: 'De tudo que entrou, quanto sobrou — mês a mês, depois média.',
       calc: [
-        ['Cada mês: (Receita − Gastos) ÷ Receita', 'da planilha (col. G quando disponível)'],
+        ['Cada mês: taxa da planilha (col. Taxa de Poupança)', 'recalcula (Receita−Gastos)÷Receita só se a célula estiver vazia'],
         ['Média dos últimos 3 meses', fmtPct(avg)],
       ],
-      ignores: 'O "apo" — de propósito: aporte inclui rendimento reinvestido e estouraria 100%.',
+      ignores: 'O "apo" no recálculo de fallback — de propósito: aporte inclui rendimento reinvestido e estouraria 100%.',
       assumes: 'Meses sem receita ficam de fora da média.',
     };
   },
