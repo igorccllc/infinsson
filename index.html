@@ -7598,14 +7598,7 @@ function renderExpenses() {
   }
 
   const advancedHtml = `
-    <div class="kpi-grid kpi-grid-3 mb-16">
-      <div class="kpi">
-        <div class="kpi-label">Inflação Pessoal — 12m</div>
-        ${personalInfl !== null ? `
-        <div class="kpi-value" style="color:${personalInfl <= (S.assumptions.ipca || 5.5) ? 'var(--green)' : 'var(--red)'}">${personalInfl >= 0 ? '+' : ''}${fmtPct(personalInfl)}</div>
-        <div class="kpi-sub">vs IPCA ${fmtPct(S.assumptions.ipca || 5.5)} — ${personalInfl <= (S.assumptions.ipca || 5.5) ? 'sob controle' : 'lifestyle creep: seus gastos sobem acima da inflação'}</div>
-        ` : `<div class="kpi-value" style="color:var(--text-dim)">—</div><div class="kpi-sub">precisa de 24+ meses fechados de dados</div>`}
-      </div>
+    <div class="kpi-grid kpi-grid-2 mb-16">
       ${fixSplit ? `
       <div class="kpi">
         <div class="kpi-label">Fixo vs Variável — média 12m</div>
