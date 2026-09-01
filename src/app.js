@@ -193,6 +193,7 @@ const DEFAULT_STATE = {
     eqPeriod:   'ano',  // período de entrada: 'ano' | 'mes'
     eqMeses:    25,     // prazo p/ cálculo do IR regressivo (líquido)
     stress:     {},     // % de choque por classe na aba Estresse de Carteira (ex: {rv:-30, fii:-15})
+    selicDelta: -2,     // variacao da Selic em p.p. no Choque de Selic (negativo = corte)
   },
 
   quitar: {
@@ -293,6 +294,7 @@ function loadState() {
   if (S.simulator.eqRate === undefined) { S.simulator.eqRate = 14.95; S.simulator.eqPeriod = 'ano'; saveState(); }
   if (S.simulator.eqMeses === undefined) { S.simulator.eqMeses = 25; saveState(); }
   if (S.simulator.stress === undefined) { S.simulator.stress = {}; saveState(); }
+  if (S.simulator.selicDelta === undefined) { S.simulator.selicDelta = -2; saveState(); }
   // Migração: bloco quitar vs investir.
   if (!S.quitar) {
     S.quitar = { valor: 100000, saldo: 100000, taxaFin: 18.0, prazo: 60, pctCDI: 100 };
@@ -1896,6 +1898,7 @@ function _buildEstresseTab() {
       <div class="card-title">Antes × Depois por Classe</div>
       <div class="chart-wrap chart-med"><canvas id="ch-estresse"></canvas></div>
     </div>
+    ${_buildSelicShockCard()}
     <details class="card mt-16">
       <summary style="cursor:pointer;font-weight:600">ⓘ O que entra em cada classe do choque</summary>
       <div style="font-size:13px;color:var(--text-dim);margin-top:10px;line-height:1.6">
@@ -1956,6 +1959,155 @@ function _estresseDrawChart() {
       },
     },
   });
+}
+
+// ── CHOQUE DE SELIC ───────────────────────────────────────
+// Simplificação assumida: toda a Renda Fixa + Caixa é tratada como pós-fixada (Selic/CDI),
+// com repasse proporcional — a carteira é majoritariamente %CDI, então ret × (CDI_novo/CDI_atual).
+// Um corte de Selic NÃO mexe no saldo de hoje: mexe no carrego. O que se desloca é o retorno
+// esperado e, por tabela, a data de FI. O ganho de marcação a mercado de pré/IPCA+ fica de fora.
+const SELIC_RF_CATS = ['rf', 'cash'];
+const _selicTx = v => v.toFixed(2).replace('.', ',') + '%';
+const _selicPP = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2).replace('.', ',') + ' p.p.';
+
+function _selicShockCompute() {
+  const d      = S.simulator.selicDelta || 0;
+  const selic0 = S.assumptions.selic || 13.75;
+  const cdi0   = S.assumptions.cdi   || 13.65;
+  const selic1 = Math.max(0, selic0 + d);
+  const cdi1   = Math.max(0, cdi0 + d);
+  const fator  = cdi0 > 0 ? cdi1 / cdi0 : 1;
+
+  const total = S.portfolio.reduce((s, a) => s + a.value, 0);
+  const rows = S.portfolio
+    .filter(a => SELIC_RF_CATS.includes(a.cat) && a.value > 0)
+    .map(a => {
+      const retNovo = a.ret * fator;
+      return { name: a.name, value: a.value, ret: a.ret, retNovo,
+               dRet: retNovo - a.ret, dRenda: a.value * (retNovo - a.ret) / 100 };
+    })
+    .sort((x, y) => y.value - x.value);
+
+  const rfValor = rows.reduce((s, r) => s + r.value, 0);
+  const rfShare = total > 0 ? rfValor / total * 100 : 0;
+  const dRenda  = rows.reduce((s, r) => s + r.dRenda, 0);
+
+  // Retorno ponderado: mesma base do resto do app (weightedReturn — carteira inteira).
+  const retAntes  = total > 0 ? S.portfolio.reduce((s, a) => s + a.ret * (a.value / total), 0) : 0;
+  const retDepois = total > 0 ? S.portfolio.reduce((s, a) =>
+        s + (SELIC_RF_CATS.includes(a.cat) ? a.ret * fator : a.ret) * (a.value / total), 0) : 0;
+
+  const ipca   = S.assumptions.ipca || 5.5;
+  const real   = r => ((1 + r / 100) / (1 + ipca / 100) - 1) * 100;
+  const invest = S.portfolio.reduce((s, a) => s + (a.cat === 'imovel' ? 0 : a.value), 0);
+  const fin    = fiNumber();
+  const sav    = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0)
+               - S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+  const mAntes  = _monthsToTarget(invest, sav, real(retAntes),  fin);
+  const mDepois = _monthsToTarget(invest, sav, real(retDepois), fin);
+
+  let fiText, fiColor;
+  if (mAntes == null && mDepois == null) { fiText = 'fora do horizonte de 50 anos nos dois cenários'; fiColor = 'var(--text-muted)'; }
+  else if (mDepois == null)              { fiText = 'sai do horizonte de 50 anos'; fiColor = 'var(--red)'; }
+  else if (mAntes == null)               { fiText = 'volta pro horizonte de 50 anos'; fiColor = 'var(--green)'; }
+  else {
+    const dm = mDepois - mAntes;
+    fiText  = dm === 0 ? 'sem impacto na data' : dm > 0 ? `atrasa ${_fmtAnos(dm)}` : `antecipa ${_fmtAnos(-dm)}`;
+    fiColor = dm > 0 ? 'var(--red)' : dm < 0 ? 'var(--green)' : 'var(--text-muted)';
+  }
+
+  return { d, selic0, selic1, cdi0, cdi1, fator, rows, rfValor, rfShare, dRenda,
+           retAntes, retDepois, realAntes: real(retAntes), realDepois: real(retDepois),
+           mAntes, mDepois, fiText, fiColor };
+}
+
+function _buildSelicShockResults(r) {
+  const cor = r.dRenda === 0 ? 'var(--text-muted)' : r.dRenda < 0 ? 'var(--red)' : 'var(--green)';
+  const sgn = v => (v >= 0 ? '+' : '');
+  return `
+    <div class="kpi-grid mb-16">
+      <div class="kpi"><div class="kpi-label">Selic</div>
+        <div class="kpi-value" style="font-size:16px">${_selicTx(r.selic0)} → ${_selicTx(r.selic1)}</div>
+        <div class="kpi-sub">${_selicPP(r.d)} · CDI ${_selicTx(r.cdi0)} → ${_selicTx(r.cdi1)}</div></div>
+      <div class="kpi"><div class="kpi-label">Renda anual da parcela pós-fixada</div>
+        <div class="kpi-value" style="color:${cor}">${sgn(r.dRenda)}${fmt(r.dRenda)}</div>
+        <div class="kpi-sub">sobre ${fmt(r.rfValor)} · ${r.rfShare.toFixed(0)}% da carteira</div></div>
+      <div class="kpi"><div class="kpi-label">Retorno ponderado</div>
+        <div class="kpi-value" style="font-size:16px;color:${cor}">${_selicTx(r.retAntes)} → ${_selicTx(r.retDepois)}</div>
+        <div class="kpi-sub">real ${_selicTx(r.realAntes)} → ${_selicTx(r.realDepois)} a.a.</div></div>
+      <div class="kpi"><div class="kpi-label">Impacto na Independência Financeira</div>
+        <div class="kpi-value" style="font-size:16px;color:${r.fiColor}">${r.fiText}</div>
+        <div class="kpi-sub">${_fmtAnos(r.mAntes)} → ${_fmtAnos(r.mDepois)}</div></div>
+    </div>
+    ${r.rows.length ? `<div class="table-wrap"><table class="history-table">
+      <thead><tr><th>Ativo tratado como pós-fixado</th><th class="r">Valor</th><th class="r">Retorno hoje</th><th class="r">Após o corte</th><th class="r">Δ renda / ano</th></tr></thead>
+      <tbody>${r.rows.map(x => `<tr>
+        <td>${x.name}</td>
+        <td class="r">${fmt(x.value)}</td>
+        <td class="r muted">${_selicTx(x.ret)}</td>
+        <td class="r ${x.dRet >= 0 ? 'green' : 'red'}">${_selicTx(x.retNovo)}</td>
+        <td class="r ${x.dRenda >= 0 ? 'green' : 'red'}">${sgn(x.dRenda)}${fmt(x.dRenda)}</td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="border-top:2px solid var(--border-2)">
+        <td class="bold">Total</td><td class="r bold">${fmt(r.rfValor)}</td><td></td><td></td>
+        <td class="r bold ${r.dRenda >= 0 ? 'green' : 'red'}">${sgn(r.dRenda)}${fmt(r.dRenda)}</td>
+      </tr></tfoot>
+    </table></div>` : `<div class="sim-footer-note">Nenhum ativo em Renda Fixa ou Caixa na carteira.</div>`}`;
+}
+
+function _buildSelicShockCard() {
+  const d = S.simulator.selicDelta || 0;
+  return `
+    <div class="card mt-16">
+      <div class="card-title">Choque de Selic</div>
+      <div class="sim-footer-note" style="margin-bottom:14px">
+        Simplificação assumida: <b>toda a Renda Fixa e o Caixa são tratados como pós-fixados</b>, com repasse
+        proporcional ao CDI. Na prática, prefixado e IPCA+ <b>subiriam de preço</b> num corte — esse ganho de marcação
+        não entra aqui, então o número abaixo é o pior caso, só o lado do carrego. Independente do choque por classe acima.
+      </div>
+      <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-bottom:18px">
+        <div class="sim-param-row" style="margin:0;flex:0 0 auto">
+          <span class="sim-param-label">Variação da Selic</span>
+          <div class="sim-param-field">
+            <input type="number" class="sim-num-input" value="${d}" step="0.25" min="-14" max="14"
+              id="selic-delta-input" oninput="selicShockInput(this)">
+            <span class="sim-prod-unit">p.p.</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="selicShockPreset(-0.5)">−0,50</button>
+          <button class="btn btn-secondary btn-sm" onclick="selicShockPreset(-1)">−1,00</button>
+          <button class="btn btn-secondary btn-sm" onclick="selicShockPreset(-2)">−2,00</button>
+          <button class="btn btn-secondary btn-sm" onclick="selicShockPreset(-4)">−4,00</button>
+          <button class="btn btn-ghost btn-sm" onclick="selicShockPreset(0)">↺ Zerar</button>
+        </div>
+      </div>
+      <div id="selic-shock-results">${_buildSelicShockResults(_selicShockCompute())}</div>
+      <div class="sim-footer-note" style="margin-top:14px">
+        O patrimônio de hoje não muda — corte de Selic não mexe no saldo, mexe no quanto ele rende daqui pra frente.
+        Por isso a linha que importa é a da Independência Financeira, não a do patrimônio.
+      </div>
+    </div>`;
+}
+
+function _selicShockRefresh() {
+  const wrap = document.getElementById('selic-shock-results');
+  if (wrap) wrap.innerHTML = _buildSelicShockResults(_selicShockCompute());
+}
+
+function selicShockInput(el) {
+  const v = parseFloat(el.value);
+  S.simulator.selicDelta = isNaN(v) ? 0 : v;
+  saveState();
+  _selicShockRefresh();
+}
+
+function selicShockPreset(v) {
+  S.simulator.selicDelta = v;
+  saveState();
+  const inp = document.getElementById('selic-delta-input');
+  if (inp) inp.value = v;
+  _selicShockRefresh();
 }
 
 function renderSimulador() {

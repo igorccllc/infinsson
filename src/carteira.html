@@ -291,6 +291,9 @@ function parseSheet(rows){
     if (blank(a)){ sec = null; continue; }
     const name = String(a).trim();
 
+    // A partir daqui o relatório só lista proventos/dividendos futuros (não é posição em carteira) — encerra o parse.
+    if (/^Dividendos,?\s*proventos/i.test(name)) break;
+
     const mSec = name.match(/^[\d.,]+%\s*\|\s*(.+)$/);
     if (mSec && cat){
       const hdr = row.map(x => String(x ?? '').trim());
@@ -298,8 +301,9 @@ function parseSheet(rows){
       sec = {
         nome: mSec[1].trim(), items: [],
         cols: {
-          liq:  idx('Valor Líquido','Valor líquido'),
-          pos:  idx('Posição','Posição a mercado'),
+          // "Valor Líquido"/"Posição" = export antigo (Posição Consolidada); "Saldo"/"Saldo líquido"/"Saldo a mercado" = export novo (Posição Detalhada, 2026).
+          liq:  idx('Valor Líquido','Valor líquido','Saldo líquido','Saldo Líquido'),
+          pos:  idx('Posição','Posição a mercado','Saldo','Saldo a mercado','Saldo a Mercado'),
           apl:  idx('Valor aplicado','Total aplicado'),
           dapl: idx('Data aplicação'),
           venc: idx('Data vencimento','Vencimento'),
