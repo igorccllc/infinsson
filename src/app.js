@@ -6203,17 +6203,6 @@ function renderExpenses() {
     </div>`;
   }).join('');
 
-  // ── Inflação pessoal: 12m fechados vs 12m anteriores ───
-  let personalInfl = null;
-  {
-    const closed = months.slice(0, -1); // exclui mês corrente (aberto)
-    if (closed.length >= 24) {
-      const sum = arr => arr.reduce((s, m) => s + (byMonthMap[m] || 0), 0);
-      const a = sum(closed.slice(-12)), b = sum(closed.slice(-24, -12));
-      if (b > 0) personalInfl = (a / b - 1) * 100;
-    }
-  }
-
   // ── Fixo vs variável (flag Recorrente do Mobills) ───────
   const hasFix = MOBILLS.some(r => r.fix === true);
   let fixSplit = null;
