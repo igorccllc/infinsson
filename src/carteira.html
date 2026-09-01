@@ -314,8 +314,10 @@ function parseSheet(rows){
       continue;
     }
 
-    // category row: col B empty + col G has an R$ total
-    if (blank(row[1]) && brl(row[6]) != null){
+    // category row: cols B–F vazias (só nome em A e total em G). No export novo (2026), linhas de
+    // item de Fundos também têm a coluna B vazia — por isso exige TODAS as colunas do meio vazias,
+    // não só a B, senão um item de fundo com "Saldo líquido" na coluna G vira categoria fantasma.
+    if (blank(row[1]) && blank(row[2]) && blank(row[3]) && blank(row[4]) && blank(row[5]) && brl(row[6]) != null){
       cat = { nome: name, total: brl(row[6]), secoes: [] };
       cats.push(cat); sec = null; continue;
     }
