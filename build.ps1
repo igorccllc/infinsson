@@ -8,8 +8,8 @@ if (-not (Test-Path $src)) { throw "Pasta de fontes nao encontrada: $src" }
 $index    = Get-Content (Join-Path $src 'index.html')    -Raw -Encoding UTF8
 $css      = Get-Content (Join-Path $src 'style.css')     -Raw -Encoding UTF8
 $js       = Get-Content (Join-Path $src 'app.js')        -Raw -Encoding UTF8
-$fechHtml = Get-Content (Join-Path $src 'carteira.html') -Raw -Encoding UTF8
-$extrHtml = Get-Content (Join-Path $src 'extrato.html')  -Raw -Encoding UTF8
+$fechHtml  = Get-Content (Join-Path $src 'carteira.html')  -Raw -Encoding UTF8
+$extrHtml  = Get-Content (Join-Path $src 'extrato.html')   -Raw -Encoding UTF8
 
 # ── 2) Baixa / usa cache do Chart.js e plugin annotation ──────────────────
 $chartjsCache = Join-Path $src '_cache_chartjs.js'
@@ -29,6 +29,9 @@ $anno    = Get-Content $annoCache    -Raw -Encoding UTF8
 $enc = New-Object System.Text.UTF8Encoding($false)
 $b64 = [Convert]::ToBase64String($enc.GetBytes($fechHtml))
 $b64Extr = [Convert]::ToBase64String($enc.GetBytes($extrHtml))
+
+$buildVersion = (Get-Date -Format 'yyyyMMddHHmmss')
+$index = $index.Replace('<meta name="finplan-build" content="dev">', '<meta name="finplan-build" content="' + $buildVersion + '">')
 
 $index = $index.Replace('<link rel="stylesheet" href="style.css">',     "<style>`n$css`n</style>")
 $index = $index.Replace('<script src="app.js"></script>',               "<script>`n$js`n</script>")
@@ -96,7 +99,6 @@ Write-Output "Gerado: $out  ($kb KB)"
 # ── 6) Copia manifest.json e gera sw.js com versão do build ───────────────
 Copy-Item (Join-Path $src 'manifest.json') (Join-Path $PSScriptRoot 'manifest.json') -Force
 
-$buildVersion = (Get-Date -Format 'yyyyMMddHHmmss')
 $swContent = Get-Content (Join-Path $src 'sw.js') -Raw -Encoding UTF8
 $swContent = $swContent.Replace("const CACHE = 'finplan-v1'", "const CACHE = 'finplan-$buildVersion'")
 [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'sw.js'), $swContent, $enc)

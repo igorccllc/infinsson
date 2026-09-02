@@ -10,6 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FinPlan">
+  <meta name="finplan-build" content="dev">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -107,7 +108,27 @@ document.addEventListener('click', function(e) {
   if (e.target.closest('.nav-item') && window.innerWidth <= 600) closeSidebar();
 });
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js').catch(function(){});
+  // Havia um SW no controle quando esta pagina carregou? Se nao, o primeiro
+  // controllerchange e a instalacao inicial - nao e update, nao recarrega.
+  var hadController = !!navigator.serviceWorker.controller;
+  var didReload = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', function() {
+    if (!hadController || didReload) return;
+    didReload = true;
+    location.reload();
+  });
+
+  // updateViaCache:'none' impede que o proprio sw.js venha do cache HTTP -
+  // sem isso o iOS pode comparar contra uma copia velha e nao ver o build novo.
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+    .then(function(reg) {
+      // App retomado do background (nao e cold launch): checa update mesmo assim.
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) reg.update().catch(function(){});
+      });
+    })
+    .catch(function(){});
 }
 </script>
 </body>
