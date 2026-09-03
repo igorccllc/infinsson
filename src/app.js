@@ -8255,7 +8255,7 @@ function computeInsights() {
     null) : null;
   if (lastH && yearAgo && yearAgo.pl > 0) {
     const yearAgoMonths = monthsBetween(yearAgo.d, lastH.d);
-    const apoJanela = HISTORICAL.filter(h => h.d > yearAgo.d && h.d <= lastH.d).reduce((s, h) => s + (h.apo || 0), 0);
+    const apoJanela = HISTORICAL.filter(h => h.d > yearAgo.d && h.d <= lastH.d).reduce((s, h) => s + apoPLOf(h), 0);
     const d = lastH.pl - yearAgo.pl;
     const rentab = d - apoJanela;
     const pctApo = d !== 0 ? Math.min(100, Math.max(0, apoJanela / d * 100)) : 0;
