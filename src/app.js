@@ -9201,11 +9201,14 @@ function _rpSec1(c) {
   // ETA empírico: quanto falta ÷ quanto andou nos últimos 12 meses
   // "Ano atrás" por calendário, não pela posição -13 do array — um gap no sync (mês pulado)
   // faz a posição -13 apontar pra um mês que não é 12 atrás de verdade. Mesmo bug já corrigido
-  // no card "vs mês anterior" do Dashboard. Sem match exato, cai no registro mais antigo
-  // disponível antes do mês atual e assume a lacuna real (yAgoMonths), não sempre "12".
+  // no card "vs mês anterior" do Dashboard. Sem match exato, usa o registro mais PRÓXIMO em
+  // data do alvo (12 meses atrás) — não o mais recente antes de hoje — e assume a lacuna
+  // real (yAgoMonths), não sempre "12".
   const yAgoKey = addMonths(c.lastD, -12);
   const before = c.H.filter(h => h.d < c.lastD);
-  const yAgo = c.H.find(h => h.d === yAgoKey) || before[before.length - 1] || null;
+  const yAgo = c.H.find(h => h.d === yAgoKey) ||
+    before.slice().sort((a, b) => Math.abs(monthsBetween(a.d, yAgoKey)) - Math.abs(monthsBetween(b.d, yAgoKey)))[0] ||
+    null;
   const yAgoMonths = yAgo ? monthsBetween(yAgo.d, c.lastD) : 12;
   const pp12 = (yAgo && c.fin > 0) ? (c.plNow - (yAgo.pl || 0)) / c.fin * 100 : null;
   const etaY = (pp12 && pp12 > 0.5) ? (100 - pctFI) / pp12 : null;
