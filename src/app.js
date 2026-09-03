@@ -9238,13 +9238,18 @@ function _rpSec1(c) {
   //   c.invest = investableWealth(), soma da carteira cadastrada ex-imóvel
   //              (é a base do % da meta, do Dashboard e da página FI)
   // Com sync em dia os dois batem. Quando não batem, o relatório diz.
+  // Aporte somado na MESMA janela real do Δpl (não sempre "últimas 12 linhas do array") —
+  // senão, se a janela tiver uma lacuna, o aporte soma meses que o Δpl não cobre (ou vice-versa)
+  // e o "resultado de mercado" (que é só o resto: Δpl − aporte) absorve o erro inteiro.
   const dPl12 = yAgo ? c.plNow - (yAgo.pl || 0) : null;
-  const mkt12 = dPl12 == null ? null : dPl12 - c.apo12;
+  const apoJanela = yAgo ? _rpSum(c.H.filter(h => h.d > yAgo.d && h.d <= c.lastD).map(h => h.apo || 0)) : c.apo12;
+  const mkt12 = dPl12 == null ? null : dPl12 - apoJanela;
   let lead = `Em ${monthLabel(c.lastD)} o patrimônio líquido da planilha está em <b>${fmt(c.plNow)}</b>`;
   if (dPl12 != null) {
-    lead += `, ${dPl12 >= 0 ? 'um avanço de' : 'uma queda de'} <b>${fmt(Math.abs(dPl12))}</b> em 12 meses — ` +
-      `<b>${fmt(c.apo12)}</b> de aporte e <b>${_rpMoneyS(mkt12)}</b> de resultado de mercado`;
-    if (dPl12 > 0 && c.apo12 / dPl12 >= 0.85) lead += `. Ou seja: ${_rpPct(c.apo12 / dPl12 * 100)} do avanço foi você depositando dinheiro, não o dinheiro trabalhando`;
+    const janelaLabel = yAgoMonths === 12 ? '12 meses' : `${yAgoMonths} meses (lacuna no sync — não achei o mês exato 12 atrás)`;
+    lead += `, ${dPl12 >= 0 ? 'um avanço de' : 'uma queda de'} <b>${fmt(Math.abs(dPl12))}</b> em ${janelaLabel} — ` +
+      `<b>${fmt(apoJanela)}</b> de aporte e <b>${_rpMoneyS(mkt12)}</b> de resultado de mercado`;
+    if (dPl12 > 0 && apoJanela / dPl12 >= 0.85) lead += `. Ou seja: ${_rpPct(apoJanela / dPl12 * 100)} do avanço foi você depositando dinheiro, não o dinheiro trabalhando`;
   }
   lead += `. A meta de independência é <b>${fmt(c.fin)}</b> e o patrimônio investível — a carteira cadastrada, sem o imóvel — está em <b>${fmt(c.invest)}</b>, ou <b>${_rpPct(pctFI)}</b> dela`;
   lead += etaY ? `, avançando ${_rpPct(pp12)} por ano.` : '.';
