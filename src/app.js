@@ -8445,9 +8445,14 @@ function computeInsights() {
   }
 
   // ── Velocidade do plano: progresso à FI hoje vs. 12 meses atrás (derivada, não a foto) — sobre o líquido (pl)
-  if (HISTORICAL.length >= 13 && fin > 0 && lastH.pl != null && HISTORICAL[HISTORICAL.length - 13].pl > 0) {
+  // Mesmo fix de calendário do card "Patrimônio" e do Relatório: posição no array falha com gap no sync.
+  const h12Key = lastH ? addMonths(lastH.d, -12) : null;
+  const h12Candidates = HISTORICAL.filter(h => h.d < (lastH ? lastH.d : ''));
+  const h12 = lastH ? (HISTORICAL.find(h => h.d === h12Key) ||
+    h12Candidates.slice().sort((a, b) => Math.abs(monthsBetween(a.d, h12Key)) - Math.abs(monthsBetween(b.d, h12Key)))[0] ||
+    null) : null;
+  if (h12 && fin > 0 && lastH.pl != null && h12.pl > 0) {
     const plNow = lastH.pl;
-    const h12 = HISTORICAL[HISTORICAL.length - 13];
     const pl12 = h12.pl;
     const pctNow = plNow / fin * 100, pct12 = pl12 / fin * 100;
     const ppAno = pctNow - pct12;
