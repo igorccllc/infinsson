@@ -864,6 +864,9 @@ const IPCA_YEARLY = { 2017:2.95, 2018:3.75, 2019:4.31, 2020:4.52, 2021:10.06, 20
 // (h.rent, já em % → ÷100), para o heatmap ficar IDÊNTICO à planilha. Só quando o mês não tem
 // rentabilidade sincronizada é que cai no recálculo (Δpl - aporte)/pl anterior — sobre o
 // patrimônio LÍQUIDO (o de fato investido); pat inclui imóvel e poluiria o retorno.
+// O aporte do recálculo é sempre apoPLOf: aporte em imóvel não move o pl, então usar o
+// aporte total inflava/inventava retorno negativo nos meses sem h.rent sincronizado — o
+// mesmo bug que existia no Relatório e no Insights, só que na fonte que os dois consomem.
 function realizedReturns() {
   const out = [];
   for (let i = 1; i < HISTORICAL.length; i++) {
@@ -872,7 +875,7 @@ function realizedReturns() {
       out.push({ d: cur.d, r: cur.rent / 100 });
     } else if (prev.pl > 0 && cur.pl != null) {
       // recálculo SEMPRE sobre o líquido (pl) — nunca 'pat', que inclui o imóvel e distorce
-      out.push({ d: cur.d, r: (cur.pl - prev.pl - (cur.apo || 0)) / prev.pl });
+      out.push({ d: cur.d, r: (cur.pl - prev.pl - apoPLOf(cur)) / prev.pl });
     }
   }
   return out;
