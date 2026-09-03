@@ -3043,18 +3043,19 @@ function _buildAporteRendimentoCard() {
         <div>
           <div class="ar-lbl" style="color:var(--accent)">● Você aportou</div>
           <div class="ar-val">${fmt(s.curA)}</div>
-          <div class="ar-sub">${fmtPct(s.aPct)} do patrimônio</div>
+          <div class="ar-sub">${fmtPct(s.aPct)} do total entre os dois</div>
         </div>
         <div style="text-align:right">
           <div class="ar-lbl" style="color:var(--green)">Juros geraram ●</div>
           <div class="ar-val" style="color:var(--green)">${fmt(s.curR)}</div>
-          <div class="ar-sub">${fmtPct(s.rPct)} do patrimônio</div>
+          <div class="ar-sub">${fmtPct(s.rPct)} do total entre os dois</div>
         </div>
       </div>
       <div class="ar-bar">
         <div style="width:${s.aPct}%;background:var(--accent)"></div>
         <div style="width:${s.rPct}%;background:var(--green)"></div>
       </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Juros = só o resultado de mercado sobre o patrimônio líquido (imóvel não entra — não é modelado como gerando rendimento aqui). Por isso aporte + juros pode não bater com o patrimônio total.</div>
 
       <div class="chart-wrap chart-med mt-12"><canvas id="ch-aporte-rend"></canvas></div>
 
