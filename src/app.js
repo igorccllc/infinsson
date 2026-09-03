@@ -3030,7 +3030,7 @@ function _buildAporteRendimentoCard() {
 
   const insight = crossed
     ? `🎯 Em <b style="color:var(--text)">${monthLabel(s.crossMonth)}</b> seus juros acumulados passaram a valer mais que tudo que você já aportou. De lá pra cá, seu dinheiro trabalha mais do que você.`
-    : `Seus juros já são <b style="color:var(--green)">${fmtPct(s.rPct)}</b> do patrimônio. Quando passarem de 50%, seu dinheiro terá construído mais que o seu bolso.`;
+    : `Seus juros já são <b style="color:var(--green)">${fmtPct(s.rPct)}</b> do total entre aporte e juros. Quando passarem de 50%, seu dinheiro terá construído mais que o seu bolso.`;
 
   return `
     <div class="card mt-16">

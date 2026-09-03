@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FinPlan">
-  <meta name="finplan-build" content="20260903110847">
+  <meta name="finplan-build" content="20260903110901">
   <link rel="apple-touch-icon" href="icon-192.png">
   <style>
 /* ═══════════════════════════════════════════════════════════
@@ -4718,7 +4718,7 @@ function _buildAporteRendimentoCard() {
 
   const insight = crossed
     ? `🎯 Em <b style="color:var(--text)">${monthLabel(s.crossMonth)}</b> seus juros acumulados passaram a valer mais que tudo que você já aportou. De lá pra cá, seu dinheiro trabalha mais do que você.`
-    : `Seus juros já são <b style="color:var(--green)">${fmtPct(s.rPct)}</b> do patrimônio. Quando passarem de 50%, seu dinheiro terá construído mais que o seu bolso.`;
+    : `Seus juros já são <b style="color:var(--green)">${fmtPct(s.rPct)}</b> do total entre aporte e juros. Quando passarem de 50%, seu dinheiro terá construído mais que o seu bolso.`;
 
   return `
     <div class="card mt-16">
