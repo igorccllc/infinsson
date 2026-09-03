@@ -7424,7 +7424,7 @@ function renderHistory() {
       { label:'Gastos',  data:sampled.map(h=>h.gas), backgroundColor:'#f8717155', borderColor:'#f87171', borderWidth:1 },
     ]);
 
-    const savingsRates = sampled.map(h => savingsRate(h));
+    const savingsRates = sampled.map(h => savingsRateOf(h));
     destroyChart('histSavings');
     activeCharts.histSavings = new Chart(document.getElementById('ch-hist-savings'), {
       type:'bar',
