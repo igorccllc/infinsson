@@ -44,7 +44,8 @@ Severidades e cor:
 Na ordem em que aparecem dentro de `computeInsights()`.
 
 ### 3.1 Patrimônio — decomposição do crescimento em 12m
-**O que faz:** compara o patrimônio líquido (`pl`) de hoje com o de 12 meses atrás. Do delta total, calcula quanto veio de **aporte** (soma de `apo` em 12m) e quanto veio de **rentabilidade** (o resto).
+**O que faz:** compara o patrimônio líquido (`pl`) de hoje com o de 12 meses atrás — **por calendário** (`addMonths(lastD, -12)`, com fallback pro registro mais próximo se houver lacuna no sync, não pela posição `-13` do array). Do delta total, calcula quanto veio de **aporte** (soma de `apoPLOf(h)` na mesma janela) e quanto veio de **rentabilidade** (o resto).
+**Por que `apoPLOf` e não `apo`:** `apo` é o aporte TOTAL da planilha e pode incluir aporte em imóvel (colunas Aporte PL / Aporte Imóvel, quando existirem). Como `pl` exclui o imóvel, descontar o aporte total de um Δ que não inclui imóvel inventava "rentabilidade" negativa. `apoPLOf(h) = h.apoPL ?? h.apo` — usa o split quando existe, cai no total nos meses sem ele.
 **Por que importa:** se >85% do crescimento é aporte, isso avisa que "o dinheiro não está trabalhando" — útil pra calibrar expectativa sobre o quanto a carteira em si está contribuindo.
 **Severidade:** `warn` se rentabilidade < 0, senão `info`. Sem ação associada.
 
@@ -59,10 +60,10 @@ Na ordem em que aparecem dentro de `computeInsights()`.
 **Limiares:** inflação pessoal > IPCA + 2pp → `warn` (mostra a meta equivalente em 5 anos se o ritmo continuar) · > IPCA → `info` · ≤ IPCA → nada.
 
 ### 3.4 Rentabilidade recente vs. CDI
-**O que faz:** conta quantos meses seguidos (a partir do mais recente) a carteira rendeu negativo (`realizedReturns()`); compara TWR anualizado de 12m (`twr(12)`) contra CDI anualizado (`cdiAnnualized(12)`). O "resultado de mercado" do trimestre é `Δpl − aporte` sobre o **patrimônio líquido** (o de fato investido — `pat` incluiria o imóvel e poluiria a conta).
+**O que faz:** conta quantos meses seguidos (a partir do mais recente) a carteira rendeu negativo (`realizedReturns()`); compara TWR anualizado de 12m (`twr(12)`) contra CDI anualizado (`cdiAnnualized(12)`). O "resultado de mercado" do trimestre é `Δpl − apoPLOf(h)` sobre o **patrimônio líquido** (o de fato investido — `pat` incluiria o imóvel e poluiria a conta; aporte TOTAL também poluiria, se parte foi pra imóvel).
 **Gatilho de alerta:** streak ≥ 3 meses negativos → `bad`, com o argumento de "não vender, mercado é assim, ficar de olho só se persistir vs CDI em 12m+".
 **Caso contrário:** `good` se bateu o CDI em 12m, `warn` se ficou abaixo.
-**Nota importante:** `realizedReturns()` **prefere a coluna Rentabilidade da planilha** (`h.rent`, sincronizada) e só recalcula `(Δpl − aporte)/pl` nos meses sem essa coluna. Com sync em dia, streak/TWR/Alpha batem 1:1 com o heatmap e com a planilha.
+**Nota importante:** `realizedReturns()` **prefere a coluna Rentabilidade da planilha** (`h.rent`, sincronizada) e só recalcula `(Δpl − apoPLOf(h))/pl` nos meses sem essa coluna. Com sync em dia, streak/TWR/Alpha batem 1:1 com o heatmap e com a planilha.
 
 ### 3.5 Drawdown corrente
 **O que faz:** acha o pico histórico do patrimônio investível (`pl`) e mede a distância do valor atual até ele. Se ≥5% abaixo do pico, mostra um `info` com contexto anti-pânico: a maior queda já atravessada (`maxDrawdownHist()`) e o lembrete de que a decisão errada em drawdown costuma ser vender.
@@ -87,7 +88,7 @@ Na ordem em que aparecem dentro de `computeInsights()`.
 **Caso não dispare:** mostra só o progresso normal (`info`).
 
 ### 3.10 Velocidade do plano — a derivada do progresso
-**O que faz:** compara o % da meta FI de hoje com o de 12 meses atrás (`pl` de ambos ÷ Número FI). Mostra os pontos percentuais ganhos por ano e o **ETA empírico**: quanto falta ÷ quanto andou no último ano — extrapolação do que de fato aconteceu, sem premissa de retorno.
+**O que faz:** compara o % da meta FI de hoje com o de 12 meses atrás (`pl` de ambos ÷ Número FI) — "12 meses atrás" resolvido por calendário (mesmo padrão de 3.1), não pela posição `-13` do array. Mostra os pontos percentuais ganhos por ano e o **ETA empírico**: quanto falta ÷ quanto andou no último ano — extrapolação do que de fato aconteceu, sem premissa de retorno.
 **Limiares:** avanço >0,5pp → `info` com o ritmo e o ETA · recuo >0,5pp → `info` com contexto ("um ano ruim não muda o plano; três seguidos mudam") · entre −0,5 e +0,5pp → nada (flat).
 **Por que importa:** o Dashboard mostra a foto (% da meta); esta regra mostra o filme.
 
@@ -158,8 +159,10 @@ Separa receita recorrente de bônus/eventos pontuais (13º, prêmio, venda de at
 | `isOutlier(h)` | ver 3.24 |
 | `_monthsToTarget(w0, sav, rAnnual, target)` | meses até `target` com aporte fixo e retorno real composto, cap 600 meses |
 | `_fmtAnos(months)` | formata meses em texto ("~8 anos", "já atingida", "mais de 50 anos") |
+| `apoPLOf(h)` | `h.apoPL ?? h.apo ?? 0` — aporte que foi pro patrimônio líquido (exclui imóvel). Fonte de verdade pra qualquer conta de "resultado de mercado" (`Δpl − aporte`); usar `h.apo` (total) nessas contas é o bug que já apareceu 4 vezes no código (3.1, 3.4, `_rpYearRows`, `realizedReturns()`) — se escrever uma regra nova que subtrai aporte de um Δ de `pl`, é `apoPLOf`, não `h.apo` |
+| `savingsRateOf(h)` | `h.txp ?? savingsRate(h)` — taxa de poupança da planilha quando sincronizada, só recalcula se a célula estiver vazia. Mesmo princípio do `apoPLOf`: preferir a coluna já calculada na planilha a recalcular do zero |
 
-Reaproveitadas do resto do app (não redefinidas): `realizedReturns()`, `twr()`, `cdiAnnualized()`, `runwayMonths()`, `weightedReturn()`, `weightedReturnReal()`, `investableWealth()`, `fiNumber()`, `fiRate()`, `currentAge()`, `inflacaoPessoal()`, `coastFIYears()`, `maxDrawdownHist()`, `riskProfile()` / `requiredRealReturn()`, `protectionGaps()`, `goalsFIImpact()`, `monthsBetween()`, `fmt()` / `fmtK()` / `fmtPct()`.
+Reaproveitadas do resto do app (não redefinidas): `realizedReturns()`, `twr()`, `cdiAnnualized()`, `runwayMonths()`, `weightedReturn()`, `weightedReturnReal()`, `investableWealth()`, `fiNumber()`, `fiRate()`, `currentAge()`, `inflacaoPessoal()`, `coastFIYears()`, `maxDrawdownHist()`, `riskProfile()` / `requiredRealReturn()`, `protectionGaps()`, `goalsFIImpact()`, `monthsBetween()`, `addMonths()`, `fmt()` / `fmtK()` / `fmtPct()`.
 
 ## 5. Como adicionar uma regra nova
 
@@ -213,7 +216,7 @@ Não há testes automatizados desses limiares — a validação é o smoke-test 
 
 - **Não é IA.** Não generaliza, não aprende, não pondera fora das ~23 regras escritas. Padrão novo = regra nova.
 - **CDI_YEARLY é tabela fixa** com o CDI médio por ano. Anos ausentes caem no fallback de 10% — e a regra 3.23 avisa quando o ano corrente falta.
-- **`realizedReturns()` prefere a coluna Rentabilidade da planilha** (`rent`, quando sincronizada) e só recalcula `(Δpl − aporte)/pl` — sobre o patrimônio líquido — nos meses sem ela. Sem sync, o recálculo carrega ruído do aporte (converge em janelas 12m+).
+- **`realizedReturns()` prefere a coluna Rentabilidade da planilha** (`rent`, quando sincronizada) e só recalcula `(Δpl − apoPLOf(h))/pl` — sobre o patrimônio líquido — nos meses sem ela. Sem sync, o recálculo carrega ruído do aporte (converge em janelas 12m+). Meses sem o split PL/Imóvel (`apoPL`) caem no aporte total como aproximação — se parte foi pra imóvel, esse mês específico ainda distorce.
 - **IR do CDB no bloco 3.18 usa alíquota fixa de 15%**, não a tabela regressiva completa.
 - **`_monthsToTarget` assume poupança e retorno constantes** — não usa o motor de cenários completo. É aproximação pra estimar o efeito de mudar a meta (3.8/3.9).
 - **A régua de invalidez (3.14) não desconta a valor presente** — soma simples do gap até a aposentadoria, deliberadamente conservadora.
@@ -315,7 +318,7 @@ Os do app não bastam:
 
 Quase tudo reusa função existente. As exceções, todas dentro do módulo:
 
-- **`_rpYearRows(c)`** — agregação por ano civil (patrimônio no fim, Δ investível, aporte, resultado de mercado = Δpl − aporte, receita/gasto médios, taxa de poupança, retorno composto do ano). Não existia: `lifestyleCreepData()` só dá receita/gasto.
+- **`_rpYearRows(c)`** — agregação por ano civil (patrimônio no fim, Δ investível, aporte total exibido, resultado de mercado = Δpl − apoPLOf, receita/gasto médios, taxa de poupança, retorno composto do ano). A coluna "Aporte" da tabela continua o total; só o "Mercado" usa o aporte-PL. Não existia: `lifestyleCreepData()` só dá receita/gasto.
 - **`_rpDrawdownNow(c)`** — drawdown corrente (pico histórico de `pl` vs. hoje). O app só tinha o máximo histórico.
 - **`_rpMilestones(c)`** — marcos de 100k em 100k. Os dados do card do Dashboard são locais lá.
 - **Rota B do rebalanceamento** — distribuição déficit-proporcional só-compra, replicando `renderAporteSimulation()` (que lê o DOM e não devolve dado).

@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FinPlan">
-  <meta name="finplan-build" content="20260903103545">
+  <meta name="finplan-build" content="20260903110847">
   <link rel="apple-touch-icon" href="icon-192.png">
   <style>
 /* ═══════════════════════════════════════════════════════════
@@ -4675,8 +4675,10 @@ function _buildReturnsCard() {
     </div>`;
 }
 
-// Decomposição do patrimônio: quanto veio de aporte (bolso) vs rendimento (juros).
-// pat[m] = aporteAcum[m] + rendAcum[m]  (por construção).
+// Decomposição: quanto veio de aporte (bolso, TOTAL — inclui imóvel) vs juros (rendimento
+// de mercado, só sobre o pl). Imóvel não gera "juros" aqui de propósito — sua valorização
+// não é modelada por este card, então aporte+juros deixou de somar pat exatamente (a
+// diferença é a valorização do imóvel, não capturada em nenhum dos dois baldes).
 function aporteRendimentoSeries() {
   const labels = [], aporte = [], rend = [], pat = [];
   let aAcum = 0, rAcum = 0, crossMonth = null;
@@ -4684,20 +4686,24 @@ function aporteRendimentoSeries() {
   const n = HISTORICAL.length;
   for (let i = 0; i < n; i++) {
     const h = HISTORICAL[i];
-    const apo = h.apo ?? 0;
+    const apo = h.apo ?? 0;        // aporte TOTAL — mostrado como está
+    const apoPL = apoPLOf(h);      // só o que foi pra pl — base do juros (mercado)
     let rMes;
-    if (i === 0) { aAcum = apo; rAcum = h.pat - apo; rMes = rAcum; }
-    else { rMes = (h.pat - HISTORICAL[i - 1].pat) - apo; aAcum += apo; rAcum += rMes; }
+    if (i === 0) { aAcum = apo; rAcum = (h.pl || 0) - apoPL; rMes = rAcum; }
+    else { rMes = ((h.pl || 0) - (HISTORICAL[i - 1].pl || 0)) - apoPL; aAcum += apo; rAcum += rMes; }
     if (!crossMonth && rAcum > aAcum) crossMonth = h.d;
     if (i >= n - 12) { last12A += apo; last12R += rMes; }
     labels.push(h.d); aporte.push(aAcum); rend.push(rAcum); pat.push(h.pat);
   }
   const curPat = pat[n - 1], curA = aporte[n - 1], curR = rend[n - 1];
+  // % um do outro (aporte vs juros), não % do patrimônio total — pat agora inclui a
+  // valorização do imóvel, que não está em nenhum dos dois baldes.
+  const explained = curA + curR;
   return {
     labels, aporte, rend, pat, crossMonth,
     curPat, curA, curR,
-    aPct: curPat ? curA / curPat * 100 : 0,
-    rPct: curPat ? curR / curPat * 100 : 0,
+    aPct: explained ? curA / explained * 100 : 0,
+    rPct: explained ? curR / explained * 100 : 0,
     last12A, last12R,
   };
 }
