@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FinPlan">
-  <meta name="finplan-build" content="20260903084753">
+  <meta name="finplan-build" content="20260903090233">
   <link rel="apple-touch-icon" href="icon-192.png">
   <style>
 /* ═══════════════════════════════════════════════════════════
@@ -2532,6 +2532,13 @@ function savingsRate(h) {
 // usuário confere lá; só recalcula (rec-gas)/rec quando a célula está vazia.
 function savingsRateOf(h) {
   return h.txp ?? savingsRate(h);
+}
+// Aporte que de fato entrou no patrimônio líquido (pl) — exclui o que foi pra imóvel.
+// "Resultado de mercado" é sempre Δpl − aporte; se o aporte usado inclui imóvel, o
+// residual absorve esse valor como se fosse rentabilidade (negativa) que nunca existiu.
+// Cai no aporte TOTAL nos meses sem o split (coluna nova, sem histórico retroativo).
+function apoPLOf(h) {
+  return h.apoPL ?? h.apo ?? 0;
 }
 
 // ── 5b. ANALYTICS ENGINE ──────────────────────────────────

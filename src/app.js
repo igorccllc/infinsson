@@ -845,6 +845,13 @@ function savingsRate(h) {
 function savingsRateOf(h) {
   return h.txp ?? savingsRate(h);
 }
+// Aporte que de fato entrou no patrimônio líquido (pl) — exclui o que foi pra imóvel.
+// "Resultado de mercado" é sempre Δpl − aporte; se o aporte usado inclui imóvel, o
+// residual absorve esse valor como se fosse rentabilidade (negativa) que nunca existiu.
+// Cai no aporte TOTAL nos meses sem o split (coluna nova, sem histórico retroativo).
+function apoPLOf(h) {
+  return h.apoPL ?? h.apo ?? 0;
+}
 
 // ── 5b. ANALYTICS ENGINE ──────────────────────────────────
 
