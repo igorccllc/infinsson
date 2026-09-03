@@ -9263,8 +9263,10 @@ function _rpSec1(c) {
   // Aporte somado na MESMA janela real do Δpl (não sempre "últimas 12 linhas do array") —
   // senão, se a janela tiver uma lacuna, o aporte soma meses que o Δpl não cobre (ou vice-versa)
   // e o "resultado de mercado" (que é só o resto: Δpl − aporte) absorve o erro inteiro.
+  // Usa apoPLOf: aporte em imóvel não move o pl, então entrar com o aporte TOTAL também
+  // inflava esse resto como se fosse rentabilidade perdida.
   const dPl12 = yAgo ? c.plNow - (yAgo.pl || 0) : null;
-  const apoJanela = yAgo ? _rpSum(c.H.filter(h => h.d > yAgo.d && h.d <= c.lastD).map(h => h.apo || 0)) : c.apo12;
+  const apoJanela = yAgo ? _rpSum(c.H.filter(h => h.d > yAgo.d && h.d <= c.lastD).map(apoPLOf)) : _rpSum(c.L12.map(apoPLOf));
   const mkt12 = dPl12 == null ? null : dPl12 - apoJanela;
   let lead = `Em ${monthLabel(c.lastD)} o patrimônio líquido da planilha está em <b>${fmt(c.plNow)}</b>`;
   if (dPl12 != null) {
