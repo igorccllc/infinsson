@@ -9166,9 +9166,13 @@ function _rpYearRows(c) {
     const ms = byY[y];
     const lastM = ms[ms.length - 1];
     const rec = _rpSum(ms.map(h => h.rec)), gas = _rpSum(ms.map(h => h.gas));
+    // apo = aporte TOTAL (exibido na coluna Aporte, inclui imóvel).
+    // apoPL = só o que foi pra patrimônio líquido — é o que entra na conta de "resultado de
+    // mercado" (mkt), porque dPl é sobre pl e aporte em imóvel nunca move o pl.
     const apo = _rpSum(ms.map(h => h.apo || 0));
+    const apoPL = _rpSum(ms.map(apoPLOf));
     const dPl = prevPl == null ? null : (lastM.pl || 0) - prevPl;
-    const mkt = dPl == null ? null : dPl - apo;
+    const mkt = dPl == null ? null : dPl - apoPL;
     const comp = (retByY[y] || []).reduce((p, r) => p * (1 + r), 1);
     const row = {
       y, n: ms.length, pat: lastM.pat || 0, pl: lastM.pl || 0,
