@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FinPlan">
-  <meta name="finplan-build" content="20260902093018">
+  <meta name="finplan-build" content="20260903083410">
   <link rel="apple-touch-icon" href="icon-192.png">
   <style>
 /* ═══════════════════════════════════════════════════════════
@@ -1259,6 +1259,315 @@ tr.fi-row td:first-child { font-weight: 700; }
   line-height: 1.9;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   RELATÓRIO (.rp-*) — documento em tema CLARO, próprio.
+   Não reusa os tokens do app de propósito: o app é dark, tem
+   três textos com background-clip:text (invisíveis no papel),
+   tabelas com sticky/overflow (clipadas na impressão) e cor
+   semântica que só existe no background. O relatório é uma
+   folha de papel: define tudo explicitamente e imprime igual
+   ao que aparece na tela.
+   ═══════════════════════════════════════════════════════════ */
+
+.rp-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  overflow-y: auto; overflow-x: hidden;
+  background: #e9ebef;
+  -webkit-overflow-scrolling: touch;
+}
+.rp-overlay.hidden { display: none !important; }
+
+/* Barra de ações — nunca imprime */
+.rp-bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: #12151d; border-bottom: 1px solid rgba(255,255,255,.1);
+  color: #ecf0f6;
+}
+.rp-bar-title { font-size: 13px; font-weight: 700; letter-spacing: -.2px; }
+.rp-bar-sub { font-size: 11.5px; color: #8b94a7; }
+.rp-bar-spacer { flex: 1; }
+
+/* ── A folha ─────────────────────────────────────────────── */
+.rp-doc {
+  --ink:   #14181f;
+  --ink2:  #495261;
+  --ink3:  #626b7b;   /* 4,8:1 sobre branco — abaixo disso o cabeçalho de 9,5px some */
+  --rule:  #d8dde6;
+  --rule2: #e7eaf0;
+  --paper: #ffffff;
+  --tint:  #f2f4f7;
+  --acc:   #1f4fd8;
+  --pos:   #0f7a4f;
+  --neg:   #b3261e;
+  --warn:  #8a6100;
+
+  /* ── Antídoto contra o tema escuro do app ────────────────
+     O CSS global tem seletores de ELEMENTO que alcançam aqui dentro — o pior
+     é `td { color: var(--text) }`, e `--text` é #ecf0f6 (quase-branco, feito
+     para fundo preto): dava 1,14:1 sobre papel branco, ou seja, célula
+     invisível. Redefinir os tokens no escopo do documento mata a classe
+     inteira de vazamento de uma vez, em vez de caçar seletor por seletor. */
+  --text:       #14181f;
+  --text-muted: #495261;
+  --text-dim:   #626b7b;
+  --bg:         #ffffff;
+  --bg-alt:     #f2f4f7;
+  --surface:    #ffffff;
+  --surface-2:  #f2f4f7;
+  --surface-3:  #e7eaf0;
+  --border:     #e7eaf0;
+  --border-2:   #d8dde6;
+  --accent:     #1f4fd8;
+  --accent-2:   #5b21b6;
+  --accent-dim: #eef2fd;
+  --green:      #0f7a4f;
+  --green-dim:  #e8f5ee;
+  --red:        #b3261e;
+  --red-dim:    #fbeceb;
+  --yellow:     #8a6100;
+  --yellow-dim: #fdf4e3;
+  --purple:     #5b21b6;
+  --cyan:       #0e7490;
+  --shadow:     none;
+  --shadow-lg:  none;
+  --glow:       none;
+  --card-grad:  none;
+
+  max-width: 900px;
+  margin: 22px auto 60px;
+  padding: 40px 46px 52px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0,0,0,.14), 0 12px 40px rgba(0,0,0,.12);
+  font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+.rp-doc *, .rp-doc *::before, .rp-doc *::after { box-sizing: border-box; }
+
+/* ── Capa ────────────────────────────────────────────────── */
+.rp-cover { border-bottom: 2px solid var(--ink); padding-bottom: 22px; margin-bottom: 26px; }
+.rp-eyebrow {
+  font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--acc); margin-bottom: 10px;
+}
+.rp-title { font-size: 30px; font-weight: 800; letter-spacing: -.9px; line-height: 1.12; margin-bottom: 6px; }
+.rp-sub { font-size: 13.5px; color: var(--ink2); }
+.rp-meta { margin-top: 14px; font-size: 11.5px; color: var(--ink3); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.rp-meta b { color: var(--ink2); font-weight: 700; }
+
+/* ── Índice ──────────────────────────────────────────────── */
+.rp-toc { background: var(--tint); border: 1px solid var(--rule2); border-radius: 6px; padding: 16px 20px; margin-bottom: 30px; }
+.rp-toc-title { font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 10px; }
+.rp-toc ol { margin: 0; padding-left: 0; list-style: none; columns: 2; column-gap: 34px; }
+.rp-toc li { font-size: 12.5px; padding: 2.5px 0; break-inside: avoid; }
+.rp-toc a { color: var(--ink); text-decoration: none; }
+.rp-toc a:hover { color: var(--acc); text-decoration: underline; }
+.rp-toc-n { display: inline-block; min-width: 20px; color: var(--acc); font-weight: 700; }
+
+/* ── Seção ───────────────────────────────────────────────── */
+.rp-sec { margin-bottom: 34px; }
+.rp-sec-head { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--ink); padding-bottom: 7px; margin-bottom: 6px; }
+.rp-sec-n { font-size: 11px; font-weight: 800; color: var(--acc); letter-spacing: .06em; }
+.rp-sec-t { font-size: 17.5px; font-weight: 800; letter-spacing: -.4px; }
+.rp-sec-src { margin-left: auto; font-size: 10px; color: var(--ink3); white-space: nowrap; }
+.rp-sec-lead { font-size: 12.5px; color: var(--ink2); margin: 10px 0 16px; }
+
+.rp-h3 { font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin: 22px 0 9px; }
+.rp-sec > .rp-h3:first-of-type { margin-top: 16px; }
+.rp-p { font-size: 12.5px; color: var(--ink2); margin: 9px 0; }
+.rp-p b, .rp-ul b, .rp-t b { color: var(--ink); font-weight: 700; }
+.rp-note { font-size: 11px; color: var(--ink3); margin-top: 8px; font-style: italic; }
+.rp-ul { margin: 8px 0; padding-left: 17px; font-size: 12.5px; color: var(--ink2); }
+.rp-ul li { margin-bottom: 4px; }
+
+/* ── KPIs ────────────────────────────────────────────────── */
+.rp-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 14px 0 18px; }
+.rp-kpis-3 { grid-template-columns: repeat(3, 1fr); }
+.rp-kpis-2 { grid-template-columns: repeat(2, 1fr); }
+.rp-kpi { background: var(--paper); padding: 11px 13px; break-inside: avoid; }
+.rp-kpi-l { font-size: 9.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink3); margin-bottom: 4px; }
+.rp-kpi-v { font-size: 18px; font-weight: 800; letter-spacing: -.5px; line-height: 1.15; }
+.rp-kpi-s { font-size: 10.5px; color: var(--ink3); margin-top: 3px; line-height: 1.35; }
+
+/* ── Tabelas ─────────────────────────────────────────────── */
+.rp-tw { width: 100%; margin: 10px 0 14px; }
+.rp-t { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.rp-t thead th {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink3); text-align: left; padding: 6px 7px;
+  border-bottom: 1.5px solid var(--ink); white-space: nowrap;
+}
+.rp-t thead th.n { text-align: right; }
+.rp-t thead th.c { text-align: center; }
+/* white-space explícito: o app tem um `td { white-space: nowrap }` global que,
+   sem isto, trava TODAS as células — inclusive os rótulos de texto. Rótulo
+   quebra linha, número não. É o que derruba a largura mínima da tabela de 11
+   colunas de 695px para 616px e faz ela caber nos 186mm do A4 com folga. */
+/* `color` explícito, não herdado: o `td { color: var(--text) }` global do app
+   é seletor de elemento e alcança aqui. Os tokens acima já o neutralizam, mas
+   declarar de novo deixa a tabela imune caso alguém mexa nos tokens depois. */
+.rp-t tbody td { padding: 5px 7px; border-bottom: 1px solid var(--rule2); vertical-align: middle; white-space: normal; color: var(--ink); }
+.rp-t tbody tr:nth-child(even) td { background: var(--tint); }
+.rp-t tfoot td { padding: 6px 7px; border-top: 1.5px solid var(--ink); font-weight: 700; background: var(--paper); }
+.rp-t .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rp-t .c { text-align: center; }
+.rp-t .lbl { font-weight: 600; }
+.rp-t .sub td:first-child { padding-left: 20px; color: var(--ink2); font-weight: 400; }
+.rp-t .grp td { background: #eaeef4 !important; font-weight: 700; }
+.rp-t-sm { font-size: 10px; }
+.rp-t-sm thead th { font-size: 8.5px; padding: 5px 4px; }
+.rp-t-sm tbody td { padding: 3.5px 4px; }
+.rp-t-xs { font-size: 9px; }
+.rp-t-xs thead th { font-size: 8px; padding: 4px 3px; }
+.rp-t-xs tbody td { padding: 3px 3px; }
+
+.rp-pos { color: var(--pos); font-weight: 600; }
+.rp-neg { color: var(--neg); font-weight: 600; }
+.rp-warn { color: var(--warn); font-weight: 600; }
+.rp-dim { color: var(--ink3); }
+.rp-doc code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em;
+  background: var(--tint); border: 1px solid var(--rule2); border-radius: 3px; padding: 0 3px; }
+
+/* Barra proporcional dentro da célula */
+.rp-b { display: inline-block; vertical-align: middle; width: 34px; height: 6px; margin-right: 6px;
+  background: var(--rule2); border-radius: 2px; overflow: hidden; }
+.rp-b i { display: block; height: 100%; background: var(--acc); }
+.rp-b.pos i { background: var(--pos); }
+.rp-b.neg i { background: var(--neg); }
+.rp-b.warn i { background: var(--warn); }
+
+/* Célula de heatmap — a cor É o dado, precisa sobreviver à impressão */
+.rp-heat td.h {
+  text-align: center; padding: 3.5px 2px; font-size: 9px; border: 1px solid var(--paper);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.rp-heat td.h.z { color: var(--ink3); }
+
+/* ── Callout ─────────────────────────────────────────────── */
+.rp-call {
+  border-left: 3px solid var(--acc); background: var(--tint);
+  padding: 11px 14px; margin: 12px 0; font-size: 12.5px; color: var(--ink2);
+  break-inside: avoid;
+}
+.rp-call b { color: var(--ink); }
+.rp-call.pos  { border-left-color: var(--pos); }
+.rp-call.neg  { border-left-color: var(--neg); }
+.rp-call.warn { border-left-color: var(--warn); }
+.rp-call-t { font-weight: 700; color: var(--ink); display: block; margin-bottom: 3px; font-size: 12.5px; }
+.rp-call-tag {
+  display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 3px; margin-right: 7px; vertical-align: 1.5px;
+  border: 1px solid currentColor;
+}
+
+/* Estado vazio de uma seção */
+.rp-empty {
+  border: 1px dashed var(--rule); background: var(--tint); color: var(--ink3);
+  padding: 16px 18px; font-size: 12px; margin: 12px 0; break-inside: avoid;
+}
+
+/* ── Figuras (SVG) ───────────────────────────────────────── */
+.rp-fig { margin: 12px 0 16px; break-inside: avoid; }
+.rp-fig svg { display: block; width: 100%; height: auto; }
+.rp-fig-cap { font-size: 10px; color: var(--ink3); margin-top: 5px; }
+.rp-leg { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 10.5px; color: var(--ink2); margin-top: 6px; }
+.rp-leg span { display: inline-flex; align-items: center; gap: 5px; }
+.rp-leg i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* ── Rodapé ──────────────────────────────────────────────── */
+.rp-foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 10.5px; color: var(--ink3); }
+
+/* Controle de paginação */
+.rp-pb { break-before: page; page-break-before: always; }
+.rp-avoid { break-inside: avoid; }
+
+/* `screen and` é obrigatório: sem media type esta regra vale `all` e casaria
+   também na impressão (A4 retrato = 703px de área útil, < 900px), jogando os
+   KPIs para 2 colunas e o índice para 1 no papel. */
+@media screen and (max-width: 900px) {
+  .rp-doc { margin: 0; padding: 22px 18px 40px; font-size: 12.5px; box-shadow: none; }
+  .rp-kpis, .rp-kpis-3 { grid-template-columns: repeat(2, 1fr); }
+  .rp-toc ol { columns: 1; }
+  .rp-title { font-size: 24px; }
+  .rp-tw { overflow-x: auto; }
+}
+
+/* ═══════════════ IMPRESSÃO / SALVAR EM PDF ═══════════════ */
+@page { size: A4 portrait; margin: 13mm 12mm 14mm; }
+
+@media print {
+  /* O app tem body{height:100vh;overflow:hidden} e rola no #main:
+     sem isto a impressão sai com uma tela só. */
+  html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+  body { background-image: none !important; margin: 0 !important; }
+
+  /* Nada do app vai pro papel — mas SÓ quando o relatório está aberto.
+     Sem o gate `body.rp-open`, um Ctrl+P dado em qualquer outra tela do app
+     imprimiria uma folha em branco: `.app` é a única árvore visível, e o
+     overlay do relatório está `.hidden`. A classe é posta por openReport()
+     e removida por closeReport(). */
+  body.rp-open .app,
+  body.rp-open .menu-btn,
+  body.rp-open .sidebar-backdrop,
+  body.rp-open .modal-overlay,
+  .rp-bar { display: none !important; }
+  * { animation: none !important; transition: none !important; }
+
+  .rp-overlay {
+    position: static !important; inset: auto !important; overflow: visible !important;
+    background: #fff !important; z-index: auto !important;
+  }
+  .rp-doc {
+    max-width: none !important; margin: 0 !important; padding: 0 !important;
+    box-shadow: none !important; font-size: 9.4px !important; line-height: 1.45 !important;
+    --rule2: #e2e6ec;
+  }
+
+  .rp-title    { font-size: 21px; }
+  .rp-sub      { font-size: 11px; }
+  .rp-sec-t    { font-size: 13px; }
+  .rp-kpi-v    { font-size: 13.5px; }
+  .rp-t        { font-size: 8.6px; }
+  .rp-t-sm     { font-size: 7.9px; }
+  .rp-t-xs     { font-size: 7.2px; }
+  .rp-p, .rp-ul, .rp-call, .rp-sec-lead, .rp-toc li, .rp-empty { font-size: 9.4px; }
+  .rp-sec      { margin-bottom: 22px; }
+
+  /* Cabeçalho de tabela repete a cada folha; linha não parte no meio */
+  .rp-t thead { display: table-header-group; }
+  .rp-t tfoot { display: table-footer-group; }
+  .rp-t tr, .rp-kpi, .rp-call, .rp-fig, .rp-avoid, .rp-empty { break-inside: avoid; }
+  .rp-sec-head, .rp-h3 { break-after: avoid; }
+  .rp-tw { overflow: visible !important; }
+
+  /* A folha não rola: o que não couber em 186mm é CORTADO, não escondido atrás
+     de scroll. Cabeçalho passa a quebrar linha (no corpo isso já vale sempre),
+     barra e respiro encolhem — a tabela de 11 colunas fecha em ~616px contra
+     703px de área útil, folga de 12% para nome de seção comprido ou valor de
+     sete dígitos vindos da planilha. */
+  .rp-t thead th { white-space: normal; }
+  .rp-b { width: 14px; margin-right: 3px; }
+  .rp-t-sm tbody td { padding: 3.5px 2px; }
+  .rp-t-sm thead th { padding: 5px 2px; }
+  .rp-t-xs tbody td { padding: 3px 2px; }
+  .rp-t-xs thead th { padding: 4px 2px; }
+
+  /* Zebra, barras, heatmap, amostra de legenda e o branco dos cartões de KPI
+     são DADO, não enfeite — sem isto o Chrome os descarta no padrão
+     ("Gráficos de plano de fundo" desmarcado) e a tira de KPI vira um bloco
+     cinza sólido, a legenda perde a chave de cores. */
+  .rp-t tbody tr:nth-child(even) td, .rp-t .grp td,
+  .rp-b, .rp-b i, .rp-call, .rp-toc, .rp-empty,
+  .rp-kpis, .rp-kpi, .rp-leg i, .rp-heat td.h {
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -1751,17 +2060,58 @@ const SYNC_KEY = 'finplan_sync_url';
 function getSyncUrl()       { return localStorage.getItem(SYNC_KEY) || ''; }
 function setSyncUrl(url)    { localStorage.setItem(SYNC_KEY, url.trim()); }
 
+// Perfil do último sync — preenchido por jsonpFetch/syncFromSheets, lido por syncReport().
+const SYNC_PROF = {};
+
 async function jsonpFetch(url) {
   // Tenta fetch direto (funciona com Apps Script "Anyone, even anonymous")
+  const t0 = performance.now();
   const res = await fetch(url, { redirect: 'follow' });
+  const t1 = performance.now();
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const text = await res.text();
-  // Se vier JSON puro
-  try { return JSON.parse(text); } catch (_) {}
-  // Se vier JSONP wrappado: _fpSyncXXX({...})
-  const m = text.match(/\w+\((\{[\s\S]*\})\)/);
-  if (m) return JSON.parse(m[1]);
-  throw new Error('Resposta inesperada do servidor: ' + text.slice(0, 120));
+  const t2 = performance.now();
+
+  // ttfb ≈ tempo que o Apps Script levou pra montar a resposta (o gargalo tipico);
+  // download = transferencia do corpo; bytes = tamanho cru do payload.
+  SYNC_PROF.ttfb     = t1 - t0;
+  SYNC_PROF.download = t2 - t1;
+  SYNC_PROF.bytes    = text.length;
+
+  const parse = () => {
+    // Se vier JSON puro
+    try { return JSON.parse(text); } catch (_) {}
+    // Se vier JSONP wrappado: _fpSyncXXX({...})
+    const m = text.match(/\w+\((\{[\s\S]*\})\)/);
+    if (m) return JSON.parse(m[1]);
+    throw new Error('Resposta inesperada do servidor: ' + text.slice(0, 120));
+  };
+  const data = parse();
+  SYNC_PROF.parse = performance.now() - t2;
+  return data;
+}
+
+// Relatorio do ultimo sync. Chame syncReport() no console.
+function syncReport() {
+  const p = SYNC_PROF;
+  if (!p.ttfb) { console.log('[Sync] nenhum sync medido nesta sessao — clique em Sync Sheets primeiro.'); return; }
+  const ms = n => (n == null ? '—' : Math.round(n) + ' ms');
+  console.table({
+    '1. Servidor (Apps Script montando a resposta)': { tempo: ms(p.ttfb) },
+    '2. Download do payload':                        { tempo: ms(p.download) },
+    '3. JSON.parse':                                 { tempo: ms(p.parse) },
+    '4. Processamento no app':                        { tempo: ms(p.process) },
+    '5. Render da pagina':                            { tempo: ms(p.render) },
+    '6. Gravacao em localStorage (adiada)':           { tempo: ms(p.persist) },
+    'TOTAL ate a tela pronta':                        { tempo: ms(p.totalToPaint) },
+  });
+  console.log('[Sync] payload:', (p.bytes / 1024).toFixed(0), 'KB  ·  linhas:', JSON.stringify(p.rows));
+  if (p.server) { console.log('[Sync] custo por aba no Apps Script (ms):'); console.table(p.server); }
+  else console.log('[Sync] o doGet nao devolve _timing — sem detalhe do servidor.');
+  const worst = Math.max(p.ttfb, p.download, p.parse, p.process || 0, p.render || 0);
+  if (worst === p.ttfb)     console.log('%c→ Gargalo: o SERVIDOR. O Apps Script demora pra montar a resposta. Corte o payload no doGet.', 'font-weight:bold');
+  else if (worst === p.download) console.log('%c→ Gargalo: a REDE. O payload esta grande demais — pagine o mobills.', 'font-weight:bold');
+  else                      console.log('%c→ Gargalo: o CLIENTE (parse/processamento/render).', 'font-weight:bold');
 }
 
 async function syncFromSheets(silent = false) {
@@ -1772,9 +2122,17 @@ async function syncFromSheets(silent = false) {
   }
 
   updateSyncBtn('syncing');
+  const tSync = performance.now();
+  // Gravacoes em localStorage sao sincronas e travam a thread principal (caro no
+  // iPhone, onde o mobills ja passa de centenas de KB). Enfileira aqui e grava
+  // depois do render — a tela fica pronta antes do disco.
+  const pendingWrites = [];
   try {
     const data = await jsonpFetch(url);
     if (data.error) throw new Error(data.error);
+    const tProcess = performance.now();
+    // Se o doGet devolver _timing (ms por aba), o relatorio mostra o custo servidor a servidor.
+    SYNC_PROF.server = data._timing || null;
 
     console.log('[Sync] historical rows:', data.historical?.length);
     console.log('[Sync] portfolio:', JSON.stringify(data.portfolio));
@@ -1823,7 +2181,7 @@ async function syncFromSheets(silent = false) {
 
     // ── Atualiza estrutura de Seções (aba Fluxo de Caixa, linha 23+) ──
     if (Array.isArray(data.fluxo) && data.fluxo.length > 0) {
-      localStorage.setItem('finplan_fluxo_secoes', JSON.stringify(data.fluxo));
+      pendingWrites.push(['finplan_fluxo_secoes', data.fluxo]);
       const dyn = buildSecoesFromFluxo(data.fluxo);
       if (dyn) { SECAO_DYN = dyn; applySecaoColors(dyn.order); }
       console.log('[Sync] fluxo rows:', data.fluxo.length, '→ seções:', dyn ? dyn.order.join(', ') : '(agrupamento falhou — usando mapa fixo)');
@@ -1833,7 +2191,7 @@ async function syncFromSheets(silent = false) {
     // ── Atualiza espelho da aba Financiamento ─────────────
     if (Array.isArray(data.financiamento) && data.financiamento.length > 0) {
       FINANCIAMENTO = data.financiamento;
-      localStorage.setItem('finplan_financiamento', JSON.stringify(FINANCIAMENTO));
+      pendingWrites.push(['finplan_financiamento', FINANCIAMENTO]);
       console.log('[Sync] financiamento rows:', FINANCIAMENTO.length);
       changed = true;
     }
@@ -1841,34 +2199,47 @@ async function syncFromSheets(silent = false) {
     // ── Atualiza espelho da grade Fluxo de Caixa ──────────
     if (Array.isArray(data.fluxoGrid) && data.fluxoGrid.length > 0) {
       FLUXOGRID = data.fluxoGrid;
-      localStorage.setItem('finplan_fluxogrid', JSON.stringify(FLUXOGRID));
+      pendingWrites.push(['finplan_fluxogrid', FLUXOGRID]);
       console.log('[Sync] fluxoGrid rows:', FLUXOGRID.length);
       changed = true;
     }
     if (Array.isArray(data.fluxoBold) && data.fluxoBold.length > 0) {
       FLUXOBOLD = data.fluxoBold;
-      localStorage.setItem('finplan_fluxobold', JSON.stringify(FLUXOBOLD));
+      pendingWrites.push(['finplan_fluxobold', FLUXOBOLD]);
       changed = true;
     }
 
     // ── Atualiza Mobills ──────────────────────────────────
     if (Array.isArray(data.mobills) && data.mobills.length > 0) {
       MOBILLS_RAW = data.mobills;
-      localStorage.setItem('finplan_mobills', JSON.stringify(MOBILLS_RAW));
+      pendingWrites.push(['finplan_mobills', MOBILLS_RAW]);
       refreshMobillsFilter();
       console.log('[Sync] mobills rows:', MOBILLS.length, '/', MOBILLS_RAW.length, 'brutos');
       changed = true;
       validateMobillsVsHistorical();
     }
 
-    if (changed) {
-      saveState();
-      renderPage(activePage);
-    }
+    SYNC_PROF.process = performance.now() - tProcess;
+    SYNC_PROF.rows = {
+      historical: (data.historical || []).length,
+      mobills:    (data.mobills || []).length,
+      fluxoGrid:  (data.fluxoGrid || []).length,
+      fluxo:      (data.fluxo || []).length,
+      financ:     (data.financiamento || []).length,
+    };
+
+    const tRender = performance.now();
+    if (changed) renderPage(activePage);
+    SYNC_PROF.render = performance.now() - tRender;
 
     const now = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
     localStorage.setItem('finplan_last_sync', now);
     updateSyncBtn('ok', now);
+    SYNC_PROF.totalToPaint = performance.now() - tSync;
+
+    // Persiste fora do caminho critico. Se o app morrer antes, o proximo sync
+    // rebusca tudo — nao ha perda de dado que so exista aqui.
+    if (changed) flushSyncWrites(pendingWrites);
 
   } catch (err) {
     console.error('Sync error:', err);
@@ -1876,6 +2247,41 @@ async function syncFromSheets(silent = false) {
     if (!silent) promptSyncUrl(err.message);
   }
 }
+
+// Grava o resultado do sync em localStorage depois que a tela ja pintou.
+// Se o app for pra background antes de terminar, esvazia na hora (pagehide).
+let _pendingFlush = null;
+function flushSyncWrites(writes) {
+  const doFlush = () => {
+    if (!_pendingFlush) return;
+    _pendingFlush = null;
+    const t0 = performance.now();
+    try {
+      saveState();
+      writes.forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
+    } catch (e) {
+      // QuotaExceededError: o mobills cresceu alem do limite de ~5 MB do Safari.
+      // A sessao atual segue correta (os dados estao em memoria); o que falha e a
+      // persistencia entre aberturas. Avisa em vez de fingir que o sync deu erro.
+      console.error('[Sync] falha ao persistir (' + e.name + '). ' +
+        'Provavel estouro de cota do localStorage — corte o historico do mobills no doGet.', e);
+      updateSyncBtn('error');
+    }
+    SYNC_PROF.persist = performance.now() - t0;
+  };
+
+  _pendingFlush = doFlush;
+  // NAO usar requestAnimationFrame aqui: ele nao dispara em aba/app oculto, e o
+  // sync automatico costuma terminar justamente com o app em background — a
+  // gravacao nunca aconteceria. setTimeout dispara de qualquer forma; 50 ms da
+  // a batida que o browser precisa pra pintar primeiro.
+  setTimeout(doFlush, 50);
+}
+// Rede de seguranca: se o app for fechado ou escondido antes dos 50 ms, grava agora.
+window.addEventListener('pagehide', () => { if (_pendingFlush) _pendingFlush(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && _pendingFlush) _pendingFlush();
+});
 
 // Checa se os gastos do Mobills batem com a coluna Gastos do histórico.
 // Divergência > 15% num mês fechado indica lançamento faltando na planilha.
@@ -9962,6 +10368,15 @@ function renderInsights() {
         <button class="btn btn-primary" onclick="generateInsights()">&#9889; Gerar insights</button>
       </div>
     </div>
+    <div class="card insights-hero mb-16">
+      <div>
+        <div class="card-title" style="margin-bottom:4px">Relatório completo &middot; PDF</div>
+        <div class="text-sm text-muted">Um documento de 13 seções para ler de cabo a rabo: patrimônio e trajetória, resultado vs. CDI, aportes, fluxo de caixa, <b>gastos categorizados</b>, <b>balanceamento da carteira</b>, independência financeira, objetivos, dívidas, proteção e o diagnóstico. Abre para leitura na tela e imprime em A4 — no diálogo de impressão, escolha <b>Salvar como PDF</b>.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="openReport()">&#128196; Gerar relatório</button>
+      </div>
+    </div>
     <div id="insights-report"></div>`;
 }
 
@@ -10021,6 +10436,1840 @@ function generateInsights() {
         </div>
         <ol class="insight-actions">${actions.map(a => `<li>${a.action}</li>`).join('')}</ol>
       </div>` : ''}`;
+}
+
+// ── 20c. RELATÓRIO COMPLETO (leitura + PDF) ───────────────
+// Um documento, não um dashboard: monta um contexto único a partir das MESMAS
+// funções que alimentam as outras páginas, renderiza HTML em tema claro (.rp-*)
+// e imprime via window.print() — o navegador salva em PDF.
+//
+// Três regras que o resto do app não segue e aqui são obrigatórias:
+//  1. A âncora do relatório é o ÚLTIMO MÊS COM DADO (nunca new Date()): relatório
+//     de mês fechado não pode falar de um mês que ainda não existe na planilha.
+//  2. Nada de canvas: gráfico é SVG inline — vetor, imprime nítido, tema próprio.
+//  3. Todo texto que vem da planilha/Mobills passa por _rpEsc().
+//
+// Documentado em INSIGHTS.md, seção "Relatório completo".
+
+// ── Formatadores locais ───────────────────────────────────
+function _rpEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// Texto redigido pelo app que embute <b>/<i> de propósito MAS interpola dado bruto
+// (nome de ativo, categoria) sem escapar — computeInsights() e riskProfile() fazem isso.
+// Escapa tudo e devolve só a whitelist: sem atributo, sem <script>, mantendo a ênfase.
+function _rpSafeHtml(s) {
+  return _rpEsc(s).replace(/&lt;([/]?)(b|i|br)&gt;/gi, '<$1$2>');
+}
+// número puro pt-BR (sem R$)
+function _rpN(v, d = 0) {
+  if (v == null || !isFinite(v)) return '—';
+  return new Intl.NumberFormat('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+}
+// R$ com sinal explícito (o fmtK do app não trata negativo)
+function _rpMoneyS(v) {
+  if (v == null || !isFinite(v)) return '—';
+  return (v < 0 ? '−' : '+') + fmt(Math.abs(v));
+}
+function _rpKS(v) {
+  if (v == null || !isFinite(v)) return '—';
+  return (v < 0 ? '−' : '+') + fmtK(Math.abs(v));
+}
+// fmtK que aceita negativo (o do app cai em fmt e sai "R$ -50.000")
+function _rpK(v) {
+  if (v == null || !isFinite(v)) return '—';
+  return (v < 0 ? '−' : '') + fmtK(Math.abs(v));
+}
+// % com sinal — entrada em PONTOS PERCENTUAIS
+function _rpPctS(v, d = 1) {
+  if (v == null || !isFinite(v)) return '—';
+  return (v < 0 ? '−' : '+') + Math.abs(v).toFixed(d).replace('.', ',') + '%';
+}
+// Diferença entre duas taxas: p.p., não %. Usado em alpha, desvio de alocação,
+// spread de financiamento e creep de inflação.
+function _rpPP(v, d = 1) {
+  if (v == null || !isFinite(v)) return '—';
+  return (v < 0 ? '−' : '+') + Math.abs(v).toFixed(d).replace('.', ',') + ' p.p.';
+}
+// % sem sinal, tolerante a null (fmtPct do app quebra com null)
+function _rpPct(v, d = 1) {
+  if (v == null || !isFinite(v)) return '—';
+  return v.toFixed(d).replace('.', ',') + '%';
+}
+function _rpX(v, d = 2) {
+  if (v == null || !isFinite(v)) return '—';
+  return v.toFixed(d).replace('.', ',') + '×';
+}
+// classe de cor por sinal
+function _rpCls(v, invert) {
+  if (v == null || !isFinite(v) || v === 0) return 'rp-dim';
+  const good = invert ? v < 0 : v > 0;
+  return good ? 'rp-pos' : 'rp-neg';
+}
+// meses → "3 anos e 2 meses"
+function _rpDur(m) {
+  if (m == null || !isFinite(m)) return '—';
+  m = Math.round(m);
+  if (m <= 0) return 'agora';
+  const y = Math.floor(m / 12), r = m % 12;
+  const py = y === 1 ? '1 ano' : y + ' anos';
+  const pm = r === 1 ? '1 mês' : r + ' meses';
+  if (!y) return pm;
+  if (!r) return py;
+  return py + ' e ' + pm;
+}
+// Date → "Mmm/AA" no mesmo formato do monthLabel
+function _rpDateLabel(dt) {
+  if (!(dt instanceof Date) || isNaN(dt)) return '—';
+  return monthLabel(dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0'));
+}
+function _rpMedian(arr) {
+  const s = arr.filter(v => v != null && isFinite(v)).sort((a, b) => a - b);
+  if (!s.length) return 0;
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function _rpSum(arr) { return arr.reduce((s, v) => s + (isFinite(v) ? v : 0), 0); }
+function _rpAvg(arr) { return arr.length ? _rpSum(arr) / arr.length : 0; }
+
+// ── Blocos de markup ──────────────────────────────────────
+function _rpKpi(label, value, sub, cls) {
+  return `<div class="rp-kpi"><div class="rp-kpi-l">${label}</div>` +
+    `<div class="rp-kpi-v${cls ? ' ' + cls : ''}">${value}</div>` +
+    (sub ? `<div class="rp-kpi-s">${sub}</div>` : '') + `</div>`;
+}
+function _rpKpis(items, cols) {
+  if (!items.length) return '';
+  const c = cols === 3 ? ' rp-kpis-3' : cols === 2 ? ' rp-kpis-2' : '';
+  return `<div class="rp-kpis${c}">${items.join('')}</div>`;
+}
+// barra proporcional numa célula. pct em 0..100 (satura em 100, mas o rótulo é livre)
+function _rpBar(pct, kind) {
+  const p = Math.max(0, Math.min(100, isFinite(pct) ? pct : 0));
+  return `<span class="rp-b${kind ? ' ' + kind : ''}"><i style="width:${p.toFixed(1)}%"></i></span>`;
+}
+function _rpCall(kind, title, body) {
+  return `<div class="rp-call${kind ? ' ' + kind : ''}">` +
+    (title ? `<span class="rp-call-t">${title}</span>` : '') + body + `</div>`;
+}
+function _rpEmpty(txt) { return `<div class="rp-empty">${txt}</div>`; }
+function _rpH3(t) { return `<div class="rp-h3">${t}</div>`; }
+function _rpP(t) { return `<p class="rp-p">${t}</p>`; }
+function _rpTable(head, body, foot, cls) {
+  if (!body) return '';
+  return `<div class="rp-tw"><table class="rp-t${cls ? ' ' + cls : ''}">` +
+    `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>` +
+    (foot ? `<tfoot><tr>${foot}</tr></tfoot>` : '') + `</table></div>`;
+}
+// cor de fundo do heatmap adaptada ao papel branco (o heatColor() do app
+// foi calibrado para fundo escuro)
+function _rpHeatBg(r, maxAbs) {
+  if (r == null || !isFinite(r)) return '';
+  const rgb = r >= 0 ? '15,122,79' : '179,38,30';
+  const a = (0.07 + Math.min(1, Math.abs(r) / (maxAbs || 0.01)) * 0.40).toFixed(3);
+  return `background:rgba(${rgb},${a})`;
+}
+
+// ── Gráficos: SVG inline ──────────────────────────────────
+const _RP_PAL = ['#1f4fd8', '#0f7a4f', '#b3261e', '#8a6100', '#6d28d9', '#0e7490'];
+
+function _rpNice(max, min) {
+  const span = (max - min) || Math.abs(max) || 1;
+  const step = Math.pow(10, Math.floor(Math.log10(span / 3)));
+  const mult = [1, 2, 2.5, 5, 10].find(m => span / (step * m) <= 4) || 10;
+  const s = step * mult;
+  return { lo: Math.floor(min / s) * s, hi: Math.ceil(max / s) * s, step: s };
+}
+
+/* Linhas/áreas. opts:
+ *   series: [{name, color, data:[num|null], area?:bool, dash?:bool}]
+ *   labels: [str] (mesmo comprimento das séries)
+ *   h: altura do viewBox (default 190) · fmtY: formatador do eixo Y
+ *   baseline: valor de uma linha horizontal de referência · baselineLabel
+ *   zero: força incluir o 0 no eixo                                          */
+function _rpSvgLine(opts) {
+  const S = opts.series.filter(s => s && s.data && s.data.some(v => v != null && isFinite(v)));
+  if (!S.length) return '';
+  const labels = opts.labels || [];
+  const n = Math.max(...S.map(s => s.data.length));
+  if (n < 2) return '';
+  const W = 860, H = opts.h || 190;
+  const PL = 56, PR = 10, PT = 12, PB = 24;
+  const iw = W - PL - PR, ih = H - PT - PB;
+  const fy = opts.fmtY || fmtK;
+
+  let vals = S.flatMap(s => s.data).filter(v => v != null && isFinite(v));
+  if (opts.baseline != null && isFinite(opts.baseline)) vals.push(opts.baseline);
+  if (opts.zero) vals.push(0);
+  const sc = _rpNice(Math.max(...vals), Math.min(...vals));
+  const rng = (sc.hi - sc.lo) || 1;
+  const X = i => PL + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+  const Y = v => PT + ih - ((v - sc.lo) / rng) * ih;
+
+  // grade + eixo Y
+  let g = '';
+  for (let v = sc.lo; v <= sc.hi + sc.step * 0.001; v += sc.step) {
+    const y = Y(v).toFixed(1);
+    g += `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="#dfe3ea" stroke-width="1"/>` +
+         `<text x="${PL - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="#626b7b">${_rpEsc(fy(v))}</text>`;
+  }
+  // rótulos X (no máximo 8)
+  let xs = '';
+  const every = Math.max(1, Math.ceil(n / 8));
+  for (let i = 0; i < n; i += every) {
+    if (!labels[i]) continue;
+    xs += `<text x="${X(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#626b7b">${_rpEsc(labels[i])}</text>`;
+  }
+  if (labels[n - 1] && (n - 1) % every !== 0) {
+    xs += `<text x="${X(n - 1).toFixed(1)}" y="${H - 6}" text-anchor="end" font-size="9" fill="#626b7b">${_rpEsc(labels[n - 1])}</text>`;
+  }
+  // linha de referência
+  let base = '';
+  if (opts.baseline != null && isFinite(opts.baseline)) {
+    const y = Y(opts.baseline).toFixed(1);
+    base = `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="#14181f" stroke-width="1" stroke-dasharray="4 3"/>` +
+      (opts.baselineLabel ? `<text x="${W - PR - 2}" y="${(Y(opts.baseline) - 4).toFixed(1)}" text-anchor="end" font-size="9" font-weight="700" fill="#14181f" stroke="#ffffff" stroke-width="3" paint-order="stroke">${_rpEsc(opts.baselineLabel)}</text>` : '');
+  }
+  // séries
+  let paths = '';
+  S.forEach((s, si) => {
+    const col = s.color || _RP_PAL[si % _RP_PAL.length];
+    let d = '', open = false, first = -1, lastI = -1;
+    s.data.forEach((v, i) => {
+      if (v == null || !isFinite(v)) { open = false; return; }
+      d += (open ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(v).toFixed(1) + ' ';
+      if (!open && first < 0) first = i;
+      lastI = i; open = true;
+    });
+    if (!d) return;
+    if (s.area && first >= 0) {
+      paths += `<path d="${d}L${X(lastI).toFixed(1)} ${Y(sc.lo).toFixed(1)} L${X(first).toFixed(1)} ${Y(sc.lo).toFixed(1)} Z" fill="${col}" fill-opacity=".10" stroke="none"/>`;
+    }
+    paths += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${s.width || 1.8}"` +
+      (s.dash ? ' stroke-dasharray="5 3"' : '') + ' stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+
+  const leg = S.length > 1 || opts.forceLegend
+    ? `<div class="rp-leg">${S.map((s, si) => `<span><i style="background:${s.color || _RP_PAL[si % _RP_PAL.length]}"></i>${_rpEsc(s.name || '')}</span>`).join('')}</div>`
+    : '';
+  return `<div class="rp-fig"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${_rpEsc(opts.alt || 'gráfico')}">` +
+    g + base + paths + xs + `</svg>${leg}` +
+    (opts.cap ? `<div class="rp-fig-cap">${opts.cap}</div>` : '') + `</div>`;
+}
+
+/* Barras verticais (uma série). opts:
+ *   values:[num] · labels:[str] · color · h · fmtY · avg (linha de média) · avgLabel */
+function _rpSvgBars(opts) {
+  const v = (opts.values || []).map(x => (x != null && isFinite(x)) ? x : 0);
+  if (!v.length) return '';
+  const W = 860, H = opts.h || 170;
+  const PL = 56, PR = 10, PT = 12, PB = 24;
+  const iw = W - PL - PR, ih = H - PT - PB;
+  const fy = opts.fmtY || fmtK;
+  const pool = v.concat([0]);
+  if (opts.avg != null && isFinite(opts.avg)) pool.push(opts.avg);
+  const sc = _rpNice(Math.max(...pool), Math.min(...pool));
+  const rng = (sc.hi - sc.lo) || 1;
+  const Y = x => PT + ih - ((x - sc.lo) / rng) * ih;
+  const bw = iw / v.length;
+  const gap = Math.min(3, bw * 0.22);
+
+  let g = '';
+  for (let x = sc.lo; x <= sc.hi + sc.step * 0.001; x += sc.step) {
+    const y = Y(x).toFixed(1);
+    g += `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="#dfe3ea" stroke-width="1"/>` +
+         `<text x="${PL - 6}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="#626b7b">${_rpEsc(fy(x))}</text>`;
+  }
+  const y0 = Y(Math.max(sc.lo, Math.min(sc.hi, 0)));
+  let bars = '';
+  v.forEach((x, i) => {
+    const yv = Y(x);
+    const top = Math.min(yv, y0), hh = Math.max(0.8, Math.abs(yv - y0));
+    const col = x < 0 ? (opts.negColor || '#b3261e') : (opts.color || '#1f4fd8');
+    bars += `<rect x="${(PL + i * bw + gap / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${Math.max(0.6, bw - gap).toFixed(1)}" height="${hh.toFixed(1)}" fill="${col}" fill-opacity=".85"/>`;
+  });
+  bars += `<line x1="${PL}" y1="${y0.toFixed(1)}" x2="${W - PR}" y2="${y0.toFixed(1)}" stroke="#c3c9d4" stroke-width="1"/>`;
+
+  let avg = '';
+  if (opts.avg != null && isFinite(opts.avg)) {
+    const y = Y(opts.avg).toFixed(1);
+    avg = `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="#14181f" stroke-width="1" stroke-dasharray="4 3"/>` +
+      (opts.avgLabel ? `<text x="${W - PR - 2}" y="${(Y(opts.avg) - 4).toFixed(1)}" text-anchor="end" font-size="9" font-weight="700" fill="#14181f" stroke="#ffffff" stroke-width="3" paint-order="stroke">${_rpEsc(opts.avgLabel)}</text>` : '');
+  }
+  let xs = '';
+  const labels = opts.labels || [];
+  const every = Math.max(1, Math.ceil(v.length / 12));
+  for (let i = 0; i < v.length; i += every) {
+    if (!labels[i]) continue;
+    xs += `<text x="${(PL + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="#626b7b">${_rpEsc(labels[i])}</text>`;
+  }
+  return `<div class="rp-fig"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${_rpEsc(opts.alt || 'gráfico de barras')}">` +
+    g + bars + avg + xs + `</svg>` +
+    (opts.cap ? `<div class="rp-fig-cap">${opts.cap}</div>` : '') + `</div>`;
+}
+
+/* Barras horizontais agrupadas — atual vs alvo da carteira. rows:[{label,a,b}] */
+function _rpSvgPair(rows, opts) {
+  if (!rows || !rows.length) return '';
+  opts = opts || {};
+  const W = 860, rowH = 22, PT = 16, PB = 8, PL = 150, PR = 46;
+  const H = PT + PB + rows.length * rowH;
+  const iw = W - PL - PR;
+  const max = Math.max(...rows.flatMap(r => [r.a || 0, r.b || 0]), 1);
+  let out = '';
+  rows.forEach((r, i) => {
+    const y = PT + i * rowH;
+    const wa = (r.a || 0) / max * iw, wb = (r.b || 0) / max * iw;
+    out += `<text x="${PL - 8}" y="${y + rowH / 2}" text-anchor="end" dominant-baseline="middle" font-size="10" fill="#14181f">${_rpEsc(r.label)}</text>` +
+      `<rect x="${PL}" y="${y + 3}" width="${Math.max(0, wa).toFixed(1)}" height="7" fill="${opts.colorA || '#1f4fd8'}" fill-opacity=".9"/>` +
+      `<rect x="${PL}" y="${y + 12}" width="${Math.max(0, wb).toFixed(1)}" height="7" fill="#9aa3b2" fill-opacity=".75"/>` +
+      `<text x="${W - PR + 4}" y="${y + rowH / 2}" dominant-baseline="middle" font-size="9.5" fill="#495261">${_rpEsc(_rpPct(r.a))}</text>`;
+  });
+  return `<div class="rp-fig"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${_rpEsc(opts.alt || 'alocação atual vs alvo')}">${out}</svg>` +
+    `<div class="rp-leg"><span><i style="background:${opts.colorA || '#1f4fd8'}"></i>${_rpEsc(opts.nameA || 'Atual')}</span>` +
+    `<span><i style="background:#9aa3b2"></i>${_rpEsc(opts.nameB || 'Alvo')}</span></div>` +
+    (opts.cap ? `<div class="rp-fig-cap">${opts.cap}</div>` : '') + `</div>`;
+}
+
+// ── Contexto compartilhado ────────────────────────────────
+// Tudo que mais de uma seção precisa. Calculado uma vez por relatório.
+function _rpCtx() {
+  const H = HISTORICAL;
+  const last = H[H.length - 1] || { d: '—', pat: 0, pl: 0, rec: 0, gas: 0, apo: 0 };
+  const lastD = last.d;
+  const now = new Date();
+  const realKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+  const L12 = H.slice(-12), L24 = H.slice(-24);
+  const rec12 = _rpSum(L12.map(h => h.rec)), gas12 = _rpSum(L12.map(h => h.gas));
+  const apo12 = _rpSum(L12.map(h => h.apo || 0));
+  const recMed24 = _rpMedian(L24.map(h => h.rec).filter(v => v > 0));
+
+  // Carteira
+  const pRows = (S.portfolio || []).map(a => ({ ...a }));
+  const pTotal = _rpSum(pRows.map(a => a.value));
+  const target = S.targetAllocation || {};
+  const band = S.rebalanceBand || { abs: 5, rel: 25 };
+
+  // Mobills — a agregação que renderExpenses mantém como variável local.
+  // Aqui é recalculada e ancorada no último mês COM DADO do Mobills.
+  const mb = { ok: false, rows: [], raw: MOBILLS_RAW || [], months: [], secOrder: [] };
+  if (MOBILLS && MOBILLS.length) {
+    mb.ok = true;
+    mb.rows = MOBILLS;
+    const bySec = {}, byNat = {}, byMonth = {}, bySecMonth = {}, byNatMonth = {}, natCount = {}, natLast = {};
+    const natSec = {};
+    MOBILLS.forEach(r => {
+      const v = Math.abs(r.val || 0);
+      const nat = r.cat || 'Sem categoria';
+      const sec = getSecao(nat);
+      natSec[nat] = sec;
+      bySec[sec] = (bySec[sec] || 0) + v;
+      byNat[nat] = (byNat[nat] || 0) + v;
+      byMonth[r.d] = (byMonth[r.d] || 0) + v;
+      bySecMonth[sec + '|' + r.d] = (bySecMonth[sec + '|' + r.d] || 0) + v;
+      byNatMonth[nat + '|' + r.d] = (byNatMonth[nat + '|' + r.d] || 0) + v;
+      natCount[nat] = (natCount[nat] || 0) + 1;
+      if (!natLast[nat] || r.d > natLast[nat]) natLast[nat] = r.d;
+    });
+    mb.months = Object.keys(byMonth).sort();
+    mb.lastD = mb.months[mb.months.length - 1];
+    mb.bySec = bySec; mb.byNat = byNat; mb.byMonth = byMonth;
+    mb.bySecMonth = bySecMonth; mb.byNatMonth = byNatMonth;
+    mb.natCount = natCount; mb.natLast = natLast; mb.natSec = natSec;
+    mb.total = _rpSum(Object.values(byMonth));
+    mb.secOrder = sortSecoes(Object.entries(bySec)).map(e => e[0]);
+    mb.win = k => {                       // janela de k meses terminando no último mês com dado
+      const out = [];
+      for (let i = k - 1; i >= 0; i--) out.push(addMonths(mb.lastD, -i));
+      return out;
+    };
+    mb.secIn = (sec, months) => _rpSum(months.map(m => mb.bySecMonth[sec + '|' + m] || 0));
+    mb.natIn = (nat, months) => _rpSum(months.map(m => mb.byNatMonth[nat + '|' + m] || 0));
+    mb.totIn = months => _rpSum(months.map(m => mb.byMonth[m] || 0));
+    mb.hasFix = MOBILLS.some(r => r.fix === true);
+  }
+
+  return {
+    now, stamp: now.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    H, last, lastD, realKey,
+    stale: monthsBetween(lastD, realKey),
+    age: currentAge(),
+    L12, L24,
+    rec12, gas12, apo12,
+    avgRec: rec12 / Math.max(1, L12.length),
+    avgGas: gas12 / Math.max(1, L12.length),
+    avgApo: apo12 / Math.max(1, L12.length),
+    recMed24,
+    isOutlier: h => recMed24 > 0 && h.rec > 1.8 * recMed24,
+    plNow: last.pl || 0,
+    patNow: last.pat || 0,
+    invest: investableWealth(),
+    fin: fiNumber(),
+    fiR: fiRate(),
+    port: { rows: pRows, total: pTotal, target, band },
+    mb,
+    ipca: (S.assumptions && S.assumptions.ipca) || 5.5,
+  };
+}
+
+
+// ── Agregação anual do histórico (não existe pronta no app) ──
+// Por ano civil: patrimônio no fim, Δ do líquido, aporte, resultado de mercado
+// (Δpl − aporte), receita/gasto médios e taxa de poupança do ano.
+function _rpYearRows(c) {
+  const byY = {};
+  c.H.forEach(h => {
+    const y = h.d.slice(0, 4);
+    (byY[y] = byY[y] || []).push(h);
+  });
+  const years = Object.keys(byY).sort();
+  const rs = realizedReturns();
+  const retByY = {};
+  rs.forEach(x => { const y = x.d.slice(0, 4); (retByY[y] = retByY[y] || []).push(x.r); });
+
+  let prevPl = null;
+  return years.map(y => {
+    const ms = byY[y];
+    const lastM = ms[ms.length - 1];
+    const rec = _rpSum(ms.map(h => h.rec)), gas = _rpSum(ms.map(h => h.gas));
+    const apo = _rpSum(ms.map(h => h.apo || 0));
+    const dPl = prevPl == null ? null : (lastM.pl || 0) - prevPl;
+    const mkt = dPl == null ? null : dPl - apo;
+    const comp = (retByY[y] || []).reduce((p, r) => p * (1 + r), 1);
+    const row = {
+      y, n: ms.length, pat: lastM.pat || 0, pl: lastM.pl || 0,
+      dPl, apo, mkt, rec, gas,
+      recAvg: rec / ms.length, gasAvg: gas / ms.length, apoAvg: apo / ms.length,
+      sr: rec > 0 ? (rec - gas) / rec * 100 : null,
+      ret: (retByY[y] || []).length ? (comp - 1) * 100 : null,
+      retN: (retByY[y] || []).length,
+      cdi: CDI_YEARLY[Number(y)] != null ? CDI_YEARLY[Number(y)] : null,
+      parcial: ms.length < 12,
+    };
+    prevPl = lastM.pl || 0;
+    return row;
+  });
+}
+
+// Drawdown corrente sobre o patrimônio líquido (pico histórico vs hoje)
+function _rpDrawdownNow(c) {
+  let peak = 0, peakD = null;
+  c.H.forEach(h => { if ((h.pl || 0) > peak) { peak = h.pl || 0; peakD = h.d; } });
+  const cur = c.plNow;
+  return { peak, peakD, cur, pct: peak > 0 ? (peak - cur) / peak * 100 : 0 };
+}
+
+// Marcos de patrimônio de 100k em 100k (os dados do card do Dashboard são locais lá).
+// Base = h.pat (patrimônio TOTAL), a mesma de _buildMilestonesCard: usar h.pl aqui
+// atrasaria cada marco em meses e sumiria com os últimos, contradizendo a tela.
+function _rpMilestones(c) {
+  const out = [];
+  let next = 100000, prevD = null;
+  for (const h of c.H) {
+    while ((h.pat || 0) >= next) {
+      out.push({ v: next, d: h.d, gap: prevD ? monthsBetween(prevD, h.d) : null });
+      prevD = h.d; next += 100000;
+    }
+  }
+  return out;
+}
+
+// ═══════ 1. RETRATO DE HOJE ═══════
+function _rpSec1(c) {
+  const ins = c.insights || [];
+  const nBad = ins.filter(i => i.sev === 'bad').length;
+  const nWarn = ins.filter(i => i.sev === 'warn').length;
+  const sr12 = c.rec12 > 0 ? (c.rec12 - c.gas12) / c.rec12 * 100 : null;
+  const pctFI = c.fin > 0 ? c.invest / c.fin * 100 : 0;
+  const run = runwayMonths();
+
+  // ETA empírico: quanto falta ÷ quanto andou nos últimos 12 meses
+  // "Ano atrás" por calendário, não pela posição -13 do array — um gap no sync (mês pulado)
+  // faz a posição -13 apontar pra um mês que não é 12 atrás de verdade. Mesmo bug já corrigido
+  // no card "vs mês anterior" do Dashboard. Sem match exato, cai no registro mais antigo
+  // disponível antes do mês atual e assume a lacuna real (yAgoMonths), não sempre "12".
+  const yAgoKey = addMonths(c.lastD, -12);
+  const before = c.H.filter(h => h.d < c.lastD);
+  const yAgo = c.H.find(h => h.d === yAgoKey) || before[before.length - 1] || null;
+  const yAgoMonths = yAgo ? monthsBetween(yAgo.d, c.lastD) : 12;
+  const pp12 = (yAgo && c.fin > 0) ? (c.plNow - (yAgo.pl || 0)) / c.fin * 100 : null;
+  const etaY = (pp12 && pp12 > 0.5) ? (100 - pctFI) / pp12 : null;
+
+  // Data da FI no cenário base
+  const paths = buildScenarioPaths((S.assumptions.projectionYears || 30) * 12);
+  const base = paths.find(p => p.id === 'base') || paths[0];
+  const fiB = base ? findFIDate(base.path) : null;
+
+  const kpis = _rpKpis([
+    _rpKpi('Patrimônio total', fmt(c.patNow), c.patNow !== c.plNow ? `líquido ${fmt(c.plNow)} na planilha · ${fmt(c.patNow - c.plNow)} em imóvel` : 'sem imóvel no total'),
+    _rpKpi('Meta de independência', fmt(c.fin), `${_rpPct(pctFI)} concluído · renda-alvo ${fmt(S.fi.targetMonthlyIncome)}/mês a ${_rpPct(c.fiR)}`),
+    _rpKpi('Taxa de poupança 12m', _rpPct(sr12), sr12 == null ? '—' : sr12 >= 40 ? 'acima de 40% — folga real' : sr12 >= 20 ? 'entre 20% e 40% — mediana' : 'abaixo de 20% — aperta o plano',
+      sr12 == null ? '' : sr12 >= 40 ? 'rp-pos' : sr12 >= 20 ? 'rp-warn' : 'rp-neg'),
+    _rpKpi('Colchão', `${Math.round(run)} meses`, `${(run / 12).toFixed(1).replace('.', ',')} anos de gasto médio (${fmt(c.avgGas)}/mês) sem nenhuma renda`),
+    _rpKpi('Data projetada da FI', fiB ? _rpDateLabel(fiB.date) : 'fora do horizonte',
+      fiB ? `aos ${fiB.date.getFullYear() - S.profile.birthYear} anos · ${_rpDur(fiB.months)} a partir de ${monthLabel(projectionStart().str)}` : `nem em ${S.assumptions.projectionYears} anos no cenário base`),
+    _rpKpi('Ritmo do último ano', pp12 == null ? '—' : _rpPctS(pp12) + ' da meta',
+      etaY ? `nesse passo, faltam ~${etaY.toFixed(0)} anos (extrapolação do realizado, sem premissa de retorno)` : 'sem avanço mensurável nos últimos 12 meses',
+      _rpCls(pp12)),
+    _rpKpi('Aporte médio 12m', fmt(c.avgApo), `${fmt(c.apo12)} no ano · receita média ${fmt(c.avgRec)}/mês`),
+    _rpKpi('Diagnóstico', `${nBad + nWarn} ${nBad + nWarn === 1 ? 'ponto' : 'pontos'}`,
+      `${nBad} ${nBad === 1 ? 'alerta' : 'alertas'} e ${nWarn} ${nWarn === 1 ? 'atenção' : 'atenções'} na seção 12`,
+      nBad ? 'rp-neg' : nWarn ? 'rp-warn' : 'rp-pos'),
+  ]);
+
+  // Leitura em prosa — os mesmos números, encadeados.
+  // Dois números diferentes andam por aqui e NÃO podem ter o mesmo nome:
+  //   c.plNow  = coluna pl da planilha (série histórica; é dela que sai qualquer Δ)
+  //   c.invest = investableWealth(), soma da carteira cadastrada ex-imóvel
+  //              (é a base do % da meta, do Dashboard e da página FI)
+  // Com sync em dia os dois batem. Quando não batem, o relatório diz.
+  const dPl12 = yAgo ? c.plNow - (yAgo.pl || 0) : null;
+  const mkt12 = dPl12 == null ? null : dPl12 - c.apo12;
+  let lead = `Em ${monthLabel(c.lastD)} o patrimônio líquido da planilha está em <b>${fmt(c.plNow)}</b>`;
+  if (dPl12 != null) {
+    lead += `, ${dPl12 >= 0 ? 'um avanço de' : 'uma queda de'} <b>${fmt(Math.abs(dPl12))}</b> em 12 meses — ` +
+      `<b>${fmt(c.apo12)}</b> de aporte e <b>${_rpMoneyS(mkt12)}</b> de resultado de mercado`;
+    if (dPl12 > 0 && c.apo12 / dPl12 >= 0.85) lead += `. Ou seja: ${_rpPct(c.apo12 / dPl12 * 100)} do avanço foi você depositando dinheiro, não o dinheiro trabalhando`;
+  }
+  lead += `. A meta de independência é <b>${fmt(c.fin)}</b> e o patrimônio investível — a carteira cadastrada, sem o imóvel — está em <b>${fmt(c.invest)}</b>, ou <b>${_rpPct(pctFI)}</b> dela`;
+  lead += etaY ? `, avançando ${_rpPct(pp12)} por ano.` : '.';
+
+  // Reconciliação: planilha × cadastro. Divergir é sintoma — o sanity check do
+  // sync rejeita o portfólio quando ele vem com valor estranho e mantém o antigo,
+  // sem tocar no HISTORICAL, e aí os dois lados contam histórias diferentes.
+  const gap = c.plNow > 0 ? Math.abs(c.invest - c.plNow) / c.plNow * 100 : 0;
+  const recon = gap > 2
+    ? _rpCall('warn', `Planilha e carteira cadastrada divergem em ${_rpPct(gap)}`,
+        `A coluna <b>pl</b> da planilha marca ${fmt(c.plNow)} em ${monthLabel(c.lastD)}; a soma da aba Patrimônio (ex-imóvel) dá ${fmt(c.invest)} — <b>${fmt(Math.abs(c.invest - c.plNow))}</b> de diferença. ` +
+        `Neste relatório, tudo que é <i>série no tempo</i> (trajetória, rentabilidade, aportes, velocidade) vem da planilha; tudo que é <i>meta</i> (% da FI, projeções, Monte Carlo) vem da carteira cadastrada. ` +
+        `Enquanto as duas discordarem, os dois blocos falam de patrimônios ligeiramente diferentes.`)
+    : '';
+
+  let veredito = '';
+  if (sr12 != null) {
+    veredito = `A taxa de poupança de 12 meses é <b>${_rpPct(sr12)}</b>` +
+      (sr12 >= 40 ? ' — é o que sustenta o ritmo, e é o número que você não deve deixar cair.'
+        : sr12 >= 20 ? ' — funciona, mas é a alavanca mais barata que você tem: cada ponto aqui vale mais que qualquer escolha de ativo.'
+        : ' — abaixo de 20%, o plano depende mais de rentabilidade do que de disciplina, e rentabilidade não se controla.');
+  }
+
+  return {
+    id: 'retrato', title: 'Retrato de hoje', src: 'planilha + cadastro',
+    html: (c.stale >= 2 ? _rpCall('warn', 'Os dados param em ' + monthLabel(c.lastD),
+      `São <b>${c.stale} meses</b> de defasagem em relação a ${monthLabel(c.realKey)}. Todo número deste relatório — inclusive as projeções — está calculado sobre essa foto. Sincronize a planilha (↻ Sync Sheets) e gere de novo antes de decidir com base nele.`) : '') +
+      kpis + _rpP(lead) + (veredito ? _rpP(veredito) : '') + recon,
+  };
+}
+
+// ═══════ 2. PATRIMÔNIO — TRAJETÓRIA ═══════
+function _rpSec2(c) {
+  const yr = _rpYearRows(c);
+  const real = HISTORICAL.length >= 13 ? patrimonioRealSeries() : null;
+  const ar = HISTORICAL.length >= 3 ? aporteRendimentoSeries() : null;
+  const dd = _rpDrawdownNow(c);
+  const mdd = maxDrawdownHist();
+  const ms = _rpMilestones(c);
+
+  let html = '';
+
+  html += _rpKpis([
+    _rpKpi('Desde o início', fmt(c.patNow), real ? `${_rpX(real.nomMult)} nominal · ${_rpX(real.realMult)} em poder de compra` : `primeiro registro em ${monthLabel(c.H[0].d)}`),
+    _rpKpi('Crescimento do saldo', real ? _rpPct(real.nomCAGR) + ' a.a.' : '—', 'CAGR do saldo — <b>inclui aporte</b>, não é retorno da carteira; o retorno está na seção 3'),
+    _rpKpi('Crescimento real do saldo', real ? _rpPct(real.realCAGR) + ' a.a.' : '—', real ? `o mesmo CAGR já sem a inflação de ${_rpPct(real.inflAcum)} acumulada no período` : '', real && real.realCAGR > 0 ? 'rp-pos' : 'rp-neg'),
+    _rpKpi('Maior queda já atravessada', _rpPct(mdd), dd.pct >= 5 ? `hoje ${_rpPct(dd.pct)} abaixo do pico de ${fmt(dd.peak)} (${monthLabel(dd.peakD)})` : 'hoje no topo histórico ou a menos de 5% dele'),
+  ], 4);
+
+  if (real) {
+    const step = Math.max(1, Math.ceil(c.H.length / 90));
+    const idx = c.H.map((_, i) => i).filter(i => i % step === 0 || i === c.H.length - 1);
+    html += _rpSvgLine({
+      series: [
+        { name: 'Nominal (R$ da época)', color: '#1f4fd8', data: idx.map(i => real.nominal[i]), area: true },
+        { name: 'Real (R$ de hoje, deflacionado por IPCA)', color: '#8a6100', data: idx.map(i => real.real[i]), dash: true },
+      ],
+      labels: idx.map(i => monthLabel(c.H[i].d)),
+      h: 200, zero: true, alt: 'patrimônio nominal e real',
+      cap: `Patrimônio total (inclui imóvel). A distância entre as duas curvas é o quanto a inflação comeu: ${_rpPct(real.inflAcum)} acumulados desde ${monthLabel(c.H[0].d)}.`,
+    });
+  }
+
+  html += _rpH3('Ano a ano');
+  html += _rpTable(
+    `<th>Ano</th><th class="n">Patrimônio (fim)</th><th class="n">Investível</th><th class="n">Δ investível</th><th class="n">Aporte</th><th class="n">Mercado</th><th class="n">Receita/mês</th><th class="n">Gasto/mês</th><th class="n">Poupança</th>`,
+    yr.map(r => `<tr>` +
+      `<td class="lbl">${r.y}${r.parcial ? ` <span class="rp-dim">(${r.n}m)</span>` : ''}</td>` +
+      `<td class="n">${fmt(r.pat)}</td><td class="n">${fmt(r.pl)}</td>` +
+      `<td class="n ${_rpCls(r.dPl)}">${r.dPl == null ? '—' : _rpMoneyS(r.dPl)}</td>` +
+      `<td class="n">${fmt(r.apo)}</td>` +
+      `<td class="n ${_rpCls(r.mkt)}">${r.mkt == null ? '—' : _rpMoneyS(r.mkt)}</td>` +
+      `<td class="n">${fmt(r.recAvg)}</td><td class="n">${fmt(r.gasAvg)}</td>` +
+      `<td class="n">${_rpPct(r.sr)}</td></tr>`).join(''),
+    null, 'rp-t-sm');
+  html += `<p class="rp-note">“Mercado” é Δ investível − aporte: o que a carteira fez sozinha, sem o seu depósito. Anos parciais têm o nº de meses ao lado.</p>`;
+
+  if (ar) {
+    html += _rpH3('Bolso vs. juros');
+    html += _rpKpis([
+      _rpKpi('Aporte acumulado', fmt(ar.curA), `${_rpPct(ar.aPct)} do patrimônio atual`),
+      _rpKpi('Rendimento acumulado', fmt(ar.curR), `${_rpPct(ar.rPct)} do patrimônio atual`, ar.curR > 0 ? 'rp-pos' : 'rp-neg'),
+      _rpKpi('Nos últimos 12 meses', fmt(ar.last12A) + ' / ' + _rpK(ar.last12R), 'aporte / rendimento'),
+      _rpKpi('Virada', ar.crossMonth ? monthLabel(ar.crossMonth) : 'ainda não',
+        ar.crossMonth ? 'mês em que o rendimento acumulado passou o aporte acumulado' : 'o aporte acumulado ainda é maior que o rendimento acumulado'),
+    ], 4);
+    const stepA = Math.max(1, Math.ceil(ar.labels.length / 90));
+    const idxA = ar.labels.map((_, i) => i).filter(i => i % stepA === 0 || i === ar.labels.length - 1);
+    html += _rpSvgLine({
+      series: [
+        { name: 'Aporte acumulado', color: '#1f4fd8', data: idxA.map(i => ar.aporte[i]) },
+        { name: 'Rendimento acumulado', color: '#0f7a4f', data: idxA.map(i => ar.rend[i]) },
+      ],
+      labels: idxA.map(i => monthLabel(ar.labels[i])),
+      h: 190, zero: true, alt: 'aporte vs rendimento acumulados',
+      cap: 'Por construção, as duas somadas dão o patrimônio. O cruzamento é o ponto em que o dinheiro passa a trabalhar mais que você.',
+    });
+  }
+
+  if (ms.length) {
+    const fast = ms.filter(m => m.gap != null).reduce((a, b) => (a && a.gap <= b.gap) ? a : b, null);
+    const slow = ms.filter(m => m.gap != null).reduce((a, b) => (a && a.gap >= b.gap) ? a : b, null);
+    html += _rpH3('Marcos de 100 mil — patrimônio total');
+    html += _rpTable(
+      `<th>Marco</th><th>Atingido em</th><th class="n">Meses desde o anterior</th>`,
+      ms.slice(-12).map(m => `<tr><td class="lbl">${fmtK(m.v)}</td><td>${monthLabel(m.d)}</td><td class="n">${m.gap == null ? '—' : m.gap}</td></tr>`).join(''),
+      null, 'rp-t-sm');
+    if (fast && slow && fast !== slow) {
+      // gap 0 = dois marcos cruzados no mesmo mês (o patrimônio saltou mais de
+      // 100k de uma vez). "0 meses" lê como bug; dizer o que de fato aconteceu.
+      const fastTxt = fast.gap === 0
+        ? `<b>no mesmo mês</b> (${fmtK(fast.v)} — o patrimônio passou de um marco a outro de uma vez)`
+        : `de <b>${fast.gap} ${fast.gap === 1 ? 'mês' : 'meses'}</b> (até ${fmtK(fast.v)})`;
+      html += _rpP(`O salto mais rápido foi ${fastTxt} e o mais lento de <b>${slow.gap} meses</b> (até ${fmtK(slow.v)}). ` +
+        `São ${ms.length} marcos em ${monthsBetween(c.H[0].d, c.lastD)} meses de histórico.` +
+        (ms.length > 12 ? ' A tabela mostra os 12 últimos.' : ''));
+    }
+  }
+
+  if (dd.pct >= 5) {
+    html += _rpCall('warn', `Hoje ${_rpPct(dd.pct)} abaixo do pico`,
+      `O topo foi <b>${fmt(dd.peak)}</b> em ${monthLabel(dd.peakD)}; hoje são ${fmt(dd.cur)}. Para referência, a maior queda que essa carteira já atravessou foi de <b>${_rpPct(mdd)}</b> — e ela voltou. A decisão errada em drawdown quase sempre é vender.`);
+  }
+
+  return { id: 'patrimonio', title: 'Patrimônio — trajetória', src: 'planilha (histórico)', html };
+}
+
+// ═══════ 3. RESULTADO — RENTABILIDADE ═══════
+function _rpSec3(c) {
+  const rs = realizedReturns();
+  if (!rs.length) {
+    return { id: 'resultado', title: 'Resultado — rentabilidade', src: 'planilha (histórico)',
+      html: _rpEmpty('Sem série de rentabilidade: o histórico precisa de pelo menos dois meses de patrimônio líquido.') };
+  }
+  const mx = returnsMatrix();
+  const sm = monthsSummary();
+  const t12 = twr(12), c12 = cdiAnnualized(12);
+  const t24 = twr(24), c24 = cdiAnnualized(24);
+  const tAll = twr(), cAll = cdiAnnualized();
+  const vol = portfolioVol();
+  const assumed = weightedReturn();
+
+  const best = rs.reduce((a, b) => b.r > a.r ? b : a);
+  const worst = rs.reduce((a, b) => b.r < a.r ? b : a);
+  // maior sequência negativa e a sequência corrente
+  let cur = 0;
+  for (let i = rs.length - 1; i >= 0 && rs[i].r < 0; i--) cur++;
+  let maxNeg = 0, runNeg = 0;
+  rs.forEach(x => { runNeg = x.r < 0 ? runNeg + 1 : 0; if (runNeg > maxNeg) maxNeg = runNeg; });
+
+  let html = _rpKpis([
+    _rpKpi('TWR 12 meses', _rpPct(t12) + ' a.a.', `CDI ${_rpPct(c12)} · alpha ${_rpPP(t12 - c12)}`, _rpCls(t12 - c12)),
+    _rpKpi('TWR 24 meses', _rpPct(t24) + ' a.a.', `CDI ${_rpPct(c24)} · alpha ${_rpPP(t24 - c24)}`, _rpCls(t24 - c24)),
+    _rpKpi('TWR desde o início', _rpPct(tAll) + ' a.a.', `CDI ${_rpPct(cAll)} · alpha ${_rpPP(tAll - cAll)} a.a. em ${rs.length} meses`, _rpCls(tAll - cAll)),
+    _rpKpi('Realizado vs. premissa', _rpPP(t12 - assumed), `o cadastro assume ${_rpPct(assumed)} a.a. nominal; os últimos 12 meses entregaram ${_rpPct(t12)}`, _rpCls(t12 - assumed)),
+    _rpKpi('Meses positivos', `${sm.rent.pos} / ${sm.rent.pos + sm.rent.neg}`, `${_rpPct(sm.rent.pos / Math.max(1, sm.rent.pos + sm.rent.neg) * 100)} dos meses fecharam no azul`),
+    _rpKpi('Melhor mês', _rpPctS(best.r * 100), monthLabel(best.d), 'rp-pos'),
+    _rpKpi('Pior mês', _rpPctS(worst.r * 100), monthLabel(worst.d), 'rp-neg'),
+    _rpKpi('Volatilidade estimada', _rpPct(vol) + ' a.a.', 'média ponderada por classe, sem correlação — superestima o risco real'),
+  ]);
+
+  // Heatmap ano × mês
+  const MN = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  html += _rpH3('Rentabilidade mês a mês');
+  html += `<div class="rp-tw"><table class="rp-t rp-t-xs rp-heat">` +
+    `<thead><tr><th>Ano</th>${MN.map(m => `<th class="c">${m}</th>`).join('')}<th class="n">Ano</th><th class="n">CDI</th></tr></thead><tbody>` +
+    mx.years.map(y => {
+      const g = mx.grid[y] || {};
+      const comp = Object.values(g).reduce((p, r) => p * (1 + r), 1);
+      const has = Object.keys(g).length;
+      const yr = has ? (comp - 1) * 100 : null;
+      const cdi = CDI_YEARLY[y] != null ? CDI_YEARLY[y] : null;
+      return `<tr><td class="lbl">${y}</td>` +
+        MN.map((_, i) => {
+          const r = g[i];
+          if (r == null) return `<td class="h z">·</td>`;
+          return `<td class="h" style="${_rpHeatBg(r, mx.maxAbs)}">${(r * 100).toFixed(1).replace('.', ',')}</td>`;
+        }).join('') +
+        `<td class="n ${_rpCls(yr)}">${yr == null ? '—' : _rpPctS(yr)}</td>` +
+        `<td class="n rp-dim">${cdi == null ? '—' : _rpPct(cdi)}</td></tr>`;
+    }).join('') + `</tbody></table></div>`;
+  html += `<p class="rp-note">Verde = mês positivo, vermelho = negativo; a intensidade é proporcional à magnitude. A coluna “Ano” compõe os meses do ano (não é média). ` +
+    `Anos incompletos compõem só os meses existentes — não são comparáveis ao CDI cheio do ano.</p>`;
+
+  html += _rpH3('Sequências');
+  html += _rpP(`A maior sequência de meses negativos seguidos foi de <b>${maxNeg} ${maxNeg === 1 ? 'mês' : 'meses'}</b>. ` +
+    (cur >= 3 ? `A carteira está <b>há ${cur} meses no vermelho</b> — o gatilho de atenção é 3. Em janela de 12 meses o TWR é ${_rpPct(t12)} contra ${_rpPct(c12)} de CDI: ${t12 >= c12 ? 'apesar da sequência, ainda está à frente do CDI' : 'está atrás do CDI, e é isso que vale acompanhar — não o mês'}.`
+      : cur > 0 ? `Hoje são ${cur} ${cur === 1 ? 'mês' : 'meses'} negativos seguidos.`
+      : 'O último mês fechou positivo.'));
+
+  // Só anos de 12 meses compostos. Um ano parcial plotado como barra fica
+  // indistinguível de um ano fechado ao lado, e ainda contamina a média.
+  const anosT = _rpYearRows(c).filter(r => r.ret != null);
+  const anos = anosT.filter(r => r.retN >= 12);
+  const anosP = anosT.filter(r => r.retN < 12);
+  if (anos.length >= 2) {
+    html += _rpSvgBars({
+      values: anos.map(r => r.ret), labels: anos.map(r => r.y),
+      h: 170, color: '#1f4fd8', fmtY: v => _rpPct(v, 0),
+      avg: _rpAvg(anos.map(r => r.ret)), avgLabel: 'média ' + _rpPct(_rpAvg(anos.map(r => r.ret))),
+      alt: 'retorno por ano civil',
+      cap: 'Retorno composto por ano civil, só de anos completos. Barras vermelhas são anos negativos; a tracejada é a média simples dos anos.' +
+        (anosP.length ? ` Fora do gráfico: ${anosP.map(r => `<b>${r.y}</b> com ${_rpPctS(r.ret)} em ${r.retN} ${r.retN === 1 ? 'mês' : 'meses'}`).join(', ')} — parcial, não comparável.` : ''),
+    });
+  }
+
+  html += _rpCall(t12 >= c12 ? 'pos' : 'warn', t12 >= c12 ? `Batendo o CDI em 12 meses por ${_rpPP(t12 - c12)}` : `Abaixo do CDI em 12 meses por ${_rpPP(t12 - c12)}`,
+    `Em 12 meses a carteira rendeu <b>${_rpPct(t12)} a.a.</b> contra <b>${_rpPct(c12)}</b> do CDI. Desde o início são ${_rpPct(tAll)} contra ${_rpPct(cAll)} — ` +
+    `alpha de ${_rpPP(tAll - cAll)} ao ano na janela de ${rs.length} meses, que é a que importa. ` +
+    (rs.filter(x => x.d.slice(0, 4) === String(new Date().getFullYear())).length === 0 && !(new Date().getFullYear() in CDI_YEARLY)
+      ? `<i>Atenção: a tabela CDI_YEARLY não tem o ano corrente — anos ausentes caem num fallback de 10% a.a. e distorcem o alpha.</i>` : ''));
+
+  return { id: 'resultado', title: 'Resultado — rentabilidade', src: 'planilha (col. Rentabilidade) + CDI_YEARLY', html };
+}
+
+// ═══════ 4. APORTES ═══════
+function _rpSec4(c) {
+  const yr = _rpYearRows(c);
+  const apos12 = c.L12.map(h => h.apo || 0);
+  const apos24 = c.L24.map(h => h.apo || 0);
+  const med12 = _rpMedian(apos12);
+  const q = c.H.slice(-3).map(h => h.apo || 0);
+  const qAvg = _rpAvg(q);
+  const negs = c.L24.filter(h => (h.apo || 0) < 0);
+  const bestM = c.L24.reduce((a, b) => (b.apo || 0) > (a.apo || 0) ? b : a, c.L24[0]);
+
+  // Modelo vs realidade: a poupança que as projeções assumem existe de fato?
+  const inc = _rpSum((S.incomes || []).filter(i => i.active !== false).map(i => i.amount || 0));
+  const exp = _rpSum((S.expenses || []).filter(e => e.active !== false).map(e => e.amount || 0));
+  const modelSav = inc - exp;
+  const rReal = weightedReturnReal();
+  const mMod = _monthsToTarget(c.invest, modelSav, rReal, c.fin);
+  const mReal = _monthsToTarget(c.invest, c.avgApo, rReal, c.fin);
+  const ratio = c.avgApo > 0 ? modelSav / c.avgApo : null;
+
+  let html = _rpKpis([
+    _rpKpi('Aporte 12 meses', fmt(c.apo12), `média de ${fmt(c.avgApo)}/mês · mediana ${fmt(med12)}`),
+    _rpKpi('Aporte 24 meses', fmt(_rpSum(apos24)), `média de ${fmt(_rpAvg(apos24))}/mês`),
+    _rpKpi('Último trimestre', fmt(qAvg) + '/mês', c.avgApo > 0 ? `${_rpPct(qAvg / c.avgApo * 100)} da média de 12 meses` : '—',
+      c.avgApo > 0 && qAvg < c.avgApo * 0.6 ? 'rp-warn' : ''),
+    _rpKpi('Maior aporte em 24m', fmt(bestM.apo || 0), monthLabel(bestM.d)),
+  ], 4);
+
+  html += _rpSvgBars({
+    values: apos24, labels: c.L24.map(h => monthLabel(h.d)),
+    h: 180, color: '#0f7a4f', avg: _rpAvg(apos24), avgLabel: 'média ' + fmtK(_rpAvg(apos24)),
+    alt: 'aporte mensal nos últimos 24 meses',
+    cap: 'Aporte mensal dos últimos 24 meses. Barras vermelhas são meses de retirada líquida — resgate, não depósito.',
+  });
+
+  html += _rpH3('Aporte por ano');
+  html += _rpTable(
+    `<th>Ano</th><th class="n">Aporte total</th><th class="n">Média/mês</th><th class="n">% da receita</th><th class="n">Meses de retirada</th><th class="n">Resultado de mercado</th>`,
+    yr.map(r => {
+      const nneg = c.H.filter(h => h.d.slice(0, 4) === r.y && (h.apo || 0) < 0).length;
+      return `<tr><td class="lbl">${r.y}${r.parcial ? ` <span class="rp-dim">(${r.n}m)</span>` : ''}</td>` +
+        `<td class="n">${fmt(r.apo)}</td><td class="n">${fmt(r.apoAvg)}</td>` +
+        `<td class="n">${r.rec > 0 ? _rpPct(r.apo / r.rec * 100) : '—'}</td>` +
+        `<td class="n ${nneg ? 'rp-neg' : 'rp-dim'}">${nneg || '—'}</td>` +
+        `<td class="n ${_rpCls(r.mkt)}">${r.mkt == null ? '—' : _rpMoneyS(r.mkt)}</td></tr>`;
+    }).join(''),
+    `<td>Total</td><td class="n">${fmt(_rpSum(yr.map(r => r.apo)))}</td><td class="n">—</td><td class="n">—</td>` +
+    `<td class="n">${c.H.filter(h => (h.apo || 0) < 0).length}</td><td class="n">—</td>`,
+    'rp-t-sm');
+  html += `<p class="rp-note">“% da receita” usa o aporte como está na planilha — ele inclui rendimento reinvestido, então pode passar de 100% e não é taxa de poupança. A taxa honesta está na seção 5.</p>`;
+
+  html += _rpH3('O que as projeções assumem vs. o que acontece');
+  html += _rpTable(
+    `<th>Origem</th><th class="n">Aporte mensal</th><th class="n">Meses até a meta</th><th class="n">Chega em</th>`,
+    `<tr><td class="lbl">Cadastro (Fluxo de Caixa)</td><td class="n">${fmt(modelSav)}</td>` +
+    `<td class="n">${mMod == null ? '> 600' : mMod}</td><td class="n">${_fmtAnos(mMod)}</td></tr>` +
+    `<tr><td class="lbl">Realizado (média 12m do histórico)</td><td class="n">${fmt(c.avgApo)}</td>` +
+    `<td class="n">${mReal == null ? '> 600' : mReal}</td><td class="n">${_fmtAnos(mReal)}</td></tr>`,
+    null, 'rp-t-sm');
+  html += _rpP(`O cadastro assume receita de ${fmt(inc)} menos gasto de ${fmt(exp)} = <b>${fmt(modelSav)}/mês</b> de poupança, e é esse número que alimenta a data da FI, os cenários e o Monte Carlo. ` +
+    `O histórico mostra <b>${fmt(c.avgApo)}/mês</b> de aporte real nos últimos 12 meses` +
+    (ratio == null ? '.' : ratio > 1.2 ? ` — o modelo é <b>${_rpX(ratio, 1)} mais otimista</b> que a realidade, e a data projetada assume uma disciplina que não está acontecendo. Vale corrigir o cadastro ou o hábito.`
+      : ratio < 0.8 ? ` — o modelo é <b>conservador</b>: você aporta mais do que ele supõe, então a data real tende a ser melhor que a exibida. Vale atualizar o cadastro.`
+      : ' — as duas fontes concordam dentro de 20%, o que é o que se espera de um plano calibrado.'));
+
+  if (negs.length) {
+    html += _rpCall('warn', `${negs.length} ${negs.length === 1 ? 'mês' : 'meses'} de retirada líquida em 24 meses`,
+      `${negs.map(h => `${monthLabel(h.d)} (${_rpMoneyS(h.apo)})`).join(', ')}. Retirada não é necessariamente erro — mas entra no cálculo do aporte médio e puxa a projeção para baixo.`);
+  }
+  if (c.avgApo > 0 && qAvg < c.avgApo * 0.6) {
+    html += _rpCall('warn', 'O último trimestre aportou menos de 60% da média anual',
+      `${fmt(qAvg)}/mês contra ${fmt(c.avgApo)}/mês de média em 12 meses. Parte disso pode ser sazonal — bônus concentrados em poucos meses fazem a média subir e o trimestre “normal” parecer fraco. Vale olhar junto com a tendência de receita na seção 5.`);
+  }
+
+  return { id: 'aportes', title: 'Aportes', src: 'planilha (col. Aporte) + cadastro', html };
+}
+
+// ═══════ 5. FLUXO DE CAIXA ═══════
+function _rpSec5(c) {
+  const sr12 = c.rec12 > 0 ? (c.rec12 - c.gas12) / c.rec12 * 100 : null;
+  const outs = c.L24.filter(c.isOutlier);
+  const rec24 = _rpSum(c.L24.map(h => h.rec));
+  const outShare = rec24 > 0 ? _rpSum(outs.map(h => h.rec)) / rec24 * 100 : 0;
+  const norm = c.L12.filter(h => !c.isOutlier(h));
+  const recN = _rpSum(norm.map(h => h.rec)), gasN = _rpSum(norm.map(h => h.gas));
+  const srN = recN > 0 ? (recN - gasN) / recN * 100 : null;
+  const infP = inflacaoPessoal();
+  const lc = lifestyleCreepData();
+
+  // Tendência de receita: média dos 3 últimos vs os 9 anteriores, ex-atípicos
+  const l3 = c.H.slice(-3).filter(h => !c.isOutlier(h));
+  const p9 = c.H.slice(-12, -3).filter(h => !c.isOutlier(h));
+  const a3 = _rpAvg(l3.map(h => h.rec)), a9 = _rpAvg(p9.map(h => h.rec));
+  const trend = a9 > 0 ? (a3 / a9 - 1) * 100 : null;
+
+  let html = _rpKpis([
+    _rpKpi('Receita média 12m', fmt(c.avgRec), `${fmt(c.rec12)} no ano · mediana de 24m em ${fmt(c.recMed24)}/mês`),
+    _rpKpi('Gasto médio 12m', fmt(c.avgGas), `${fmt(c.gas12)} no ano`),
+    _rpKpi('Taxa de poupança 12m', _rpPct(sr12), srN != null ? `${_rpPct(srN)} excluindo meses atípicos de receita` : '—',
+      sr12 == null ? '' : sr12 >= 40 ? 'rp-pos' : sr12 >= 20 ? 'rp-warn' : 'rp-neg'),
+    _rpKpi('Inflação pessoal', infP ? _rpPct(infP.pct) + ' a.a.' : '—',
+      infP ? `IPCA das premissas: ${_rpPct(c.ipca)} · ${_rpEsc(infP.src)}` : 'precisa de 24 meses de histórico',
+      infP ? (infP.pct > c.ipca + 2 ? 'rp-neg' : infP.pct > c.ipca ? 'rp-warn' : 'rp-pos') : ''),
+  ], 4);
+
+  html += _rpH3('Últimos 12 meses, mês a mês');
+  html += _rpTable(
+    `<th>Mês</th><th class="n">Receita</th><th class="n">Gasto</th><th class="n">Sobra</th><th class="n">Taxa de poupança</th><th class="n">Aporte</th><th class="n">Investível</th><th class="c">Atípico</th>`,
+    c.L12.map(h => {
+      const sob = h.rec - h.gas;
+      const sr = savingsRateOf(h);
+      return `<tr><td class="lbl">${monthLabel(h.d)}</td>` +
+        `<td class="n">${fmt(h.rec)}</td><td class="n">${fmt(h.gas)}</td>` +
+        `<td class="n ${_rpCls(sob)}">${_rpMoneyS(sob)}</td>` +
+        `<td class="n">${_rpBar(sr, sr >= 40 ? 'pos' : sr >= 20 ? 'warn' : 'neg')} ${_rpPct(sr)}</td>` +
+        `<td class="n">${fmt(h.apo || 0)}</td><td class="n">${fmt(h.pl || 0)}</td>` +
+        `<td class="c">${c.isOutlier(h) ? '●' : ''}</td></tr>`;
+    }).join(''),
+    `<td>12 meses</td><td class="n">${fmt(c.rec12)}</td><td class="n">${fmt(c.gas12)}</td>` +
+    `<td class="n ${_rpCls(c.rec12 - c.gas12)}">${_rpMoneyS(c.rec12 - c.gas12)}</td>` +
+    `<td class="n">${_rpPct(sr12)}</td><td class="n">${fmt(c.apo12)}</td><td class="n">—</td><td class="c">${outs.filter(h => c.L12.includes(h)).length}</td>`,
+    'rp-t-sm');
+  html += `<p class="rp-note">Taxa de poupança = (receita − gasto) ÷ receita, preferindo a coluna da planilha quando ela existe. “Atípico” marca mês com receita acima de 1,8× a mediana de 24 meses — bônus, 13º, venda de ativo.</p>`;
+
+  html += _rpSvgLine({
+    series: [
+      { name: 'Receita', color: '#1f4fd8', data: c.L24.map(h => h.rec) },
+      { name: 'Gasto', color: '#b3261e', data: c.L24.map(h => h.gas), area: true },
+    ],
+    labels: c.L24.map(h => monthLabel(h.d)), h: 185, zero: true,
+    alt: 'receita e gasto nos últimos 24 meses',
+    cap: 'A área entre as curvas é a sobra do mês. Os picos de receita são os meses atípicos.',
+  });
+
+  if (trend != null) {
+    html += _rpH3('Tendência de receita recorrente');
+    html += _rpP(`Média dos 3 últimos meses (excluindo atípicos): <b>${fmt(a3)}/mês</b> contra <b>${fmt(a9)}/mês</b> nos 9 meses anteriores — ` +
+      `<b class="${_rpCls(trend)}">${_rpPctS(trend)}</b>. ` +
+      (trend <= -10 ? 'Queda de dois dígitos na receita recorrente é a linha mais importante a atacar: ela é o numerador da poupança e o denominador de tudo mais.'
+        : trend >= 10 ? 'Alta de dois dígitos na receita recorrente — se o gasto não acompanhar, a taxa de poupança sobe sozinha.'
+        : 'Variação dentro de ±10% é ruído, não tendência.'));
+  }
+
+  if (infP) {
+    const eq = S.fi.targetMonthlyIncome * Math.pow(1 + (infP.pct - c.ipca) / 100, 5);
+    html += _rpH3('Inflação pessoal vs. IPCA');
+    html += _rpP(`O gasto recorrente médio subiu <b>${_rpPct(infP.pct)}</b> nos últimos 12 meses contra os 12 anteriores ` +
+      `(${fmt(infP.avgPrev12)}/mês → ${fmt(infP.avgLast12)}/mês). Fonte: ${_rpEsc(infP.src)}. ` +
+      `O IPCA das premissas é ${_rpPct(c.ipca)}.` +
+      (infP.pct > c.ipca + 2
+        ? ` São <b>${_rpPP(infP.pct - c.ipca)} de creep real</b>: mantido esse ritmo por 5 anos, a renda-alvo de ${fmt(S.fi.targetMonthlyIncome)}/mês equivale a <b>${fmt(eq)}/mês</b> de hoje. As projeções assumem gasto constante em termos reais — se o padrão de vida sobe, a meta de hoje não compra o padrão de amanhã.`
+        : infP.pct > c.ipca ? ' O gasto sobe um pouco acima da inflação, mas dentro do ruído.'
+        : ' O gasto sobe abaixo da inflação: em termos reais, o padrão de vida está estável ou caindo.'));
+  }
+
+  if (lc && lc.rows.length >= 2) {
+    html += _rpH3('Receita e gasto por ano');
+    html += _rpTable(
+      `<th>Ano</th><th class="n">Receita/mês</th><th class="n">Gasto/mês</th><th class="n">Taxa de poupança</th>`,
+      lc.rows.map(r => `<tr><td class="lbl">${r.y}${r.parcial ? ' <span class="rp-dim">(parcial)</span>' : ''}</td>` +
+        `<td class="n">${fmt(r.rec)}</td><td class="n">${fmt(r.gas)}</td>` +
+        `<td class="n">${_rpBar(r.sr, r.sr >= 40 ? 'pos' : r.sr >= 20 ? 'warn' : 'neg')} ${_rpPct(r.sr)}</td></tr>`).join(''),
+      null, 'rp-t-sm');
+    html += _rpP(`De ${lc.first.y} a ${lc.last.y} a receita multiplicou por <b>${_rpX(lc.recMult)}</b> e o gasto por <b>${_rpX(lc.gasMult)}</b>. ` +
+      (lc.gasMult < lc.recMult ? 'A receita cresceu mais rápido que o gasto — é assim que a taxa de poupança sobe.' : 'O gasto cresceu mais rápido que a receita — é a definição de lifestyle creep.'));
+  }
+
+  if (outs.length >= 2 && outShare >= 20) {
+    html += _rpCall('warn', `${outs.length} meses atípicos concentram ${_rpPct(outShare)} da receita de 2 anos`,
+      `${outs.map(h => `${monthLabel(h.d)} (${fmt(h.rec)})`).join(', ')}. Bônus e eventos pontuais bancam os aportes gordos — o plano funciona <i>se</i> eles continuarem. ` +
+      `Excluindo esses meses, a taxa de poupança de 12 meses é ${_rpPct(srN)} em vez de ${_rpPct(sr12)}.`);
+  }
+
+  return { id: 'fluxo', title: 'Fluxo de caixa', src: 'planilha (histórico) + cadastro', html };
+}
+
+
+// ═══════ 6. GASTOS CATEGORIZADOS ═══════
+// Espelha a Análise de Gastos, mas ancorada no último mês COM DADO do Mobills
+// (a tela ancora no mês do calendário, e num relatório de mês fechado isso
+// mistura dois meses diferentes na mesma página).
+function _rpSec6(c) {
+  const mb = c.mb;
+  const SRC = 'Mobills (via sync)';
+  if (!mb.ok) {
+    return { id: 'gastos', title: 'Gastos categorizados', src: SRC,
+      html: _rpEmpty('<b>Sem dados de Mobills.</b> Esta seção depende dos lançamentos individuais que vêm no Sync Sheets. ' +
+        'Sincronize a planilha (↻ Sync Sheets) e gere o relatório de novo — o resto do relatório não depende disso, ' +
+        'porque gasto agregado por mês vem da coluna Gasto do histórico.') };
+  }
+
+  const ref = mb.lastD;
+  const w1 = [ref], w3 = mb.win(3), w6 = mb.win(6), w12 = mb.win(12);
+  const yoyM = addMonths(ref, -12);
+  const tot12 = mb.totIn(w12);
+  const tot1 = mb.byMonth[ref] || 0;
+  const nMonths = mb.months.length;
+  const nNat = Object.keys(mb.byNat).length;
+  const secs = mb.secOrder;
+
+  // Orçamento: reusa a mesma resolução da tela (manual > automático dos 3 últimos meses)
+  const eb = getEffectiveBudgets(mb.bySecMonth, secs, mb.months);
+  const budgets = eb.budgets || {};
+  // Object.values, nao secs: a tela soma TODAS as chaves do orcamento, inclusive
+  // secoes orcadas que nao tiveram lancamento nenhum. Somar so as presentes daria
+  // um 'Uso' inflado que nao bate com a Analise de Gastos.
+  const totalBudget = _rpSum(Object.values(budgets));
+
+  let html = '';
+
+  html += _rpKpis([
+    _rpKpi('Gasto em 12 meses', fmt(tot12), `média de ${fmt(tot12 / Math.max(1, w12.filter(m => mb.byMonth[m]).length))}/mês nos ${w12.filter(m => mb.byMonth[m]).length} meses com lançamento`),
+    _rpKpi('Mês de referência', monthLabel(ref), `${fmt(tot1)} · último mês com lançamento no Mobills`),
+    _rpKpi('Cobertura', `${nMonths} ${nMonths === 1 ? 'mês' : 'meses'}`, `${_rpN(mb.rows.length)} lançamentos de ${monthLabel(mb.months[0])} a ${monthLabel(ref)}`),
+    _rpKpi('Granularidade', `${secs.length} seções`, `${nNat} categorias distintas${mb.natSec ? '' : ''}`),
+  ], 4);
+
+  // Avisos de escopo — o que está fora da conta e por quê
+  const excl = S.expenseExclude || [];
+  const nExcl = (mb.raw.length || 0) - mb.rows.length;
+  if (excl.length || nExcl > 0) {
+    html += _rpCall('', 'O que está fora desta conta',
+      (excl.length ? `Termos ignorados nos gastos: <b>${excl.map(_rpEsc).join('</b>, <b>')}</b>. ` : '') +
+      (nExcl > 0 ? `São <b>${_rpN(nExcl)} lançamentos</b> excluídos de ${_rpN(mb.raw.length)} brutos — financiamento, transferências e afins que não são consumo. ` : '') +
+      `A seção Método de Pagamento usa o total bruto de propósito, então o total dela não bate com o desta.`);
+  }
+
+  // ── Por seção ─────────────────────────────────────────
+  html += _rpH3('Por seção');
+  // Os 6 meses ANTERIORES ao de referência. A janela não pode conter o próprio
+  // mês julgado: com ele dentro, um mês que dobrou aparece como +71% em vez de
+  // +100%, e o gatilho de alerta de 1,4× vira 1,52× na prática.
+  const wPrev6 = mb.win(7).slice(0, 6);
+  const secRows = secs.map(s => {
+    const m1 = mb.bySecMonth[s + '|' + ref] || 0;
+    const a3 = mb.secIn(s, w3) / 3;
+    const prevMs = wPrev6.filter(m => (mb.bySecMonth[s + '|' + m] || 0) > 0);
+    const a6 = prevMs.length ? mb.secIn(s, prevMs) / prevMs.length : 0;
+    const t12 = mb.secIn(s, w12), a12 = t12 / 12;
+    const yoy = mb.bySecMonth[s + '|' + yoyM] || 0;
+    return {
+      s, m1, a3, a6, a12, t12,
+      share: tot12 > 0 ? t12 / tot12 * 100 : 0,
+      dAvg6: a6 > 0 ? (m1 / a6 - 1) * 100 : null,
+      dYoy: yoy > 0 ? (m1 / yoy - 1) * 100 : null,
+      bud: budgets[s] || null,
+      use: budgets[s] > 0 ? m1 / budgets[s] * 100 : null,
+    };
+  });
+  const maxShare = Math.max(...secRows.map(r => r.share), 1);
+  html += _rpTable(
+    `<th>Seção</th><th class="n">${monthLabel(ref)}</th><th class="n">Média 3m</th><th class="n">Média 6m ant.</th><th class="n">Média 12m</th>` +
+    `<th class="n">Total 12m</th><th class="n">% do total</th><th class="n">vs. 6m ant.</th><th class="n">vs. ${monthLabel(yoyM)}</th>` +
+    `<th class="n">Orçamento</th><th class="n">Uso</th>`,
+    secRows.map(r => `<tr>` +
+      `<td class="lbl">${_rpEsc(r.s)}</td>` +
+      `<td class="n">${fmt(r.m1)}</td><td class="n">${fmt(r.a3)}</td><td class="n">${fmt(r.a6)}</td><td class="n">${fmt(r.a12)}</td>` +
+      `<td class="n">${fmt(r.t12)}</td>` +
+      `<td class="n">${_rpBar(r.share / maxShare * 100)} ${_rpPct(r.share)}</td>` +
+      `<td class="n ${_rpCls(r.dAvg6, true)}">${r.dAvg6 == null ? '—' : _rpPctS(r.dAvg6, 0)}</td>` +
+      `<td class="n ${_rpCls(r.dYoy, true)}">${r.dYoy == null ? '—' : _rpPctS(r.dYoy, 0)}</td>` +
+      `<td class="n rp-dim">${r.bud ? fmt(r.bud) : '—'}</td>` +
+      `<td class="n">${r.use == null ? '—' : `${_rpBar(r.use, r.use > 100 ? 'neg' : r.use > 85 ? 'warn' : 'pos')} ${_rpPct(r.use, 0)}`}</td>` +
+      `</tr>`).join(''),
+    `<td>Total</td><td class="n">${fmt(tot1)}</td><td class="n">${fmt(mb.totIn(w3) / 3)}</td><td class="n">${fmt(mb.totIn(w6) / 6)}</td>` +
+    `<td class="n">${fmt(tot12 / 12)}</td><td class="n">${fmt(tot12)}</td><td class="n">100,0%</td><td class="n">—</td><td class="n">—</td>` +
+    `<td class="n">${totalBudget ? fmt(totalBudget) : '—'}</td>` +
+    `<td class="n">${totalBudget ? _rpPct(tot1 / totalBudget * 100, 0) : '—'}</td>`,
+    'rp-t-sm');
+  html += `<p class="rp-note">Variações em verde são queda de gasto (bom), em vermelho alta. ` +
+    `“Média 6m ant.” e “vs. 6m ant.” usam os <b>6 meses anteriores</b> a ${monthLabel(ref)}, dividindo pelos meses com lançamento — o mês julgado fica fora da própria base. ` +
+    `(A tela usa os 5 anteriores e chama de “média 6m”; daí a pequena diferença.) ` +
+    (eb.isAuto ? `O orçamento é <b>automático</b> — média dos 3 últimos meses com dado, arredondada a R$ 50. Defina o seu na Análise de Gastos → Orçamento para trocar a régua.`
+      : `Orçamento definido manualmente na Análise de Gastos; o total inclui seções orçadas sem lançamento no mês.`) + `</p>`;
+
+  // ── Matriz seção × mês ────────────────────────────────
+  html += _rpH3(`Seção × mês — últimos ${w12.length} meses`);
+  // Normaliza por LINHA: a cor responde ao mês fora da curva DAQUELA seção.
+  // Global não serve — uma seção grande apaga a variação de todas as outras.
+  const rowMax = {};
+  secs.forEach(s => { rowMax[s] = Math.max(...w12.map(m => mb.bySecMonth[s + '|' + m] || 0), 1); });
+  const totMax = Math.max(...w12.map(m => mb.byMonth[m] || 0), 1);
+  html += `<div class="rp-tw"><table class="rp-t rp-t-xs rp-heat">` +
+    `<thead><tr><th>Seção</th>${w12.map(m => `<th class="c">${monthLabel(m)}</th>`).join('')}<th class="n">Total</th></tr></thead><tbody>` +
+    secRows.map(r => `<tr><td class="lbl">${_rpEsc(r.s)}</td>` +
+      w12.map(m => {
+        const v = mb.bySecMonth[r.s + '|' + m] || 0;
+        if (!v) return `<td class="h z">·</td>`;
+        return `<td class="h" style="${_rpHeatBg(-v / rowMax[r.s], 1)}">${_rpN(Math.round(v / 100) / 10, 1)}</td>`;
+      }).join('') +
+      `<td class="n">${fmt(r.t12)}</td></tr>`).join('') +
+    `<tr class="grp"><td>Total</td>${w12.map(m => `<td class="h" style="${_rpHeatBg(-(mb.byMonth[m] || 0) / totMax, 1)}">${_rpN(Math.round((mb.byMonth[m] || 0) / 100) / 10, 1)}</td>`).join('')}` +
+    `<td class="n">${fmt(tot12)}</td></tr>` +
+    `</tbody></table></div>`;
+  html += `<p class="rp-note">Valores em <b>milhares de reais</b> (3,2 = R$ 3.200). A intensidade do vermelho é relativa ao <b>maior mês daquela própria linha</b> — serve para achar o mês fora da curva de cada seção, não para comparar seções entre si (para isso, a coluna Total).</p>`;
+
+  html += _rpSvgBars({
+    values: mb.win(Math.min(24, nMonths)).map(m => mb.byMonth[m] || 0),
+    labels: mb.win(Math.min(24, nMonths)).map(m => monthLabel(m)),
+    h: 175, color: '#b3261e', avg: tot12 / 12, avgLabel: 'média 12m ' + fmtK(tot12 / 12),
+    alt: 'gasto total por mês',
+    cap: 'Gasto total por mês (já sem os termos ignorados). A tracejada é a média dos últimos 12 meses.',
+  });
+
+  // ── Categorias individuais ────────────────────────────
+  html += _rpH3('Categorias — as 25 maiores em 12 meses');
+  const natRows = Object.keys(mb.byNat)
+    .map(nat => ({
+      nat, sec: mb.natSec[nat] || 'Outros',
+      t12: mb.natIn(nat, w12),
+      m1: mb.byNatMonth[nat + '|' + ref] || 0,
+      n: mb.natCount[nat] || 0,
+      last: mb.natLast[nat],
+    }))
+    .filter(r => r.t12 > 0)
+    .sort((a, b) => b.t12 - a.t12);
+  const top = natRows.slice(0, 25);
+  const maxNat = Math.max(...top.map(r => r.t12), 1);
+  html += _rpTable(
+    `<th>Categoria</th><th>Seção</th><th class="n">Total 12m</th><th class="n">% do total</th><th class="n">Média/mês</th>` +
+    `<th class="n">${monthLabel(ref)}</th><th class="n">Lançamentos</th><th class="n">Último</th>`,
+    top.map(r => `<tr><td class="lbl">${_rpEsc(r.nat)}</td><td class="rp-dim">${_rpEsc(r.sec)}</td>` +
+      `<td class="n">${_rpBar(r.t12 / maxNat * 100)} ${fmt(r.t12)}</td>` +
+      `<td class="n">${_rpPct(tot12 > 0 ? r.t12 / tot12 * 100 : 0)}</td>` +
+      `<td class="n">${fmt(r.t12 / 12)}</td><td class="n">${fmt(r.m1)}</td>` +
+      `<td class="n rp-dim">${r.n}</td><td class="n rp-dim">${monthLabel(r.last)}</td></tr>`).join(''),
+    null, 'rp-t-sm');
+  if (natRows.length > 25) {
+    const rest = _rpSum(natRows.slice(25).map(r => r.t12));
+    html += _rpP(`As 25 acima somam <b>${fmt(_rpSum(top.map(r => r.t12)))}</b> (${_rpPct(tot12 > 0 ? _rpSum(top.map(r => r.t12)) / tot12 * 100 : 0)} do total de 12 meses). ` +
+      `As outras <b>${natRows.length - 25}</b> categorias somam ${fmt(rest)}.`);
+  }
+
+  // ── Fixo vs variável ──────────────────────────────────
+  html += _rpH3('Fixo vs. variável');
+  if (mb.hasFix) {
+    let fixo = 0, vari = 0;
+    const fixNat = {}, varNat = {};
+    mb.rows.filter(r => w12.includes(r.d)).forEach(r => {
+      const v = Math.abs(r.val || 0);
+      if (r.fix) { fixo += v; fixNat[r.cat] = (fixNat[r.cat] || 0) + v; }
+      else { vari += v; varNat[r.cat] = (varNat[r.cat] || 0) + v; }
+    });
+    const n = w12.length || 1;
+    const fAvg = fixo / n, vAvg = vari / n;
+    const pctFixo = (fixo + vari) > 0 ? fixo / (fixo + vari) * 100 : 0;
+    const leanFI = c.fiR > 0 ? (fAvg * 12) / (c.fiR / 100) : null;
+    const leanPct = leanFI > 0 ? c.invest / leanFI * 100 : null;
+    html += _rpKpis([
+      _rpKpi('Gasto fixo', fmt(fAvg) + '/mês', `${_rpPct(pctFixo)} do gasto total — recorrente, não some se você parar de trabalhar`),
+      _rpKpi('Gasto variável', fmt(vAvg) + '/mês', `${_rpPct(100 - pctFixo)} do total — a parte compressível`),
+      _rpKpi('Lean FI', leanFI == null ? '—' : fmt(leanFI), `patrimônio que banca só os fixos a ${_rpPct(c.fiR)}`),
+      _rpKpi('Lean FI coberto', leanPct == null ? '—' : _rpPct(leanPct), leanPct >= 100 ? 'atingido — os fixos já estão pagos pela carteira' : `faltam ${fmt(Math.max(0, leanFI - c.invest))}`,
+        leanPct >= 100 ? 'rp-pos' : ''),
+    ], 4);
+    const topFix = Object.entries(fixNat).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const topVar = Object.entries(varNat).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    html += _rpTable(
+      `<th>Maiores fixos (12m)</th><th class="n">Total</th><th class="n">/mês</th><th>Maiores variáveis (12m)</th><th class="n">Total</th><th class="n">/mês</th>`,
+      Array.from({ length: Math.max(topFix.length, topVar.length) }, (_, i) => {
+        const f = topFix[i], v = topVar[i];
+        return `<tr><td class="lbl">${f ? _rpEsc(f[0]) : ''}</td><td class="n">${f ? fmt(f[1]) : ''}</td><td class="n">${f ? fmt(f[1] / n) : ''}</td>` +
+          `<td class="lbl">${v ? _rpEsc(v[0]) : ''}</td><td class="n">${v ? fmt(v[1]) : ''}</td><td class="n">${v ? fmt(v[1] / n) : ''}</td></tr>`;
+      }).join(''),
+      null, 'rp-t-sm');
+    html += `<p class="rp-note">Classificação pela flag <b>Recorrente</b> do Mobills, não por heurística. Médias dividem por ${n} meses da janela — mês sem lançamento dilui.</p>`;
+  } else {
+    html += _rpEmpty('A coluna <b>Recorrente</b> não está vindo no sync, então não há como separar fixo de variável (nem calcular o Lean FI). ' +
+      'Re-cole o <code>sheets-sync.gs</code> na planilha e re-implante o Apps Script.');
+  }
+
+  // ── Método de pagamento ───────────────────────────────
+  html += _rpH3('Método de pagamento');
+  const byMet = {}, cntMet = {};
+  (mb.raw || []).forEach(r => {
+    const k = r.met || 'Não informado';
+    byMet[k] = (byMet[k] || 0) + Math.abs(r.val || 0);
+    cntMet[k] = (cntMet[k] || 0) + 1;
+  });
+  const mets = Object.entries(byMet).sort((a, b) => b[1] - a[1]);
+  if (mets.length) {
+    const totMet = _rpSum(mets.map(m => m[1]));
+    html += _rpTable(
+      `<th>Método</th><th class="n">Total (bruto)</th><th class="n">% do total</th><th class="n">Lançamentos</th><th class="n">Ticket médio</th>`,
+      mets.map(([k, v]) => `<tr><td class="lbl">${_rpEsc(k)}</td>` +
+        `<td class="n">${_rpBar(totMet > 0 ? v / mets[0][1] * 100 : 0)} ${fmt(v)}</td>` +
+        `<td class="n">${_rpPct(totMet > 0 ? v / totMet * 100 : 0)}</td>` +
+        `<td class="n rp-dim">${cntMet[k]}</td><td class="n">${fmt(v / cntMet[k], 2)}</td></tr>`).join(''),
+      `<td>Total</td><td class="n">${fmt(totMet)}</td><td class="n">100,0%</td><td class="n">${_rpN(mb.raw.length)}</td><td class="n">${fmt(totMet / Math.max(1, mb.raw.length), 2)}</td>`,
+      'rp-t-sm');
+    html += `<p class="rp-note">Base bruta (${_rpN(mb.raw.length)} lançamentos, <b>inclui</b> os termos ignorados) e histórico inteiro, não 12 meses — é como a tela faz. Por isso o total aqui é maior que o de gasto.</p>`;
+  } else {
+    html += _rpEmpty('Nenhum lançamento com método de pagamento informado.');
+  }
+
+  // ── Alertas por seção (recalculados na âncora certa) ──
+  const alerts = [];
+  secRows.forEach(r => {
+    if (r.a6 > 0 && r.m1 > r.a6 * 1.4) {
+      alerts.push({ k: 'neg', t: `${r.s} estourou em ${monthLabel(ref)}`,
+        b: `<b>${fmt(r.m1)}</b> contra média de ${fmt(r.a6)} nos 6 meses anteriores — <b>${_rpPctS(r.dAvg6, 0)}</b>.` });
+    }
+    const v3 = w3.map(m => mb.bySecMonth[r.s + '|' + m] || 0);
+    if (v3.every(v => v > 0)) {
+      const up = v3[2] > v3[1] && v3[1] > v3[0];
+      const dn = v3[2] < v3[1] && v3[1] < v3[0];
+      const ch = (v3[2] / v3[0] - 1) * 100;
+      if (up && ch > 15) alerts.push({ k: 'warn', t: `${r.s} sobe há 3 meses seguidos`, b: `${_rpPctS(ch, 0)} no período (${fmt(v3[0])} → ${fmt(v3[2])}).` });
+      if (dn && ch < -15) alerts.push({ k: 'pos', t: `${r.s} cai há 3 meses seguidos`, b: `${_rpPctS(ch, 0)} no período (${fmt(v3[0])} → ${fmt(v3[2])}).` });
+    }
+  });
+  const prevM = addMonths(ref, -1);
+  const pv = mb.byMonth[prevM] || 0;
+  if (pv > 0 && tot1 > pv * 1.2) {
+    alerts.unshift({ k: 'neg', t: `Gasto total subiu ${_rpPctS((tot1 / pv - 1) * 100, 0)} no mês`, b: `${fmt(pv)} em ${monthLabel(prevM)} → <b>${fmt(tot1)}</b> em ${monthLabel(ref)}.` });
+  }
+  if (alerts.length) {
+    html += _rpH3('Movimentos que pedem olhar');
+    html += alerts.slice(0, 10).map(a => _rpCall(a.k, _rpEsc(a.t), a.b)).join('');
+    if (alerts.length > 10) html += _rpP(`<span class="rp-dim">e outros ${alerts.length - 10} movimentos menores.</span>`);
+  }
+
+  // ── Mobills × planilha ────────────────────────────────
+  const histRef = c.H.find(h => h.d === ref);
+  if (histRef) {
+    const diff = histRef.gas > 0 ? Math.abs(tot1 - histRef.gas) / histRef.gas * 100 : null;
+    const divs = window._mobillsDivergences;
+    const nDiv = Array.isArray(divs) ? divs.length : null;
+    html += _rpH3('Mobills × planilha');
+    html += _rpP(`Em ${monthLabel(ref)} o Mobills soma <b>${fmt(tot1)}</b> e a coluna Gasto da planilha marca <b>${fmt(histRef.gas)}</b>` +
+      (diff == null ? '.' : ` — ${_rpPct(diff)} de diferença.`) +
+      (diff != null && diff > 15 ? ` Acima de 15% alguma das duas fontes está errada: lançamento faltando, duplicado, ou um termo que deveria estar na lista de ignorados.` : ' Dentro do esperado.') +
+      (nDiv ? ` O validador do sync aponta <b>${nDiv} ${nDiv === 1 ? 'mês' : 'meses'}</b> fechado(s) com divergência acima de 15%.` :
+        nDiv === 0 ? ' O validador do sync não encontrou nenhum mês fechado divergente.' : ''));
+    if (Array.isArray(divs) && divs.length) {
+      html += _rpTable(`<th>Mês</th><th class="n">Planilha</th><th class="n">Mobills</th><th class="n">Diferença</th>`,
+        divs.slice().sort((a, b) => b.diff - a.diff).slice(0, 8)
+          .map(d => `<tr><td class="lbl">${monthLabel(d.d)}</td><td class="n">${fmt(d.hist)}</td><td class="n">${fmt(d.mobills)}</td>` +
+            `<td class="n rp-neg">${_rpPct(d.diff)}</td></tr>`).join(''),
+        null, 'rp-t-sm');
+    }
+  }
+
+  return { id: 'gastos', title: 'Gastos categorizados', src: SRC, html };
+}
+
+
+// Rótulos legíveis por classe de ativo (mesma tabela do simulador de estresse)
+const _RP_CAT_LBL = {
+  rf: 'Renda fixa', rv: 'Renda variável', fii: 'Fundos imobiliários', intl: 'Internacional',
+  cash: 'Caixa', prev: 'Previdência', imovel: 'Imóvel', outro: 'Outros',
+};
+
+// ═══════ 7. CARTEIRA — COMPOSIÇÃO E BALANCEAMENTO ═══════
+function _rpSec7(c) {
+  const P = c.port;
+  if (!P.rows.length || P.total <= 0) {
+    return { id: 'carteira', title: 'Carteira — composição e balanceamento', src: 'cadastro (Patrimônio)',
+      html: _rpEmpty('Nenhum ativo cadastrado na aba Patrimônio.') };
+  }
+  const total = P.total;
+  const band = P.band;
+  const bandHalf = t => Math.min(band.abs, t * band.rel / 100);   // regra 5/25, igual à da tela
+  const tgtTotal = _rpSum(Object.values(P.target));
+  const hasTgt = tgtTotal > 0;
+
+  const an = P.rows.map(a => {
+    const realPct = a.value / total * 100;
+    const tPct = P.target[a.id] || 0;
+    const delta = realPct - tPct;
+    const half = bandHalf(tPct);
+    return {
+      a, realPct, tPct, delta, half,
+      out: hasTgt && Math.abs(delta) > half + 1e-9,
+      tVal: total * tPct / 100,
+      trade: total * tPct / 100 - a.value,
+      rel: tPct > 0 ? delta / tPct * 100 : null,
+    };
+  });
+  const outN = an.filter(x => x.out).length;
+  const turnover = _rpSum(an.filter(x => x.trade > 0).map(x => x.trade));
+
+  // Por classe
+  const byCat = {};
+  P.rows.forEach(a => { byCat[a.cat] = (byCat[a.cat] || 0) + a.value; });
+  const catRows = Object.entries(byCat).sort((x, y) => y[1] - x[1]);
+  const rvShare = _rpSum(['rv', 'fii', 'intl'].map(k => byCat[k] || 0)) / total * 100;
+  const jurosShare = _rpSum(['rf', 'cash'].map(k => byCat[k] || 0)) / total * 100;
+
+  // Concentração idiossincrática: exclui cestas diversificadas e o que está fora do investível
+  const idio = P.rows.filter(a => !['rf', 'cash', 'imovel'].includes(a.cat)).sort((x, y) => y.value - x.value);
+  const top1 = idio[0];
+  const top3 = _rpSum(idio.slice(0, 3).map(a => a.value));
+
+  const wNom = weightedReturn(), wReal = weightedReturnReal(), vol = portfolioVol();
+
+  let html = _rpKpis([
+    _rpKpi('Carteira cadastrada', fmt(total), `${P.rows.length} ativos · investível ${fmt(c.invest)}`),
+    _rpKpi('Retorno esperado', _rpPct(wNom) + ' a.a.', `${_rpPct(wReal)} real (descontado IPCA de ${_rpPct(c.ipca)}) — é essa taxa que roda nas projeções`),
+    _rpKpi('Volatilidade estimada', _rpPct(vol) + ' a.a.', 'ponderada por classe, sem correlação'),
+    _rpKpi('Fora da banda', hasTgt ? `${outN} de ${P.rows.length}` : '—',
+      hasTgt ? `regra ${_rpN(band.abs)}/${_rpN(band.rel)} · giro de ${fmt(turnover)} para zerar` : 'sem alocação alvo definida',
+      outN ? 'rp-warn' : 'rp-pos'),
+  ], 4);
+
+  html += _rpH3('Posição por ativo');
+  html += _rpTable(
+    `<th>Ativo</th><th>Classe</th><th class="n">Valor</th><th class="n">% atual</th><th class="n">% alvo</th>` +
+    `<th class="n">Desvio</th><th class="n">Desvio rel.</th><th class="n">Banda</th><th class="c">Status</th><th class="n">Retorno</th>`,
+    an.slice().sort((x, y) => y.a.value - x.a.value).map(x => `<tr>` +
+      `<td class="lbl">${_rpEsc(x.a.name)}</td>` +
+      `<td class="rp-dim">${_rpEsc(_RP_CAT_LBL[x.a.cat] || x.a.cat)}</td>` +
+      `<td class="n">${fmt(x.a.value)}</td>` +
+      `<td class="n">${_rpBar(x.realPct)} ${_rpPct(x.realPct)}</td>` +
+      `<td class="n rp-dim">${hasTgt ? _rpPct(x.tPct) : '—'}</td>` +
+      `<td class="n ${x.out ? (x.delta > 0 ? 'rp-neg' : 'rp-warn') : 'rp-dim'}">${hasTgt ? _rpPP(x.delta) : '—'}</td>` +
+      `<td class="n rp-dim">${x.rel == null ? '—' : _rpPctS(x.rel, 0)}</td>` +
+      `<td class="n rp-dim">${hasTgt ? `±${_rpPct(x.half)}` : '—'}</td>` +
+      `<td class="c">${!hasTgt ? '—' : x.out ? '<b class="rp-neg">fora</b>' : '<span class="rp-pos">dentro</span>'}</td>` +
+      `<td class="n rp-dim">${_rpPct(x.a.ret || 0)}</td></tr>`).join(''),
+    `<td>Total</td><td></td><td class="n">${fmt(total)}</td><td class="n">100,0%</td>` +
+    `<td class="n">${hasTgt ? _rpPct(tgtTotal) : '—'}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td>` +
+    `<td class="c">${hasTgt ? outN + ' fora' : '—'}</td><td class="n">${_rpPct(wNom)}</td>`,
+    'rp-t-sm');
+  html += `<p class="rp-note">Percentuais sobre a carteira <b>inteira</b> (inclui imóvel, se houver) — é a mesma base da aba Patrimônio. ` +
+    `A banda é a regra ${_rpN(band.abs)}/${_rpN(band.rel)}: o menor entre ${_rpN(band.abs)} p.p. e ${_rpN(band.rel)}% do alvo.` +
+    (hasTgt && Math.abs(tgtTotal - 100) > 0.5 ? ` <b class="rp-warn">Seus alvos somam ${_rpPct(tgtTotal)}, não 100% — o plano não fecha em zero.</b>` : '') + `</p>`;
+
+  if (hasTgt) {
+    html += _rpSvgPair(
+      an.slice().sort((x, y) => y.realPct - x.realPct).map(x => ({ label: x.a.name, a: x.realPct, b: x.tPct })),
+      { nameA: '% atual', nameB: '% alvo', alt: 'alocação atual vs alvo',
+        cap: 'Barra azul é onde a carteira está; a cinza, onde o plano diz que deveria estar.' });
+  }
+
+  html += _rpH3('Por classe');
+  html += _rpTable(
+    `<th>Classe</th><th class="n">Valor</th><th class="n">% da carteira</th><th class="n">Ativos</th>`,
+    catRows.map(([k, v]) => `<tr><td class="lbl">${_rpEsc(_RP_CAT_LBL[k] || k)}</td>` +
+      `<td class="n">${fmt(v)}</td><td class="n">${_rpBar(v / total * 100)} ${_rpPct(v / total * 100)}</td>` +
+      `<td class="n rp-dim">${P.rows.filter(a => a.cat === k).length}</td></tr>`).join(''),
+    null, 'rp-t-sm');
+
+  // ── Plano de rebalanceamento ──────────────────────────
+  if (hasTgt && outN > 0) {
+    html += _rpH3('Rebalanceamento — duas rotas');
+    const trades = an.filter(x => Math.abs(x.trade) >= 1).sort((p, q) => p.trade - q.trade);
+    html += _rpP('<b>Rota A — trades.</b> Voltar cada posição ao alvo sem dinheiro novo. Compras e vendas se anulam, mas venda com lucro gera IR e marcação a mercado.');
+    html += _rpTable(
+      `<th>Ativo</th><th class="n">Hoje</th><th class="n">Ação</th><th class="n">Fica em</th><th class="c">Estava</th>`,
+      trades.map(x => `<tr><td class="lbl">${_rpEsc(x.a.name)}</td><td class="n">${fmt(x.a.value)}</td>` +
+        `<td class="n ${x.trade > 0 ? 'rp-pos' : 'rp-neg'}">${x.trade > 0 ? 'Comprar' : 'Vender'} ${fmt(Math.abs(x.trade))}</td>` +
+        `<td class="n">${fmt(x.tVal)}</td>` +
+        `<td class="c rp-dim">${x.out ? 'fora' : 'dentro'}</td></tr>`).join(''),
+      `<td>Giro</td><td class="n">—</td><td class="n">${fmt(turnover)}</td><td class="n">${fmt(total)}</td><td class="c">—</td>`,
+      'rp-t-sm');
+
+    // Rota B: aporte novo direcionado (deficit-proporcional, só compra) — mesma lógica do simulador
+    const ap = Math.max(0, Math.round(c.avgApo));
+    if (ap > 0) {
+      const nt = total + ap;
+      const dist = P.rows.map(a => {
+        const tp = (P.target[a.id] || 0) / 100;
+        return { a, tp, ideal: nt * tp, def: Math.max(0, nt * tp - a.value) };
+      });
+      const totDef = _rpSum(dist.map(d => d.def));
+      let rem = ap;
+      dist.forEach(d => {
+        d.ap = totDef > 0 ? Math.min(rem, Math.round(ap * d.def / totDef)) : Math.round(ap * d.tp);
+        rem -= d.ap;
+      });
+      if (rem > 0 && dist.length) {
+        const big = dist.reduce((b, d) => d.def > b.def ? d : b, dist[0]);
+        big.ap += rem;
+      }
+      html += _rpP(`<b>Rota B — aporte novo.</b> Direcionar o próximo aporte para quem está mais abaixo do alvo, sem vender nada: zero IR, zero marcação. ` +
+        `Simulado com <b>${fmt(ap)}</b> (seu aporte médio de 12 meses).`);
+      html += _rpTable(
+        `<th>Ativo</th><th class="n">% alvo</th><th class="n">Aporte sugerido</th><th class="n">Fica com</th><th class="n">Nova %</th><th class="n">Desvio novo</th>`,
+        dist.filter(d => d.ap > 0 || d.a.value > 0).sort((x, y) => y.ap - x.ap).map(d => {
+          const nv = d.a.value + d.ap, np = nv / nt * 100, nd = np - d.tp * 100;
+          return `<tr><td class="lbl">${_rpEsc(d.a.name)}</td><td class="n rp-dim">${_rpPct(d.tp * 100)}</td>` +
+            `<td class="n ${d.ap > 0 ? 'rp-pos' : 'rp-dim'}">${d.ap > 0 ? fmt(d.ap) : '—'}</td>` +
+            `<td class="n">${fmt(nv)}</td><td class="n">${_rpPct(np)}</td>` +
+            `<td class="n rp-dim">${_rpPP(nd)}</td></tr>`;
+        }).join(''),
+        `<td>Total</td><td class="n">${_rpPct(tgtTotal)}</td><td class="n">${fmt(ap)}</td><td class="n">${fmt(nt)}</td><td class="n">100,0%</td><td class="n">—</td>`,
+        'rp-t-sm');
+      html += `<p class="rp-note">Rota B não zera o desvio de uma vez — ela corrige na direção certa a cada aporte. Com ${fmt(ap)}/mês, o desvio some em poucos meses sem custo fiscal.</p>`;
+    }
+  } else if (hasTgt) {
+    html += _rpCall('pos', 'Carteira dentro das bandas', `Todas as ${P.rows.length} posições estão dentro da banda ${_rpN(band.abs)}/${_rpN(band.rel)}. Nada a fazer — rebalanceamento sem desvio é só custo.`);
+  } else {
+    html += _rpEmpty('Sem <b>alocação alvo</b> definida, não há como medir desvio nem montar plano de rebalanceamento. Defina em Patrimônio → Editar alvos.');
+  }
+
+  // ── Concentração ──────────────────────────────────────
+  html += _rpH3('Concentração');
+  const conc = [];
+  if (top1) {
+    const p1 = top1.value / total * 100;
+    conc.push(`A maior posição com risco próprio é <b>${_rpEsc(top1.name)}</b>, com ${fmt(top1.value)} — <b>${_rpPct(p1)}</b> da carteira` +
+      (p1 > 35 ? `. Acima de 35% numa posição única, o drawdown que ela puder ter é o drawdown que o plano vai ter.` : '.'));
+    conc.push(`As três maiores somam ${fmt(top3)} (${_rpPct(top3 / total * 100)}).`);
+  }
+  conc.push(`Renda variável + FIIs + internacional: <b>${_rpPct(rvShare)}</b> da carteira.`);
+  conc.push(`Renda fixa + caixa: <b>${_rpPct(jurosShare)}</b>` +
+    (jurosShare >= 55 ? ` — com mais da metade em juros, a projeção depende de o CDI/Selic se manterem altos. Vale rodar o cenário pessimista com CDI perto de 10%.` : '.'));
+  html += `<ul class="rp-ul">${conc.map(t => `<li>${t}</li>`).join('')}</ul>`;
+
+  return { id: 'carteira', title: 'Carteira — composição e balanceamento', src: 'cadastro (Patrimônio)', html };
+}
+
+// ═══════ 8. INDEPENDÊNCIA FINANCEIRA ═══════
+function _rpSec8(c) {
+  const months = (S.assumptions.projectionYears || 30) * 12;
+  const paths = buildScenarioPaths(months);
+  const start = projectionStart();
+  const pct = c.fin > 0 ? c.invest / c.fin * 100 : 0;
+  const run = runwayMonths();
+  const cov = passiveCoverage();
+  const coast = coastFIYears();
+  const rp = riskProfile();
+  const mc = monteCarloFI(500, 40);
+  const dec = monteCarloDecum(500, 90);
+
+  const rows = paths.map(p => {
+    const fi = findFIDate(p.path);
+    return { p, fi };
+  });
+  const base = rows.find(r => r.p.id === 'base') || rows[0];
+
+  let html = _rpKpis([
+    _rpKpi('Número FI', fmt(c.fin), `${fmt(S.fi.targetMonthlyIncome)}/mês a ${_rpPct(c.fiR)} — modo ${S.fi.mode === 'perpetuidade' ? 'perpetuidade (vive do juro real)' : 'regra dos 4% (SWR)'}`),
+    _rpKpi('Progresso', _rpPct(pct), `${fmt(c.invest)} de ${fmt(c.fin)} · faltam ${fmt(Math.max(0, c.fin - c.invest))}`),
+    _rpKpi('Cobertura passiva', _rpPct(cov.pct), `o rendimento esperado paga ${_rpPct(cov.pct)} do gasto médio de ${fmt(cov.avgGas)}/mês`),
+    _rpKpi('Colchão', `${Math.round(run)} meses`, `${(run / 12).toFixed(1).replace('.', ',')} anos sem nenhuma renda`,
+      run >= 60 ? 'rp-pos' : run >= 24 ? '' : 'rp-warn'),
+  ], 4);
+
+  html += _rpH3('Data da FI por cenário');
+  html += _rpTable(
+    `<th>Cenário</th><th class="n">Retorno real</th><th class="n">Chega em</th><th class="n">Idade</th><th class="n">Prazo</th><th class="n">Patrimônio no cruzamento</th><th class="n">Renda passiva</th>`,
+    rows.map(r => {
+      const rr = weightedReturnReal() + (r.p.retDelta || 0);
+      if (!r.fi) return `<tr><td class="lbl">${_rpEsc(r.p.name)}</td><td class="n">${_rpPct(rr)}</td>` +
+        `<td class="n rp-neg" colspan="4">não atinge em ${S.assumptions.projectionYears} anos</td><td class="n">—</td></tr>`;
+      return `<tr${r.p.id === 'base' ? ' class="grp"' : ''}><td class="lbl">${_rpEsc(r.p.name)}</td>` +
+        `<td class="n">${_rpPct(rr)}</td>` +
+        `<td class="n">${_rpDateLabel(r.fi.date)}</td>` +
+        `<td class="n">${r.fi.date.getFullYear() - S.profile.birthYear} anos</td>` +
+        `<td class="n">${_rpDur(r.fi.months)}</td>` +
+        `<td class="n">${fmt(r.fi.wealth)}</td>` +
+        `<td class="n">${fmt(r.fi.wealth * c.fiR / 100 / 12)}/mês</td></tr>`;
+    }).join(''),
+    null, 'rp-t-sm');
+  html += `<p class="rp-note">Projeções em <b>valores de hoje</b> (retorno real, já sem inflação) a partir de ${monthLabel(start.str)}. ` +
+    `Os cenários mexem em retorno, crescimento de receita e de gasto ao mesmo tempo — não são só variação de rentabilidade.</p>`;
+
+  // Curva das projeções
+  const step = Math.max(1, Math.ceil(months / 120));
+  const idx = [];
+  for (let i = 0; i < months; i += step) idx.push(i);
+  html += _rpSvgLine({
+    series: paths.map(p => ({
+      name: p.name,
+      color: p.id === 'base' ? '#1f4fd8' : p.id === 'otimista' ? '#0f7a4f' : '#b3261e',
+      data: idx.map(i => p.path[i] ? p.path[i].w : null),
+      dash: p.id !== 'base',
+    })),
+    labels: idx.map(i => String(start.date.getFullYear() + Math.floor((start.date.getMonth() + i) / 12))),
+    h: 210, zero: true, baseline: c.fin, baselineLabel: 'meta ' + fmtK(c.fin),
+    alt: 'projeção de patrimônio por cenário',
+    cap: `Patrimônio projetado em R$ de hoje. A tracejada preta é o Número FI de ${fmt(c.fin)}.`,
+  });
+
+  html += _rpH3('Quando o plano deixa de depender de você');
+  const items = [];
+  if (coast === 0) items.push(`<b>Coast FI: atingido.</b> O patrimônio investível já passou o Número FI — aportar virou irrelevante para a meta.`);
+  else if (coast == null) items.push(`<b>Coast FI: indefinido.</b> O retorno real esperado da carteira é zero ou negativo, então o patrimônio não cresce sozinho em poder de compra.`);
+  else {
+    const coastAge = Math.round(c.age + coast);
+    items.push(`<b>Coast FI em ${coast.toFixed(1).replace('.', ',')} anos</b> (aos ${coastAge}): se você parasse de aportar hoje e só deixasse o juro real de ${_rpPct(weightedReturnReal())} compor, a meta seria atingida nessa idade. ` +
+      (coastAge <= (S.assumptions.retirementAge || 60)
+        ? `Como isso cabe antes dos ${S.assumptions.retirementAge || 60} anos, <b>aportar já é escolha, não obrigação</b> — o que muda o peso de decisões de carreira.`
+        : `Ainda passa dos ${S.assumptions.retirementAge || 60} anos, então o aporte continua sendo parte necessária do plano.`));
+  }
+  // passiveCoverage() rende NOMINAL (usa a.ret de cada ativo, sem descontar IPCA).
+  // É o número da tela, e fica; mas quem decide é o real — perpetuidade só se
+  // sustenta se o principal acompanhar a inflação. Os dois, rotulados.
+  const covReal = cov.avgGas > 0 ? c.port.total * (weightedReturnReal() / 100) / 12 / cov.avgGas * 100 : 0;
+  items.push(`<b>Colchão:</b> ${Math.round(run)} meses de gasto médio cobertos pela carteira. ` +
+    `O rendimento <b>nominal</b> esperado paga ${_rpPct(cov.pct)} do gasto de ${fmt(cov.avgGas)}/mês — é o número da aba Independência FI. ` +
+    `Descontando o IPCA de ${_rpPct(c.ipca)}, o rendimento <b>real</b> paga <b>${_rpPct(covReal)}</b>` +
+    (covReal >= 100 ? ' — pela régua da perpetuidade, o seu padrão de vida <b>de hoje</b> já está pago pela carteira sem consumir o principal; o que falta é a folga da renda-alvo que você cadastrou, maior que o seu gasto real.'
+      : covReal >= 80 ? ' — pela régua da perpetuidade, você está muito perto da FI do seu padrão de vida atual.'
+      : '. É o real que importa aqui: viver do nominal significa corroer o principal em poder de compra todo ano.'));
+  if (rp.reqReal != null) {
+    items.push(`<b>Retorno real necessário:</b> ${_rpPct(rp.reqReal)} a.a. para bater a meta até os ${S.assumptions.retirementAge || 60} anos, contra ${_rpPct(rp.expReal)} que a carteira promete. ` +
+      (rp.reqReal <= rp.expReal ? 'A carteira atual dá conta com folga — o plano não exige heroísmo.' : 'A carteira atual não dá conta: ou sobe o aporte, ou estica o prazo, ou aumenta o risco.'));
+  } else {
+    items.push(`<b>Retorno real necessário:</b> nem 30% a.a. real fecha a meta no prazo até os ${S.assumptions.retirementAge || 60} anos com o aporte do cadastro. O que falta é aporte ou prazo, não rentabilidade.`);
+  }
+  html += `<ul class="rp-ul">${items.map(t => `<li>${t}</li>`).join('')}</ul>`;
+
+  html += _rpH3('Monte Carlo');
+  if (mc) {
+    const dAt = m => new Date(start.date.getFullYear(), start.date.getMonth() + m, 1);
+    const dt = m => _rpDateLabel(dAt(m));
+    html += _rpTable(
+      `<th>Percentil</th><th class="n">Prazo</th><th class="n">Chega em</th><th class="n">Idade</th>`,
+      [['p10 — cenário bom', mc.p10], ['p50 — mediana', mc.p50], ['p90 — cenário ruim', mc.p90]]
+        .map(([l, m]) => `<tr><td class="lbl">${l}</td><td class="n">${_rpDur(m)}</td><td class="n">${dt(m)}</td>` +
+          `<td class="n">${dAt(m).getFullYear() - S.profile.birthYear} anos</td></tr>`).join(''),
+      null, 'rp-t-sm');
+    html += _rpP(`Em <b>${_rpPct(mc.probInHorizon)}</b> das ${_rpN(mc.sims)} simulações a meta é atingida dentro do horizonte de ${S.assumptions.projectionYears} anos. ` +
+      `A simulação usa retorno real médio de ${_rpPct(weightedReturnReal())} com volatilidade de ${_rpPct(portfolioVol())} a.a. — <i>sem correlação entre classes</i>, o que superestima o risco e torna a dispersão mais larga do que a real.`);
+  } else {
+    html += _rpEmpty('Nenhuma das simulações atingiu a meta no horizonte — com o aporte e o retorno atuais, o Monte Carlo não encontra caminho.');
+  }
+  html += _rpP(`<b>E depois da FI?</b> Sacando ${fmt(dec.saque)}/mês corrigidos, o dinheiro dura até os ${dec.horizonAge} anos em <b>${_rpPct(dec.successRate)}</b> das ${_rpN(dec.sims)} simulações` +
+    (dec.medianRuinAge != null ? `. Nos casos que falham, a mediana da ruína é aos <b>${Math.round(dec.medianRuinAge)} anos</b>` : ' — nenhuma simulação quebrou') +
+    (dec.medianFinal != null ? `. Patrimônio mediano restante aos ${dec.horizonAge}: ${fmt(dec.medianFinal)} (p10: ${dec.p10Final != null ? fmt(dec.p10Final) : '—'}).` : '.'));
+
+  html += _rpH3('Perfil de risco — necessidade × capacidade × tolerância');
+  html += _rpTable(
+    `<th>Dimensão</th><th class="c">Nível</th><th>Leitura</th>`,
+    `<tr><td class="lbl">Necessidade</td><td class="c"><b>${_rpEsc(rp.necLvl)}</b></td><td>${_rpSafeHtml(rp.necTxt)}</td></tr>` +
+    `<tr><td class="lbl">Capacidade</td><td class="c"><b>${_rpEsc(rp.capLvl)}</b></td><td>${rp.anos} anos até os ${S.assumptions.retirementAge || 60} — horizonte é o que permite atravessar queda sem vender.</td></tr>` +
+    `<tr><td class="lbl">Tolerância</td><td class="c"><b>${_rpEsc(rp.tolLvl)}</b></td><td>${_rpSafeHtml(rp.tolTxt)}</td></tr>`,
+    null, 'rp-t-sm');
+  html += _rpCall(rp.overRisk ? 'warn' : '', `Perfil recomendado: ${rp.rec}`,
+    `Vale o menor dos três — não adianta tolerância alta com capacidade baixa. Hoje a carteira tem <b>${_rpPct(rp.rvPct)}</b> em ativos de risco.` +
+    (rp.overRisk ? ` Com necessidade <b>baixa</b> e mais de 40% em risco, você está correndo risco que o plano não pede: quando já ganhou o jogo, não precisa continuar apostando.` : ''));
+
+  return { id: 'fi', title: 'Independência financeira', src: 'cadastro + projeção', html };
+}
+
+// ═══════ 9. OBJETIVOS ═══════
+function _rpSec9(c) {
+  const gs = S.goals || [];
+  if (!gs.length) {
+    return { id: 'objetivos', title: 'Objetivos', src: 'cadastro (Linha da Vida)',
+      html: _rpEmpty('Nenhuma meta cadastrada. Metas paralelas à FI (entrada de imóvel, carro, viagem, MBA) entram como saída de caixa futura e mostram quanto empurram a data da independência — cadastre em Linha da Vida → Objetivos.') };
+  }
+  const start = projectionStart();
+  const imp = goalsFIImpact();
+  const rows = gs.slice().sort((a, b) => String(a.dataAlvo).localeCompare(String(b.dataAlvo)));
+  const totHoje = _rpSum(rows.map(g => g.valor || 0));
+  const totData = _rpSum(rows.map(g => goalValorNaData(g)));
+
+  let html = _rpTable(
+    `<th>Meta</th><th>Data-alvo</th><th class="n">Prazo</th><th class="n">Valor de hoje</th><th class="n">Custo na data</th><th class="c">Prioridade</th>`,
+    rows.map(g => {
+      const off = monthsBetween(start.str, g.dataAlvo);
+      return `<tr><td class="lbl">${_rpEsc(g.name)}</td><td>${g.dataAlvo ? monthLabel(g.dataAlvo) : '—'}</td>` +
+        `<td class="n">${off < 0 ? '<span class="rp-dim">passado</span>' : _rpDur(off)}</td>` +
+        `<td class="n">${fmt(g.valor || 0)}</td><td class="n">${fmt(goalValorNaData(g))}</td>` +
+        `<td class="c rp-dim">${_rpEsc(g.prioridade || '—')}</td></tr>`;
+    }).join(''),
+    `<td>Total</td><td></td><td class="n">—</td><td class="n">${fmt(totHoje)}</td><td class="n">${fmt(totData)}</td><td class="c">—</td>`,
+    'rp-t-sm');
+  html += `<p class="rp-note">“Custo na data” já está em <b>R$ de hoje</b>: só a inflação <i>real</i> da meta (acima do IPCA) escala o valor. Metas com data no passado são ignoradas na projeção.</p>`;
+
+  if (imp.sem && imp.com) {
+    const d = imp.com.months - imp.sem.months;
+    html += _rpCall(d >= 6 ? 'warn' : 'pos', d >= 6 ? `As metas empurram a FI em ${_rpDur(d)}` : 'As metas praticamente não atrasam a FI',
+      `Sem as metas, a independência chegaria em <b>${_rpDateLabel(imp.sem.date)}</b>. Com elas, <b>${_rpDateLabel(imp.com.date)}</b> — ${d <= 0 ? 'sem atraso mensurável' : _rpDur(d) + ' de diferença'}. ` +
+      `Não é argumento para cancelar meta nenhuma; é o preço, explicitado. ${fmt(totData)} de saída futura custa ${_rpDur(d)} de liberdade.`);
+  } else if (imp.sem && !imp.com) {
+    html += _rpCall('neg', 'Com as metas, a FI sai do horizonte',
+      `Sem elas a independência chegaria em <b>${_rpDateLabel(imp.sem.date)}</b>; com as ${rows.length} metas cadastradas (${fmt(totData)}) a projeção não alcança a meta dentro de ${S.assumptions.projectionYears} anos. ` +
+      `Ou as metas encolhem, ou esticam no tempo, ou o aporte sobe.`);
+  } else {
+    html += _rpCall('neg', 'A FI não é atingida no horizonte nem sem as metas',
+      `A projeção base não alcança ${fmt(c.fin)} em ${S.assumptions.projectionYears} anos, com ou sem os objetivos — o gargalo está no aporte ou na meta, não nas metas paralelas.`);
+  }
+  return { id: 'objetivos', title: 'Objetivos', src: 'cadastro (Linha da Vida)', html };
+}
+
+// ═══════ 10. DÍVIDAS E FINANCIAMENTO ═══════
+function _rpSec10(c) {
+  const debts = (S.debts || []);
+  const infos = debts.map(d => ({ d, now: debtNow(d) })).filter(x => x.now && !x.now.quitada);
+  const am = S.amort;
+  let html = '';
+
+  if (infos.length) {
+    const saldo = _rpSum(infos.map(x => x.now.saldoAtual));
+    const parc = _rpSum(infos.map(x => x.now.parcelaAtual));
+    const juros = _rpSum(infos.map(x => x.now.jurosMes));
+    const jurosRest = _rpSum(infos.map(x => x.now.jurosRestantes));
+    const fim = infos.reduce((a, x) => (!a || x.now.quitacao > a) ? x.now.quitacao : a, null);
+
+    html += _rpKpis([
+      _rpKpi('Saldo devedor', fmt(saldo), `${infos.length} ${infos.length === 1 ? 'dívida ativa' : 'dívidas ativas'} · última quitação em ${fim ? monthLabel(fim) : '—'}`),
+      _rpKpi('Parcela mensal', fmt(parc), `${fmt(juros)} de juros e ${fmt(parc - juros)} de amortização — ${_rpPct(parc > 0 ? juros / parc * 100 : 0)} da parcela é juro`),
+      _rpKpi('Juros ainda a pagar', fmt(jurosRest), `${_rpPct(saldo > 0 ? jurosRest / saldo * 100 : 0)} do saldo atual, se levar até o fim`),
+      _rpKpi('Peso na renda', c.avgRec > 0 ? _rpPct(parc / c.avgRec * 100) : '—', `da receita média de ${fmt(c.avgRec)}/mês`,
+        c.avgRec > 0 && parc / c.avgRec > 0.3 ? 'rp-warn' : ''),
+    ], 4);
+
+    html += _rpTable(
+      `<th>Dívida</th><th class="n">Saldo</th><th class="n">Parcela</th><th class="n">Juros/mês</th><th class="n">Amortização/mês</th><th class="n">Restam</th><th>Quitação</th><th class="n">Juros até o fim</th>`,
+      infos.map(x => `<tr><td class="lbl">${_rpEsc(x.d.name || 'Dívida')}</td>` +
+        `<td class="n">${fmt(x.now.saldoAtual)}</td><td class="n">${fmt(x.now.parcelaAtual)}</td>` +
+        `<td class="n rp-neg">${fmt(x.now.jurosMes)}</td><td class="n">${fmt(x.now.amortMes)}</td>` +
+        `<td class="n">${x.now.mesesRestantes}</td><td>${monthLabel(x.now.quitacao)}</td>` +
+        `<td class="n">${fmt(x.now.jurosRestantes)}</td></tr>`).join(''),
+      `<td>Total</td><td class="n">${fmt(saldo)}</td><td class="n">${fmt(parc)}</td><td class="n">${fmt(juros)}</td>` +
+      `<td class="n">${fmt(parc - juros)}</td><td class="n">—</td><td>—</td><td class="n">${fmt(jurosRest)}</td>`,
+      'rp-t-sm');
+    html += `<p class="rp-note">Parcela <b>teórica</b> (juros + amortização), sem seguros, taxa de administração ou correção monetária/TR. Valores nominais, sem desconto a valor presente.</p>`;
+
+    // Mesma base da aba Financiamento: valor contratado (valorTotal, ou o saldo
+    // do cadastro quando ele nao foi informado) — nao o saldo de hoje, que faria
+    // o '% quitado' comecar perto de zero mesmo com metade do financiamento pago.
+    const baseTotal = _rpSum(infos.map(x => x.d.valorTotal || x.d.saldo || 0)) || saldo;
+    const yrs = _debtsYearlyRows(infos);
+    if (yrs && yrs.length) {
+      html += _rpH3('Ano a ano');
+      html += _rpTable(
+        `<th>Ano</th><th class="n">Saldo no fim</th><th class="n">Abatido no ano</th><th class="n">Juros pagos</th><th class="n">% quitado</th>`,
+        yrs.map(r => `<tr><td class="lbl">${r.ano}</td><td class="n">${fmt(r.saldo)}</td>` +
+          `<td class="n rp-pos">−${fmt(r.reducao)}</td><td class="n rp-neg">${fmt(r.juros)}</td>` +
+          `<td class="n">${_rpBar(baseTotal > 0 ? (1 - r.saldo / baseTotal) * 100 : 0)} ${_rpPct(baseTotal > 0 ? (1 - r.saldo / baseTotal) * 100 : 0, 0)}</td></tr>`).join(''),
+        null, 'rp-t-sm');
+      html += `<p class="rp-note">"% quitado" é sobre o <b>valor contratado</b> (${fmt(baseTotal)}), mesma base da aba Financiamento` +
+        (infos.some(x => !x.d.valorTotal) ? ' — em dívida sem <i>valor total</i> cadastrado, o app usa o saldo do registro, o que subestima o já pago.' : '.') + '</p>';
+    }
+  } else if (debts.length) {
+    html += _rpCall('pos', 'Todas as dívidas cadastradas estão quitadas', `${debts.length} ${debts.length === 1 ? 'registro' : 'registros'} em Financiamento, nenhum com saldo em aberto.`);
+  } else {
+    html += _rpEmpty('Nenhuma dívida cadastrada na aba Financiamento.');
+  }
+
+  // Amortizar vs investir — o espelho do simulador
+  if (am && am.saldo > 0 && am.taxaMes > 0) {
+    const finRate = (Math.pow(1 + am.taxaMes / 100, 12) - 1) * 100;
+    const cdi = am.cdi || S.assumptions.cdi || 13.65;
+    const cdbLiq = cdi * (am.pctCDI || 100) / 100 * 0.85;   // IR 15%, prazo longo
+    const lciLiq = cdi * 0.95;                              // LCI ~95% do CDI, isenta
+    const best = Math.max(cdbLiq, lciLiq);
+    const spread = best - finRate;
+    html += _rpH3('Amortizar ou investir?');
+    html += _rpTable(
+      `<th>Comparação</th><th class="n">Taxa a.a.</th><th>Natureza</th>`,
+      `<tr><td class="lbl">Custo do financiamento</td><td class="n rp-neg">${_rpPct(finRate)}</td>` +
+      `<td>${_rpPct(am.taxaMes)} a.m. sobre saldo de ${fmt(am.saldo)} — fixo, garantido, não some se a Selic cair</td></tr>` +
+      `<tr><td class="lbl">CDB ${_rpN(am.pctCDI || 100)}% do CDI, líquido</td><td class="n">${_rpPct(cdbLiq)}</td><td>CDI de ${_rpPct(cdi)} menos IR de 15%</td></tr>` +
+      `<tr><td class="lbl">LCI 95% do CDI, isenta</td><td class="n">${_rpPct(lciLiq)}</td><td>sem IR, mas com carência</td></tr>` +
+      `<tr class="grp"><td>Spread a favor de investir</td><td class="n ${spread >= 1.5 ? 'rp-pos' : 'rp-neg'}">${_rpPP(spread)}</td>` +
+      `<td>melhor renda fixa líquida (${_rpPct(best)}) menos o custo da dívida</td></tr>`,
+      null, 'rp-t-sm');
+    html += _rpCall(spread < 1.5 ? 'warn' : '',
+      spread < 1.5 ? 'Amortizar ganha em risco ajustado' : 'Manter o financiamento e investir ainda compensa',
+      spread < 1.5
+        ? `O spread de ${_rpPP(spread)} não paga o risco. Amortizar é retorno garantido, isento e sem marcação a mercado — e a assimetria joga a favor: se a Selic cair, o CDI cai junto, mas o custo do financiamento é fixo.`
+        : `Spread de ${_rpPP(spread)} a favor de investir. Reavalie a cada corte de Selic: o custo da dívida é fixo, o CDI não. Abaixo de 1,5 p.p. a conta vira.`);
+    html += `<p class="rp-note">Simplificação: IR de 15% fixo no CDB (prazo acima de 2 anos) — não simula a tabela regressiva completa. Números do cadastro da aba Simulador → Amortização.</p>`;
+  }
+
+  return { id: 'dividas', title: 'Dívidas e financiamento', src: 'cadastro (Financiamento + Simulador)', html };
+}
+
+// ═══════ 11. PROTEÇÃO ═══════
+function _rpSec11(c) {
+  const g = protectionGaps();
+  const pr = S.protection || {};
+  const temApolice = (pr.seguroVida || 0) > 0 || (pr.seguroInvalidez || 0) > 0;
+
+  let html = _rpKpis([
+    _rpKpi('Gap de seguro de vida', fmt(g.faltaVida), pr.dependentes > 0 ? `${pr.dependentes} ${pr.dependentes === 1 ? 'dependente' : 'dependentes'} · ${pr.anosDependencia} anos de reposição de renda` : 'sem dependentes cadastrados — o gap de vida não se aplica',
+      g.faltaVida > 0 ? 'rp-neg' : 'rp-pos'),
+    _rpKpi('Gap de invalidez', fmt(g.faltaInval), `renda de ${fmt(g.rendaMensal)}/mês menos teto do INSS de ${fmt(pr.tetoINSS || 0)} = ${fmt(g.gapMensal)}/mês a repor por ${g.anosApos} anos`,
+      g.faltaInval > 0 ? 'rp-neg' : 'rp-pos'),
+    _rpKpi('Apólices já contratadas', fmt((pr.seguroVida || 0) + (pr.seguroInvalidez || 0)), `${fmt(pr.seguroVida || 0)} vida · ${fmt(pr.seguroInvalidez || 0)} invalidez`),
+    _rpKpi('Patrimônio creditado', fmt(g.patLiquido), 'o investível já conta como recurso disponível para a família'),
+  ], 4);
+
+  html += _rpH3('Memória de cálculo — seguro de vida');
+  html += _rpTable(
+    `<th>Linha</th><th class="n">Valor</th><th>De onde vem</th>`,
+    `<tr><td class="lbl">Reposição de renda</td><td class="n">${fmt(g.reposicao)}</td><td>gasto anual de ${fmt(g.gastoAnual)} × ${pr.anosDependencia} anos de dependência</td></tr>` +
+    `<tr><td class="lbl">Dívida descoberta</td><td class="n">${fmt(g.dividaDescoberta)}</td><td>dívida ativa de ${fmt(g.dividaTotal)} menos ${fmt(g.dividaCoberta)} cobertos por seguro prestamista (MIP)</td></tr>` +
+    `<tr class="grp"><td>Necessidade total</td><td class="n">${fmt(g.necessidadeVida)}</td><td>o que a família precisaria ter no dia seguinte</td></tr>` +
+    `<tr><td class="lbl">(−) Patrimônio investível</td><td class="n">−${fmt(g.patLiquido)}</td><td>exclui imóvel: não se vende casa em luto</td></tr>` +
+    `<tr><td class="lbl">(−) Seguro de vida já contratado</td><td class="n">−${fmt(pr.seguroVida || 0)}</td><td>cadastro da aba Proteção</td></tr>` +
+    `<tr class="grp"><td>${g.faltaVida > 0 ? 'Falta contratar' : 'Sobra'}</td>` +
+    `<td class="n ${g.faltaVida > 0 ? 'rp-neg' : 'rp-pos'}">${fmt(g.faltaVida > 0 ? g.faltaVida : g.sobraVida)}</td>` +
+    `<td>${g.faltaVida > 0 ? 'capital adicional de seguro de vida' : 'a família já está coberta pelo patrimônio'}</td></tr>`,
+    null, 'rp-t-sm');
+
+  html += _rpH3('Memória de cálculo — invalidez');
+  html += _rpTable(
+    `<th>Linha</th><th class="n">Valor</th><th>De onde vem</th>`,
+    `<tr><td class="lbl">Renda mensal ativa</td><td class="n">${fmt(g.rendaMensal)}</td><td>soma dos rendimentos ativos do cadastro</td></tr>` +
+    `<tr><td class="lbl">(−) Teto do INSS</td><td class="n">−${fmt(pr.tetoINSS || 0)}</td><td>o que o benefício público cobre, no máximo</td></tr>` +
+    `<tr><td class="lbl">Gap mensal</td><td class="n">${fmt(g.gapMensal)}</td><td>o que falta por mês</td></tr>` +
+    `<tr class="grp"><td>Necessidade (× 12 × ${g.anosApos} anos)</td><td class="n">${fmt(g.necessidadeInval)}</td><td>até a idade de aposentadoria</td></tr>` +
+    `<tr><td class="lbl">(−) Seguro de invalidez contratado</td><td class="n">−${fmt(pr.seguroInvalidez || 0)}</td><td>cadastro da aba Proteção</td></tr>` +
+    `<tr class="grp"><td>${g.faltaInval > 0 ? 'Falta contratar' : 'Coberto'}</td>` +
+    `<td class="n ${g.faltaInval > 0 ? 'rp-neg' : 'rp-pos'}">${fmt(g.faltaInval)}</td><td>capital adicional de invalidez</td></tr>`,
+    null, 'rp-t-sm');
+
+  if (g.faltaVida > 0 || g.faltaInval > 0) {
+    html += _rpCall('warn', 'O único cenário que zera o plano inteiro',
+      `Faltam <b>${fmt(g.faltaVida)}</b> de vida e <b>${fmt(g.faltaInval)}</b> de invalidez. ` +
+      `Nada mais neste relatório tem esse poder de destruição: drawdown volta, gasto se corta, aporte se retoma — perda de renda permanente, não. ` +
+      `É também o risco mais barato de transferir: o prêmio anual costuma ser fração de um aporte mensal.` +
+      (pr.dependentes === 0 ? ` <i>Com zero dependentes cadastrados, o gap de vida é informativo — confira o número na aba Proteção.</i>` : ''));
+  } else if (temApolice) {
+    html += _rpCall('pos', 'Gaps zerados', 'Entre patrimônio e apólices, tanto o cenário de morte quanto o de invalidez estão cobertos pelas premissas cadastradas.');
+  }
+  html += `<p class="rp-note">Estimativa conservadora: não desconta a valor presente e não considera reserva do cônjuge, pensão ou benefício de empresa. Premissas editáveis na aba Proteção.</p>`;
+
+  return { id: 'protecao', title: 'Proteção', src: 'cadastro (Proteção)', html };
+}
+
+
+// ═══════ 12. DIAGNÓSTICO AUTOMÁTICO ═══════
+// Reusa o motor de insights inteiro (as ~23 regras documentadas em INSIGHTS.md),
+// só reagrupa por severidade e junta o plano de ação.
+function _rpSec12(c) {
+  const order = ['bad', 'warn', 'good', 'info'];
+  const ins = (c.insights || []).slice().sort((a, b) => order.indexOf(a.sev) - order.indexOf(b.sev));
+  if (!ins.length) {
+    return { id: 'diagnostico', title: 'Diagnóstico automático', src: 'motor de insights',
+      html: _rpEmpty('Nenhuma regra do motor de insights disparou.') };
+  }
+  const LBL = {
+    bad:  { t: 'Alertas', k: 'neg',  d: 'algo errado que pede ação' },
+    warn: { t: 'Pontos de atenção', k: 'warn', d: 'vale olhar, não é emergência' },
+    good: { t: 'Pontos fortes', k: 'pos', d: 'reforço positivo, sem ação' },
+    info: { t: 'Observações', k: '', d: 'contexto neutro, sem julgamento' },
+  };
+  let html = '';
+  const counts = order.map(s => ({ s, n: ins.filter(i => i.sev === s).length })).filter(x => x.n);
+  html += _rpKpis(counts.map(x => _rpKpi(LBL[x.s].t, String(x.n), LBL[x.s].d,
+    x.s === 'bad' ? 'rp-neg' : x.s === 'warn' ? 'rp-warn' : x.s === 'good' ? 'rp-pos' : '')), counts.length === 3 ? 3 : counts.length === 2 ? 2 : 4);
+
+  order.forEach(sev => {
+    const g = ins.filter(i => i.sev === sev);
+    if (!g.length) return;
+    html += _rpH3(LBL[sev].t);
+    html += g.map(i => _rpCall(LBL[sev].k,
+      `<span class="rp-call-tag">${_rpEsc(i.tag)}</span>${_rpSafeHtml(i.title)}`,
+      _rpSafeHtml(i.body) + (i.action ? `<br><b>→ ${_rpSafeHtml(i.action)}</b>` : ''))).join('');
+  });
+
+  const acts = ins.filter(i => i.action);
+  if (acts.length) {
+    html += _rpH3('Plano de ação — por onde começar');
+    html += `<ol class="rp-ul">${acts.map(a => `<li>${_rpSafeHtml(a.action)}</li>`).join('')}</ol>`;
+  }
+  return { id: 'diagnostico', title: 'Diagnóstico automático', src: 'motor de insights (INSIGHTS.md)', html };
+}
+
+// ═══════ 13. METODOLOGIA E QUALIDADE DOS DADOS ═══════
+function _rpSec13(c) {
+  const a = S.assumptions || {};
+  let html = _rpP('Nada neste relatório vem de IA nem de chamada de rede: são as mesmas funções que alimentam as outras páginas do app, ' +
+    'rodando sobre a última sincronização. Abaixo, de onde vem cada bloco, com que premissa, e o que não confiar.');
+
+  html += _rpH3('Fontes');
+  html += _rpTable(
+    `<th>Bloco</th><th>Fonte</th><th>Base</th>`,
+    [
+      ['Patrimônio, receita, gasto, aporte, rentabilidade', 'planilha (aba Histórico)', `${c.H.length} meses, de ${monthLabel(c.H[0].d)} a ${monthLabel(c.lastD)}`],
+      ['Gastos categorizados, método de pagamento, fixo/variável', 'Mobills (via sync)', c.mb.ok ? `${_rpN(c.mb.rows.length)} lançamentos em ${c.mb.months.length} meses (${_rpN(c.mb.raw.length)} brutos)` : 'indisponível'],
+      ['Carteira, alocação alvo, retorno esperado', 'cadastro (aba Patrimônio)', `${c.port.rows.length} ativos, ${fmt(c.port.total)}`],
+      ['Receita/gasto das projeções', 'cadastro (Fluxo de Caixa)', `${fmt(_rpSum((S.incomes || []).filter(i => i.active !== false).map(i => i.amount || 0)))}/mês de receita`],
+      ['Estrutura de seções de gasto', c.mb.ok && SECAO_DYN ? 'planilha (aba Fluxo de Caixa, linha 23+)' : 'mapa fixo no código', SECAO_DYN ? `${SECAO_DYN.order.length} seções da planilha` : 'SECAO_MAP hardcoded'],
+      ['Benchmark CDI e IPCA histórico', 'tabelas no código', `CDI ${Math.min(...Object.keys(CDI_YEARLY))}–${Math.max(...Object.keys(CDI_YEARLY).map(Number))}`],
+    ].map(r => `<tr><td class="lbl">${r[0]}</td><td>${_rpEsc(r[1])}</td><td class="rp-dim">${r[2]}</td></tr>`).join(''),
+    null, 'rp-t-sm');
+
+  html += _rpH3('Premissas em vigor');
+  html += _rpTable(
+    `<th>Premissa</th><th class="n">Valor</th><th>Onde entra</th>`,
+    [
+      ['IPCA', _rpPct(a.ipca), 'converte retorno nominal em real; todas as projeções são em R$ de hoje'],
+      ['CDI / Selic', `${_rpPct(a.cdi)} / ${_rpPct(a.selic)}`, 'simuladores de renda fixa e a conta de amortizar vs investir'],
+      ['Retorno da carteira', `${_rpPct(weightedReturn())} nominal · ${_rpPct(weightedReturnReal())} real`, 'motor de projeção e Monte Carlo'],
+      // Taxas EFETIVAS, item a item. S.assumptions.incomeGrowth/expenseGrowth são
+      // campos mortos: projectPath() lê i.growthRate/e.growthRate, e não existe input
+      // no DOM que grave aqueles dois — ficam congelados nos literais 5,0/5,5.
+      ['Crescimento de receita', `${_rpPct(avgGrowth(S.incomes || []))} a.a.`, `média ponderada dos itens ativos do Fluxo de Caixa · congela após ${a.incomeGrowthCapYears} anos`],
+      ['Crescimento de gasto', `${_rpPct(avgGrowth(S.expenses || []))} a.a.`, 'média ponderada dos itens ativos · sem teto, cresce por todo o horizonte'],
+      ['Idade de aposentadoria', `${a.retirementAge} anos`, 'quando a renda do trabalho cessa na projeção'],
+      ['Horizonte', `${a.projectionYears} anos`, 'limite de tudo que é projetado'],
+      ['Renda-alvo da FI', `${fmt(S.fi.targetMonthlyIncome)}/mês`, `a ${_rpPct(c.fiR)} (${S.fi.mode === 'perpetuidade' ? 'perpetuidade' : 'regra dos 4%'}) → meta de ${fmt(c.fin)}`],
+      ['Banda de rebalanceamento', `${_rpN(c.port.band.abs)} p.p. / ${_rpN(c.port.band.rel)}%`, 'define quem está fora do alvo'],
+    ].map(r => `<tr><td class="lbl">${r[0]}</td><td class="n">${r[1]}</td><td class="rp-dim">${r[2]}</td></tr>`).join(''),
+    null, 'rp-t-sm');
+
+  html += _rpH3('O que não confiar');
+  const caveats = [];
+  if (c.stale >= 2) caveats.push(`<b>O histórico para em ${monthLabel(c.lastD)}</b>, ${c.stale} meses atrás. Tudo aqui — inclusive as datas projetadas — está calculado sobre essa foto.`);
+  if (!(new Date().getFullYear() in CDI_YEARLY)) caveats.push(`<b>A tabela de CDI não tem ${new Date().getFullYear()}.</b> Anos ausentes caem num fallback de 10% a.a., o que distorce o alpha e a comparação com o CDI.`);
+  if (c.mb.ok) {
+    caveats.push(`<b>Gasto do Mobills usa valor absoluto.</b> Estorno e crédito inflam o gasto em vez de abater — a soma da seção 6 é gasto bruto, não líquido.`);
+    caveats.push(`<b>Duas contas de gasto convivem.</b> A seção 5 usa a coluna Gasto da planilha; a seção 6 soma os lançamentos do Mobills. Elas divergem por construção, e a divergência está medida no fim da seção 6.`);
+  } else {
+    caveats.push(`<b>Sem dados de Mobills</b>, a seção de gastos categorizados está vazia e o Lean FI não pode ser calculado.`);
+  }
+  caveats.push(`<b>A idade está fixada em 2026</b> no código (<code>currentAge()</code> faz <code>2026 − ano de nascimento</code>). Vira erro de um ano a partir de 2027.`);
+  caveats.push(`<b>O Monte Carlo não tem correlação entre classes:</b> soma as volatilidades ponderadas, o que superestima o risco da carteira e alarga a dispersão dos percentis.`);
+  caveats.push(`<b>Proteção não desconta a valor presente</b> e ignora reserva do cônjuge, pensão e benefício de empresa — é estimativa conservadora, para cima.`);
+  caveats.push(`<b>Aporte da planilha inclui rendimento reinvestido</b>, então não é taxa de poupança. A taxa honesta é (receita − gasto) ÷ receita, na seção 5.`);
+  caveats.push(`<b>Projeções assumem gasto constante em termos reais.</b> Se a inflação pessoal roda acima do IPCA (seção 5), a meta de hoje não compra o padrão de vida de amanhã.`);
+  if (!_rpSum(Object.values(c.port.target))) caveats.push(`<b>Sem alocação alvo definida</b>, não há medida de desvio nem plano de rebalanceamento.`);
+  html += `<ul class="rp-ul">${caveats.map(t => `<li>${t}</li>`).join('')}</ul>`;
+
+  html += `<div class="rp-foot">Relatório gerado localmente em ${c.stamp} pelo FinPlan Pro. ` +
+    `Todo o cálculo roda no navegador — nenhum dado sai deste dispositivo. ` +
+    `As regras do diagnóstico automático estão documentadas em INSIGHTS.md.</div>`;
+
+  return { id: 'metodologia', title: 'Metodologia e qualidade dos dados', src: 'este documento', html };
+}
+
+// ── Montagem do documento ─────────────────────────────────
+function buildReport() {
+  const c = _rpCtx();
+  try { c.insights = computeInsights(); } catch (e) { console.warn('[Relatório] insights falharam:', e); c.insights = []; }
+
+  const builders = [_rpSec1, _rpSec2, _rpSec3, _rpSec4, _rpSec5, _rpSec6, _rpSec7, _rpSec8, _rpSec9, _rpSec10, _rpSec11, _rpSec12, _rpSec13];
+  const secs = [];
+  builders.forEach((fn, i) => {
+    try {
+      const s = fn(c);
+      if (s) secs.push({ ...s, n: i + 1 });
+    } catch (e) {
+      console.error('[Relatório] seção ' + (i + 1) + ' falhou:', e);
+      secs.push({ n: i + 1, id: 'erro-' + (i + 1), title: 'Seção ' + (i + 1) + ' — indisponível', src: '',
+        html: _rpEmpty('Esta seção não pôde ser calculada: <b>' + _rpEsc(e && e.message ? e.message : String(e)) + '</b>. As outras seções não foram afetadas.') });
+    }
+  });
+
+  const toc = `<div class="rp-toc"><div class="rp-toc-title">Neste relatório</div><ol>` +
+    secs.map(s => `<li><span class="rp-toc-n">${s.n}.</span><a href="#rp-${s.id}">${_rpEsc(s.title)}</a></li>`).join('') +
+    `</ol></div>`;
+
+  const cover = `<div class="rp-cover">
+    <div class="rp-eyebrow">FinPlan Pro · Relatório completo</div>
+    <div class="rp-title">${_rpEsc(S.profile.name || 'Meu Planejamento')}</div>
+    <div class="rp-sub">Patrimônio, resultado, aportes, gastos categorizados e balanceamento — os números até ${monthLabel(c.lastD)}.</div>
+    <div class="rp-meta">
+      <span>Dados até <b>${monthLabel(c.lastD)}</b></span>
+      <span>Gerado em <b>${c.stamp}</b></span>
+      <span>Idade <b>${c.age} anos</b></span>
+      <span>Histórico de <b>${c.H.length} meses</b></span>
+      <span>${c.mb.ok ? `Mobills com <b>${_rpN(c.mb.rows.length)} lançamentos</b>` : 'Sem dados de Mobills'}</span>
+    </div>
+  </div>`;
+
+  const body = secs.map(s => `<section class="rp-sec" id="rp-${s.id}">
+    <div class="rp-sec-head"><span class="rp-sec-n">${String(s.n).padStart(2, '0')}</span><span class="rp-sec-t">${_rpEsc(s.title)}</span>` +
+    (s.src ? `<span class="rp-sec-src">${_rpEsc(s.src)}</span>` : '') + `</div>
+    ${s.html}
+  </section>`).join('');
+
+  return cover + toc + body;
+}
+
+// ── Overlay: ler na tela e imprimir ───────────────────────
+function openReport() {
+  let ov = document.getElementById('rp-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'rp-overlay';
+    ov.className = 'rp-overlay';
+    document.body.appendChild(ov);
+  }
+  ov.classList.remove('hidden');
+  document.body.classList.add('rp-open');   // gate do @media print (ver style.css)
+  ov.innerHTML = `<div class="rp-bar">
+      <div><div class="rp-bar-title">Relatório completo</div><div class="rp-bar-sub">gerando…</div></div>
+    </div>`;
+
+  // Deixa o overlay pintar antes de rodar Monte Carlo e as agregações.
+  // setTimeout, não requestAnimationFrame: rAF fica suspenso em aba oculta e o
+  // relatório travaria em 'gerando…' para sempre.
+  setTimeout(() => {
+    let html, err = null;
+    const t0 = performance.now();
+    try { html = buildReport(); } catch (e) { err = e; console.error('[Relatório]', e); }
+    const ms = Math.round(performance.now() - t0);
+
+    ov.innerHTML = `<div class="rp-bar">
+        <div>
+          <div class="rp-bar-title">Relatório completo</div>
+          <div class="rp-bar-sub">${err ? 'falhou' : 'pronto em ' + ms + ' ms · use “Salvar em PDF” e escolha Salvar como PDF no destino'}</div>
+        </div>
+        <div class="rp-bar-spacer"></div>
+        <button class="btn btn-ghost btn-sm" onclick="closeReport()">&#10005; Fechar</button>
+        <button class="btn btn-primary btn-sm" onclick="printReport()">&#128438; Salvar em PDF</button>
+      </div>
+      <div class="rp-doc" id="rp-doc">${err
+        ? `<div class="rp-empty"><b>O relatório não pôde ser montado.</b><br>${_rpEsc(err && err.message ? err.message : String(err))}<br><br>Abra o console do navegador para o rastreamento completo.</div>`
+        : html}</div>`;
+    ov.scrollTop = 0;
+    document.addEventListener('keydown', _rpKey);
+  });
+}
+
+function closeReport() {
+  const ov = document.getElementById('rp-overlay');
+  if (ov) { ov.classList.add('hidden'); ov.innerHTML = ''; }
+  document.body.classList.remove('rp-open');
+  document.removeEventListener('keydown', _rpKey);
+}
+function _rpKey(e) { if (e.key === 'Escape') closeReport(); }
+
+function printReport() {
+  const ov = document.getElementById('rp-overlay');
+  if (!ov || ov.classList.contains('hidden')) { openReport(); return; }
+  // Safari/iOS em PWA standalone às vezes ignora print() no mesmo tick do clique
+  setTimeout(() => {
+    try { window.print(); }
+    catch (e) { showToast('Seu navegador bloqueou a impressão — use o menu Compartilhar › Imprimir'); }
+  }, 60);
 }
 
 // ── 21. INIT ──────────────────────────────────────────────

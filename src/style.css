@@ -1243,3 +1243,312 @@ tr.fi-row td:first-child { font-weight: 700; }
   color: var(--text-muted);
   line-height: 1.9;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   RELATÓRIO (.rp-*) — documento em tema CLARO, próprio.
+   Não reusa os tokens do app de propósito: o app é dark, tem
+   três textos com background-clip:text (invisíveis no papel),
+   tabelas com sticky/overflow (clipadas na impressão) e cor
+   semântica que só existe no background. O relatório é uma
+   folha de papel: define tudo explicitamente e imprime igual
+   ao que aparece na tela.
+   ═══════════════════════════════════════════════════════════ */
+
+.rp-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  overflow-y: auto; overflow-x: hidden;
+  background: #e9ebef;
+  -webkit-overflow-scrolling: touch;
+}
+.rp-overlay.hidden { display: none !important; }
+
+/* Barra de ações — nunca imprime */
+.rp-bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: #12151d; border-bottom: 1px solid rgba(255,255,255,.1);
+  color: #ecf0f6;
+}
+.rp-bar-title { font-size: 13px; font-weight: 700; letter-spacing: -.2px; }
+.rp-bar-sub { font-size: 11.5px; color: #8b94a7; }
+.rp-bar-spacer { flex: 1; }
+
+/* ── A folha ─────────────────────────────────────────────── */
+.rp-doc {
+  --ink:   #14181f;
+  --ink2:  #495261;
+  --ink3:  #626b7b;   /* 4,8:1 sobre branco — abaixo disso o cabeçalho de 9,5px some */
+  --rule:  #d8dde6;
+  --rule2: #e7eaf0;
+  --paper: #ffffff;
+  --tint:  #f2f4f7;
+  --acc:   #1f4fd8;
+  --pos:   #0f7a4f;
+  --neg:   #b3261e;
+  --warn:  #8a6100;
+
+  /* ── Antídoto contra o tema escuro do app ────────────────
+     O CSS global tem seletores de ELEMENTO que alcançam aqui dentro — o pior
+     é `td { color: var(--text) }`, e `--text` é #ecf0f6 (quase-branco, feito
+     para fundo preto): dava 1,14:1 sobre papel branco, ou seja, célula
+     invisível. Redefinir os tokens no escopo do documento mata a classe
+     inteira de vazamento de uma vez, em vez de caçar seletor por seletor. */
+  --text:       #14181f;
+  --text-muted: #495261;
+  --text-dim:   #626b7b;
+  --bg:         #ffffff;
+  --bg-alt:     #f2f4f7;
+  --surface:    #ffffff;
+  --surface-2:  #f2f4f7;
+  --surface-3:  #e7eaf0;
+  --border:     #e7eaf0;
+  --border-2:   #d8dde6;
+  --accent:     #1f4fd8;
+  --accent-2:   #5b21b6;
+  --accent-dim: #eef2fd;
+  --green:      #0f7a4f;
+  --green-dim:  #e8f5ee;
+  --red:        #b3261e;
+  --red-dim:    #fbeceb;
+  --yellow:     #8a6100;
+  --yellow-dim: #fdf4e3;
+  --purple:     #5b21b6;
+  --cyan:       #0e7490;
+  --shadow:     none;
+  --shadow-lg:  none;
+  --glow:       none;
+  --card-grad:  none;
+
+  max-width: 900px;
+  margin: 22px auto 60px;
+  padding: 40px 46px 52px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0,0,0,.14), 0 12px 40px rgba(0,0,0,.12);
+  font-family: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+.rp-doc *, .rp-doc *::before, .rp-doc *::after { box-sizing: border-box; }
+
+/* ── Capa ────────────────────────────────────────────────── */
+.rp-cover { border-bottom: 2px solid var(--ink); padding-bottom: 22px; margin-bottom: 26px; }
+.rp-eyebrow {
+  font-size: 10px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--acc); margin-bottom: 10px;
+}
+.rp-title { font-size: 30px; font-weight: 800; letter-spacing: -.9px; line-height: 1.12; margin-bottom: 6px; }
+.rp-sub { font-size: 13.5px; color: var(--ink2); }
+.rp-meta { margin-top: 14px; font-size: 11.5px; color: var(--ink3); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.rp-meta b { color: var(--ink2); font-weight: 700; }
+
+/* ── Índice ──────────────────────────────────────────────── */
+.rp-toc { background: var(--tint); border: 1px solid var(--rule2); border-radius: 6px; padding: 16px 20px; margin-bottom: 30px; }
+.rp-toc-title { font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); margin-bottom: 10px; }
+.rp-toc ol { margin: 0; padding-left: 0; list-style: none; columns: 2; column-gap: 34px; }
+.rp-toc li { font-size: 12.5px; padding: 2.5px 0; break-inside: avoid; }
+.rp-toc a { color: var(--ink); text-decoration: none; }
+.rp-toc a:hover { color: var(--acc); text-decoration: underline; }
+.rp-toc-n { display: inline-block; min-width: 20px; color: var(--acc); font-weight: 700; }
+
+/* ── Seção ───────────────────────────────────────────────── */
+.rp-sec { margin-bottom: 34px; }
+.rp-sec-head { display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--ink); padding-bottom: 7px; margin-bottom: 6px; }
+.rp-sec-n { font-size: 11px; font-weight: 800; color: var(--acc); letter-spacing: .06em; }
+.rp-sec-t { font-size: 17.5px; font-weight: 800; letter-spacing: -.4px; }
+.rp-sec-src { margin-left: auto; font-size: 10px; color: var(--ink3); white-space: nowrap; }
+.rp-sec-lead { font-size: 12.5px; color: var(--ink2); margin: 10px 0 16px; }
+
+.rp-h3 { font-size: 10.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--ink3); margin: 22px 0 9px; }
+.rp-sec > .rp-h3:first-of-type { margin-top: 16px; }
+.rp-p { font-size: 12.5px; color: var(--ink2); margin: 9px 0; }
+.rp-p b, .rp-ul b, .rp-t b { color: var(--ink); font-weight: 700; }
+.rp-note { font-size: 11px; color: var(--ink3); margin-top: 8px; font-style: italic; }
+.rp-ul { margin: 8px 0; padding-left: 17px; font-size: 12.5px; color: var(--ink2); }
+.rp-ul li { margin-bottom: 4px; }
+
+/* ── KPIs ────────────────────────────────────────────────── */
+.rp-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 14px 0 18px; }
+.rp-kpis-3 { grid-template-columns: repeat(3, 1fr); }
+.rp-kpis-2 { grid-template-columns: repeat(2, 1fr); }
+.rp-kpi { background: var(--paper); padding: 11px 13px; break-inside: avoid; }
+.rp-kpi-l { font-size: 9.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--ink3); margin-bottom: 4px; }
+.rp-kpi-v { font-size: 18px; font-weight: 800; letter-spacing: -.5px; line-height: 1.15; }
+.rp-kpi-s { font-size: 10.5px; color: var(--ink3); margin-top: 3px; line-height: 1.35; }
+
+/* ── Tabelas ─────────────────────────────────────────────── */
+.rp-tw { width: 100%; margin: 10px 0 14px; }
+.rp-t { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.rp-t thead th {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink3); text-align: left; padding: 6px 7px;
+  border-bottom: 1.5px solid var(--ink); white-space: nowrap;
+}
+.rp-t thead th.n { text-align: right; }
+.rp-t thead th.c { text-align: center; }
+/* white-space explícito: o app tem um `td { white-space: nowrap }` global que,
+   sem isto, trava TODAS as células — inclusive os rótulos de texto. Rótulo
+   quebra linha, número não. É o que derruba a largura mínima da tabela de 11
+   colunas de 695px para 616px e faz ela caber nos 186mm do A4 com folga. */
+/* `color` explícito, não herdado: o `td { color: var(--text) }` global do app
+   é seletor de elemento e alcança aqui. Os tokens acima já o neutralizam, mas
+   declarar de novo deixa a tabela imune caso alguém mexa nos tokens depois. */
+.rp-t tbody td { padding: 5px 7px; border-bottom: 1px solid var(--rule2); vertical-align: middle; white-space: normal; color: var(--ink); }
+.rp-t tbody tr:nth-child(even) td { background: var(--tint); }
+.rp-t tfoot td { padding: 6px 7px; border-top: 1.5px solid var(--ink); font-weight: 700; background: var(--paper); }
+.rp-t .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rp-t .c { text-align: center; }
+.rp-t .lbl { font-weight: 600; }
+.rp-t .sub td:first-child { padding-left: 20px; color: var(--ink2); font-weight: 400; }
+.rp-t .grp td { background: #eaeef4 !important; font-weight: 700; }
+.rp-t-sm { font-size: 10px; }
+.rp-t-sm thead th { font-size: 8.5px; padding: 5px 4px; }
+.rp-t-sm tbody td { padding: 3.5px 4px; }
+.rp-t-xs { font-size: 9px; }
+.rp-t-xs thead th { font-size: 8px; padding: 4px 3px; }
+.rp-t-xs tbody td { padding: 3px 3px; }
+
+.rp-pos { color: var(--pos); font-weight: 600; }
+.rp-neg { color: var(--neg); font-weight: 600; }
+.rp-warn { color: var(--warn); font-weight: 600; }
+.rp-dim { color: var(--ink3); }
+.rp-doc code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .92em;
+  background: var(--tint); border: 1px solid var(--rule2); border-radius: 3px; padding: 0 3px; }
+
+/* Barra proporcional dentro da célula */
+.rp-b { display: inline-block; vertical-align: middle; width: 34px; height: 6px; margin-right: 6px;
+  background: var(--rule2); border-radius: 2px; overflow: hidden; }
+.rp-b i { display: block; height: 100%; background: var(--acc); }
+.rp-b.pos i { background: var(--pos); }
+.rp-b.neg i { background: var(--neg); }
+.rp-b.warn i { background: var(--warn); }
+
+/* Célula de heatmap — a cor É o dado, precisa sobreviver à impressão */
+.rp-heat td.h {
+  text-align: center; padding: 3.5px 2px; font-size: 9px; border: 1px solid var(--paper);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.rp-heat td.h.z { color: var(--ink3); }
+
+/* ── Callout ─────────────────────────────────────────────── */
+.rp-call {
+  border-left: 3px solid var(--acc); background: var(--tint);
+  padding: 11px 14px; margin: 12px 0; font-size: 12.5px; color: var(--ink2);
+  break-inside: avoid;
+}
+.rp-call b { color: var(--ink); }
+.rp-call.pos  { border-left-color: var(--pos); }
+.rp-call.neg  { border-left-color: var(--neg); }
+.rp-call.warn { border-left-color: var(--warn); }
+.rp-call-t { font-weight: 700; color: var(--ink); display: block; margin-bottom: 3px; font-size: 12.5px; }
+.rp-call-tag {
+  display: inline-block; font-size: 8.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  padding: 1px 5px; border-radius: 3px; margin-right: 7px; vertical-align: 1.5px;
+  border: 1px solid currentColor;
+}
+
+/* Estado vazio de uma seção */
+.rp-empty {
+  border: 1px dashed var(--rule); background: var(--tint); color: var(--ink3);
+  padding: 16px 18px; font-size: 12px; margin: 12px 0; break-inside: avoid;
+}
+
+/* ── Figuras (SVG) ───────────────────────────────────────── */
+.rp-fig { margin: 12px 0 16px; break-inside: avoid; }
+.rp-fig svg { display: block; width: 100%; height: auto; }
+.rp-fig-cap { font-size: 10px; color: var(--ink3); margin-top: 5px; }
+.rp-leg { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 10.5px; color: var(--ink2); margin-top: 6px; }
+.rp-leg span { display: inline-flex; align-items: center; gap: 5px; }
+.rp-leg i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* ── Rodapé ──────────────────────────────────────────────── */
+.rp-foot { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--rule); font-size: 10.5px; color: var(--ink3); }
+
+/* Controle de paginação */
+.rp-pb { break-before: page; page-break-before: always; }
+.rp-avoid { break-inside: avoid; }
+
+/* `screen and` é obrigatório: sem media type esta regra vale `all` e casaria
+   também na impressão (A4 retrato = 703px de área útil, < 900px), jogando os
+   KPIs para 2 colunas e o índice para 1 no papel. */
+@media screen and (max-width: 900px) {
+  .rp-doc { margin: 0; padding: 22px 18px 40px; font-size: 12.5px; box-shadow: none; }
+  .rp-kpis, .rp-kpis-3 { grid-template-columns: repeat(2, 1fr); }
+  .rp-toc ol { columns: 1; }
+  .rp-title { font-size: 24px; }
+  .rp-tw { overflow-x: auto; }
+}
+
+/* ═══════════════ IMPRESSÃO / SALVAR EM PDF ═══════════════ */
+@page { size: A4 portrait; margin: 13mm 12mm 14mm; }
+
+@media print {
+  /* O app tem body{height:100vh;overflow:hidden} e rola no #main:
+     sem isto a impressão sai com uma tela só. */
+  html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+  body { background-image: none !important; margin: 0 !important; }
+
+  /* Nada do app vai pro papel — mas SÓ quando o relatório está aberto.
+     Sem o gate `body.rp-open`, um Ctrl+P dado em qualquer outra tela do app
+     imprimiria uma folha em branco: `.app` é a única árvore visível, e o
+     overlay do relatório está `.hidden`. A classe é posta por openReport()
+     e removida por closeReport(). */
+  body.rp-open .app,
+  body.rp-open .menu-btn,
+  body.rp-open .sidebar-backdrop,
+  body.rp-open .modal-overlay,
+  .rp-bar { display: none !important; }
+  * { animation: none !important; transition: none !important; }
+
+  .rp-overlay {
+    position: static !important; inset: auto !important; overflow: visible !important;
+    background: #fff !important; z-index: auto !important;
+  }
+  .rp-doc {
+    max-width: none !important; margin: 0 !important; padding: 0 !important;
+    box-shadow: none !important; font-size: 9.4px !important; line-height: 1.45 !important;
+    --rule2: #e2e6ec;
+  }
+
+  .rp-title    { font-size: 21px; }
+  .rp-sub      { font-size: 11px; }
+  .rp-sec-t    { font-size: 13px; }
+  .rp-kpi-v    { font-size: 13.5px; }
+  .rp-t        { font-size: 8.6px; }
+  .rp-t-sm     { font-size: 7.9px; }
+  .rp-t-xs     { font-size: 7.2px; }
+  .rp-p, .rp-ul, .rp-call, .rp-sec-lead, .rp-toc li, .rp-empty { font-size: 9.4px; }
+  .rp-sec      { margin-bottom: 22px; }
+
+  /* Cabeçalho de tabela repete a cada folha; linha não parte no meio */
+  .rp-t thead { display: table-header-group; }
+  .rp-t tfoot { display: table-footer-group; }
+  .rp-t tr, .rp-kpi, .rp-call, .rp-fig, .rp-avoid, .rp-empty { break-inside: avoid; }
+  .rp-sec-head, .rp-h3 { break-after: avoid; }
+  .rp-tw { overflow: visible !important; }
+
+  /* A folha não rola: o que não couber em 186mm é CORTADO, não escondido atrás
+     de scroll. Cabeçalho passa a quebrar linha (no corpo isso já vale sempre),
+     barra e respiro encolhem — a tabela de 11 colunas fecha em ~616px contra
+     703px de área útil, folga de 12% para nome de seção comprido ou valor de
+     sete dígitos vindos da planilha. */
+  .rp-t thead th { white-space: normal; }
+  .rp-b { width: 14px; margin-right: 3px; }
+  .rp-t-sm tbody td { padding: 3.5px 2px; }
+  .rp-t-sm thead th { padding: 5px 2px; }
+  .rp-t-xs tbody td { padding: 3px 2px; }
+  .rp-t-xs thead th { padding: 4px 2px; }
+
+  /* Zebra, barras, heatmap, amostra de legenda e o branco dos cartões de KPI
+     são DADO, não enfeite — sem isto o Chrome os descarta no padrão
+     ("Gráficos de plano de fundo" desmarcado) e a tira de KPI vira um bloco
+     cinza sólido, a legenda perde a chave de cores. */
+  .rp-t tbody tr:nth-child(even) td, .rp-t .grp td,
+  .rp-b, .rp-b i, .rp-call, .rp-toc, .rp-empty,
+  .rp-kpis, .rp-kpi, .rp-leg i, .rp-heat td.h {
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+}
