@@ -10,7 +10,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FinPlan">
-  <meta name="finplan-build" content="20260903083513">
+  <meta name="finplan-build" content="20260903084753">
   <link rel="apple-touch-icon" href="icon-192.png">
   <style>
 /* ═══════════════════════════════════════════════════════════
@@ -9925,15 +9925,25 @@ function computeInsights() {
   const age = currentAge();
 
   // ── Patrimônio: decomposição do crescimento em 12m (aporte vs rentabilidade)
+  // "Ano atrás" por calendário, não pela posição -13 do array — mesmo fix do Relatório (_rpSec1):
+  // um gap no sync desalinha a posição do "mês certo" e o aporte somado (últimas 12 linhas)
+  // deixa de cobrir a mesma janela do Δpl, e o erro cai inteiro em "rentabilidade".
   const lastH = HISTORICAL[HISTORICAL.length - 1];
-  const yearAgo = HISTORICAL[HISTORICAL.length - 13];
+  const yearAgoKey = lastH ? addMonths(lastH.d, -12) : null;
+  const beforeLast = HISTORICAL.filter(h => h.d < (lastH ? lastH.d : ''));
+  const yearAgo = lastH ? (HISTORICAL.find(h => h.d === yearAgoKey) ||
+    beforeLast.slice().sort((a, b) => Math.abs(monthsBetween(a.d, yearAgoKey)) - Math.abs(monthsBetween(b.d, yearAgoKey)))[0] ||
+    null) : null;
   if (lastH && yearAgo && yearAgo.pl > 0) {
+    const yearAgoMonths = monthsBetween(yearAgo.d, lastH.d);
+    const apoJanela = HISTORICAL.filter(h => h.d > yearAgo.d && h.d <= lastH.d).reduce((s, h) => s + (h.apo || 0), 0);
     const d = lastH.pl - yearAgo.pl;
-    const rentab = d - apo12;
-    const pctApo = d !== 0 ? Math.min(100, Math.max(0, apo12 / d * 100)) : 0;
+    const rentab = d - apoJanela;
+    const pctApo = d !== 0 ? Math.min(100, Math.max(0, apoJanela / d * 100)) : 0;
+    const janelaTxt = yearAgoMonths === 12 ? '12 meses' : `${yearAgoMonths} meses (lacuna no sync)`;
     push(rentab < 0 ? 'warn' : 'info', 'Patrimônio',
-      `Patrimônio investido: ${fmtK(lastH.pl)} (${d >= 0 ? '+' : '−'}${fmtK(Math.abs(d))} em 12 meses)`,
-      `Desse crescimento, <b>${fmtK(apo12)}</b> veio de aporte e <b>${rentab >= 0 ? '' : '−'}${fmtK(Math.abs(rentab))}</b> de rentabilidade` +
+      `Patrimônio investido: ${fmtK(lastH.pl)} (${d >= 0 ? '+' : '−'}${fmtK(Math.abs(d))} em ${janelaTxt})`,
+      `Desse crescimento, <b>${fmtK(apoJanela)}</b> veio de aporte e <b>${rentab >= 0 ? '' : '−'}${fmtK(Math.abs(rentab))}</b> de rentabilidade` +
       (d > 0 && pctApo >= 85
         ? ` — ou seja, <b>${fmtPct(pctApo)}</b> do avanço foi você depositando dinheiro, não o dinheiro trabalhando. Em 12 meses a carteira rendeu abaixo da inflação.`
         : '.'),
