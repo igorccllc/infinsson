@@ -9373,8 +9373,8 @@ function _rpSec2(c) {
   if (ar) {
     html += _rpH3('Bolso vs. juros');
     html += _rpKpis([
-      _rpKpi('Aporte acumulado', fmt(ar.curA), `${_rpPct(ar.aPct)} do patrimônio atual`),
-      _rpKpi('Rendimento acumulado', fmt(ar.curR), `${_rpPct(ar.rPct)} do patrimônio atual`, ar.curR > 0 ? 'rp-pos' : 'rp-neg'),
+      _rpKpi('Aporte acumulado', fmt(ar.curA), `${_rpPct(ar.aPct)} do total entre aporte e juros — aporte é total, inclui imóvel`),
+      _rpKpi('Rendimento acumulado', fmt(ar.curR), `${_rpPct(ar.rPct)} do total — só mercado sobre o pl, imóvel não gera juros aqui`, ar.curR > 0 ? 'rp-pos' : 'rp-neg'),
       _rpKpi('Nos últimos 12 meses', fmt(ar.last12A) + ' / ' + _rpK(ar.last12R), 'aporte / rendimento'),
       _rpKpi('Virada', ar.crossMonth ? monthLabel(ar.crossMonth) : 'ainda não',
         ar.crossMonth ? 'mês em que o rendimento acumulado passou o aporte acumulado' : 'o aporte acumulado ainda é maior que o rendimento acumulado'),
