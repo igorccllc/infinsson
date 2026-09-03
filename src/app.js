@@ -8315,12 +8315,14 @@ function computeInsights() {
     for (let i = rs.length - 1; i >= 0 && rs[i].r < 0; i--) streak++;
     // Resultado de mercado SEMPRE sobre o patrimônio LÍQUIDO (pl). Nunca 'pat' (inclui imóvel);
     // meses sem pl são pulados — cair no pat mistura o valor do imóvel e estoura a variação.
+    // Aporte também precisa ser só o que foi pra pl (apoPLOf) — aporte em imóvel não move o
+    // pl, então descontar o aporte total inflava a "perda" de mercado artificialmente.
     let gain3 = 0;
     const n3 = Math.min(3, HISTORICAL.length - 1);
     for (let i = HISTORICAL.length - n3; i < HISTORICAL.length; i++) {
       const cur = HISTORICAL[i], prev = HISTORICAL[i - 1];
       if (cur.pl == null || prev.pl == null) continue;
-      gain3 += cur.pl - prev.pl - (cur.apo || 0);
+      gain3 += cur.pl - prev.pl - apoPLOf(cur);
     }
     const t12 = twr(12), c12 = cdiAnnualized(12);
     const rvPct = totalPort > 0
