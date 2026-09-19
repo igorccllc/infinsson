@@ -1,7 +1,9 @@
-# Monta o FinPlan Pro + Carteira XP + Extrato XP num unico HTML autocontido (index.html nesta pasta).
+# Monta o FinPlan Pro + Carteira XP + Extrato XP num unico HTML autocontido.
 # Também gera os assets PWA: manifest.json, sw.js, icon-192.png, icon-512.png.
+# Script mora em scripts/ — tudo é lido/escrito relativo à raiz do projeto ($root), um nível acima.
 $ErrorActionPreference = 'Stop'
-$src = Join-Path $PSScriptRoot 'src'
+$root = Split-Path -Parent $PSScriptRoot
+$src  = Join-Path $root 'src'
 if (-not (Test-Path $src)) { throw "Pasta de fontes nao encontrada: $src" }
 
 # ── 1) Lê fontes principais ────────────────────────────────────────────────
@@ -91,17 +93,17 @@ $loaderExtr = $loaderExtr.Replace('__B64__', $b64Extr)
 $index = $index.Replace('</body>', $loaderExtr + "`n</body>")
 
 # ── 5) Grava index.html ────────────────────────────────────────────────────
-$out = Join-Path $PSScriptRoot 'index.html'
+$out = Join-Path $root 'index.html'
 [System.IO.File]::WriteAllText($out, $index, $enc)
 $kb = [Math]::Round((Get-Item $out).Length / 1KB)
 Write-Output "Gerado: $out  ($kb KB)"
 
 # ── 6) Copia manifest.json e gera sw.js com versão do build ───────────────
-Copy-Item (Join-Path $src 'manifest.json') (Join-Path $PSScriptRoot 'manifest.json') -Force
+Copy-Item (Join-Path $src 'manifest.json') (Join-Path $root 'manifest.json') -Force
 
 $swContent = Get-Content (Join-Path $src 'sw.js') -Raw -Encoding UTF8
 $swContent = $swContent.Replace("const CACHE = 'finplan-v1'", "const CACHE = 'finplan-$buildVersion'")
-[System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'sw.js'), $swContent, $enc)
+[System.IO.File]::WriteAllText((Join-Path $root 'sw.js'), $swContent, $enc)
 Write-Output "Copiados: manifest.json, sw.js (cache: finplan-$buildVersion)"
 
 # ── 7) Gera ícones PNG (192 e 512) ────────────────────────────────────────
@@ -147,7 +149,7 @@ function New-FinPlanIcon($size, $outPath) {
   $bgBrush.Dispose(); $grad.Dispose(); $textBrush.Dispose(); $font.Dispose()
 }
 
-New-FinPlanIcon 192 (Join-Path $PSScriptRoot 'icon-192.png')
-New-FinPlanIcon 512 (Join-Path $PSScriptRoot 'icon-512.png')
+New-FinPlanIcon 192 (Join-Path $root 'icon-192.png')
+New-FinPlanIcon 512 (Join-Path $root 'icon-512.png')
 Write-Output "Gerados: icon-192.png, icon-512.png"
 Write-Output "Build PWA completo!"

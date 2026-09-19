@@ -183,7 +183,7 @@ Reaproveitadas do resto do app (não redefinidas): `realizedReturns()`, `twr()`,
    global.__api.loadState(); global.__api.refreshMobillsFilter();
    console.log(global.__api.computeInsights());
    ```
-7. Depois de validar, rode `build.ps1` na raiz pra regerar o `index.html` autocontido (PWA).
+7. Depois de validar, rode `scripts/build.ps1` (a partir da raiz do projeto) pra regerar o `index.html` autocontido (PWA).
 
 ## 6. Como ajustar um limiar existente
 
@@ -228,11 +228,13 @@ Não há testes automatizados desses limiares — a validação é o smoke-test 
 | Arquivo | O quê |
 |---|---|
 | `src/app.js` → `── 20b. INSIGHTS ──` | `computeInsights()`, `renderInsights()`, `generateInsights()`, helpers `_median`/`_monthsToTarget`/`_fmtAnos`, tabela `INS_SEV` |
+| `src/app.js` → `── 7. GASTOS — O QUE CRESCEU E O QUE CAIU ──` | `_rpSec6b()`; ordem canônica em `_RP_SECTIONS` + `_rpSecNo()` |
+| `src/app.js` → `── 1a. CACHE DO HISTÓRICO ──` | `hydrateHistorical()` + `HISTORICAL_KEY`; o `pendingWrites.push` correspondente vive no `syncFromSheets()` |
 | `src/app.js` → seção `5. HELPERS`/`5b. ANALYTICS` | `riskProfile`, `coastFIYears`, `inflacaoPessoal`, `maxDrawdownHist`, `goalsFIImpact`, `CDI_YEARLY` |
 | `src/app.js` → seção `19c. PROTEÇÃO` | `protectionGaps()` (compartilhado com a aba Proteção) |
 | `src/index.html` | item de menu "💡 Insights" + `<div id="page-insights">` |
 | `src/style.css` | `.insights-hero`, `.insights-summary`, `.ins-chip`, `.insight-card`, `.insight-*` |
-| `build.ps1` | depois de qualquer mudança em `src/`, rodar pra regerar o `index.html` autocontido (PWA) |
+| `scripts/build.ps1` | depois de qualquer mudança em `src/`, rodar pra regerar o `index.html` autocontido (PWA) |
 
 ---
 
@@ -260,7 +262,7 @@ Daí as três regras do módulo:
 2. **Gráfico é SVG inline**, escrito à mão (`_rpSvgLine`, `_rpSvgBars`, `_rpSvgPair`). Vetor: imprime nítido em qualquer DPI, reflui na largura da folha, cor sob controle, zero dependência. Nenhum Chart.js no relatório.
 3. **A âncora é o último mês COM DADO**, nunca `new Date()`. Relatório de mês fechado não pode falar de um mês que ainda não existe na planilha. (A tela de Gastos ancora no mês do calendário em três lugares — `detectInsights`, `buildGastosTabHtml`, o bloco de pacing — e por isso mistura dois meses quando o sync está atrasado. O relatório não repete isso.)
 
-## R2. As 13 seções
+## R2. As 14 seções
 
 | # | Seção | Responde | Fontes |
 |---|---|---|---|
@@ -270,15 +272,18 @@ Daí as três regras do módulo:
 | 4 | Aportes | quanto entra, com que regularidade, e o modelo bate com a realidade | histórico + `_monthsToTarget` |
 | 5 | Fluxo de caixa | receita, gasto, taxa de poupança honesta, inflação pessoal | `savingsRateOf`, `inflacaoPessoal`, `lifestyleCreepData` |
 | 6 | **Gastos categorizados** | para onde vai o dinheiro, por seção, categoria, método e recorrência | Mobills |
-| 7 | **Carteira — balanceamento** | quem está fora do alvo e como voltar (por trade ou por aporte) | `S.portfolio`, `S.targetAllocation`, `S.rebalanceBand` |
-| 8 | Independência financeira | quando, com que probabilidade, e o dinheiro dura | `buildScenarioPaths`, `findFIDate`, `monteCarloFI`, `monteCarloDecum`, `coastFIYears`, `riskProfile` |
-| 9 | Objetivos | quanto as metas custam em tempo de liberdade | `goalValorNaData`, `goalsFIImpact` |
-| 10 | Dívidas e financiamento | saldo, juros, e amortizar vs. investir | `debtNow`, `_debtsYearlyRows`, `S.amort` |
-| 11 | Proteção | os dois gaps, com memória de cálculo linha a linha | `protectionGaps` |
-| 12 | Diagnóstico automático | os insights da parte de cima, agrupados por severidade | `computeInsights` |
-| 13 | Metodologia | de onde vem cada número, com que premissa, e o que não confiar | — |
+| 7 | **Gastos — o que cresceu e o que caiu** | de onde o gasto cresceu, por categoria, e o que isso custa no plano | Mobills |
+| 8 | **Carteira — balanceamento** | quem está fora do alvo e como voltar (por trade ou por aporte) | `S.portfolio`, `S.targetAllocation`, `S.rebalanceBand` |
+| 9 | Independência financeira | quando, com que probabilidade, o dinheiro dura, e o Coast FI em anos **e em reais** | `buildScenarioPaths`, `findFIDate`, `monteCarloFI`, `monteCarloDecum`, `coastFIYears`, `riskProfile` |
+| 10 | Objetivos | quanto as metas custam em tempo de liberdade | `goalValorNaData`, `goalsFIImpact` |
+| 11 | Dívidas e financiamento | saldo, juros, e amortizar vs. investir | `debtNow`/`_rpDebtNowReal`, `financiamentoReal`, `_debtsYearlyRows`, `S.amort` |
+| 12 | Proteção | os dois gaps, com memória de cálculo linha a linha | `protectionGaps` |
+| 13 | Diagnóstico automático | os insights da parte de cima, agrupados por severidade | `computeInsights` |
+| 14 | Metodologia | de onde vem cada número, com que premissa, e o que não confiar | — |
 
-Cada seção é uma função `_rpSecN(c)` que devolve `{id, title, src, html}`. `buildReport()` chama as 13 dentro de `try/catch` individual: **uma seção que explode não derruba o relatório** — ela vira um bloco de erro nomeado e as outras 12 saem normais.
+Cada seção é uma função `_rpSecN(c)` que devolve `{id, title, src, html}`. `buildReport()` chama as 14 dentro de `try/catch` individual: **uma seção que explode não derruba o relatório** — ela vira um bloco de erro nomeado e as outras 13 saem normais.
+
+A numeração vem da posição no array `builders`, e a lista `_RP_SECTIONS` declara a ordem canônica por id. É ela que `_rpSecNo('diagnostico')` consulta para escrever "ver seção N" na prosa, e `buildReport()` compara o que montou contra ela e reclama no console se divergir. **Inserir seção = mexer só no array de builders e em `_RP_SECTIONS`** — nenhuma referência cruzada precisa ser recontada à mão (foi assim que a seção 7 entrou sem transformar "seção 12" numa mentira).
 
 ## R3. O contexto compartilhado
 
@@ -296,6 +301,8 @@ Cada seção é uma função `_rpSecN(c)` que devolve `{id, title, src, html}`. 
 | `c.insights` | `computeInsights()`, já calculado |
 
 `c.mb` é o que `renderExpenses()` mantém como variável local e não exporta: `bySec`, `bySecMonth`, `byNat`, `byNatMonth`, `byMonth`, `natCount`, `natLast`, `natSec`, `secOrder`, mais os helpers `win(k)` (janela de k meses terminando no último com dado), `secIn`, `natIn`, `totIn`. Se a Análise de Gastos e o relatório divergirem, é aqui que se compara.
+
+**Filtro de data:** `c.mb` só agrega lançamentos do Mobills com `d <= lastD` (o mês do HISTÓRICO, a âncora do relatório inteiro). Lançamento futuro no Mobills (conta recorrente já cadastrada com antecedência) é descartado ANTES de agregar — não só no cálculo do "mês de referência", mas em tudo: `byMonth`, `byNat`, `natLast` etc. Sem esse filtro, um único lançamento futuro bagunçava a Seção 6 inteira (mês de referência, janelas de 3/6/12m, "último lançamento" por categoria, e até fazia a comparação "Mobills × planilha" sumir silenciosamente, porque `c.H.find(h => h.d === ref)` nunca acha um mês futuro no histórico). Sem overlap entre Mobills e histórico (caso raro), cai em usar tudo sem filtrar, pra não quebrar a seção.
 
 Quando `MOBILLS` está vazio, `c.mb.ok` é `false` e a seção 6 mostra um bloco de estado vazio — o resto do relatório não depende dela.
 
@@ -321,9 +328,28 @@ Quase tudo reusa função existente. As exceções, todas dentro do módulo:
 - **`_rpYearRows(c)`** — agregação por ano civil (patrimônio no fim, Δ investível, aporte total exibido, resultado de mercado = Δpl − apoPLOf, receita/gasto médios, taxa de poupança, retorno composto do ano). A coluna "Aporte" da tabela continua o total; só o "Mercado" usa o aporte-PL. Não existia: `lifestyleCreepData()` só dá receita/gasto.
 - **`_rpDrawdownNow(c)`** — drawdown corrente (pico histórico de `pl` vs. hoje). O app só tinha o máximo histórico.
 - **`_rpMilestones(c)`** — marcos de 100k em 100k. Os dados do card do Dashboard são locais lá.
-- **Rota B do rebalanceamento** — distribuição déficit-proporcional só-compra, replicando `renderAporteSimulation()` (que lê o DOM e não devolve dado).
+- **Rota B do rebalanceamento** — distribuição déficit-proporcional só-compra, replicando `renderAporteSimulation()` (que lê o DOM e não devolve dado). Extraída em `_rpRotaBHtml(ap, rows, target, total, tgtTotal)`.
 - **Alertas da seção 6** — as três regras de `detectInsights()` (spike vs. média 6m, tendência monotônica de 3 meses), reimplementadas na âncora do último mês com dado em vez de `new Date()`.
 - **Custo efetivo do financiamento** — `(1+taxaMes)¹²−1` vs. melhor RF líquida, replicando a variável local do bloco 3.18 do motor de insights.
+- **`_finGridLinhas()`** (`app.js`, perto de `debtNow`) — parser único do grid `FINANCIAMENTO` (espelho cru da aba "Financiamento" do sync, ver `_buildFinHistTab`): devolve TODAS as linhas com data (**qualquer** Natureza — "Parcela" e "Amortização" extraordinária), em ordem cronológica, já numéricas. Colunas esperadas: `Data, Natureza, Valor, Amortização, Juros, Seguro, Taxas, Correção Monetária, Saldo Remanescente, Meses Restantes`. `_finGridParcelas()` é um filtro em cima dele (só `natureza === 'parcela'`). Dois consumidores:
+  - **`financiamentoReal()`** — usa `_finGridParcelas()` (só `natureza === 'parcela'`, exato) e pega a última linha. `_rpDebtNowReal(d, real)` usa `saldoAtual`/`parcelaAtual`/`jurosMes`/`amortMes`/`mesesRestantes` reais dali, e só reprojeta (via `debtSchedule`) `jurosRestantes`/`quitacao` daqui pra frente — a planilha não traz a taxa contratual, então taxa e sistema (SAC/Price) continuam vindo do cadastro (`S.debts`). Fica só em Parcela **de propósito, decisão explícita do usuário**: os cards do topo só fazem sentido em cima de uma parcela de verdade — uma linha de amortização extra (ou qualquer outra Natureza) não representa a mesma coisa e não deve virar "a posição atual".
+  - **`financiamentoRealPorAno()`** — usa `_finGridLinhas()` **sem filtrar por Natureza nenhuma** — soma `amort`/`juros` de TODA linha com data, seja "Parcela", "Amortização", "Amortização - Parcela" ou qualquer outro rótulo que a planilha venha a ter. Saldo do ano = o da última linha de **qualquer tipo** naquele ano (se a última do ano foi uma amortização extra, é o saldo dela que vale, não o da última parcela). Ficar só em "Parcela" aqui foi um bug real: qualquer evento fora desse rótulo exato também reduz o saldo e ficava de fora da soma — "Abatido no ano" saía bem menor que a planilha. **Importante**: esse "soma tudo" é exclusivo da tabela Ano a Ano — os cards do topo (acima) continuam restritos a Parcela, de propósito, são coisas diferentes.
+  - **`_schedYearRows()` → `_debtsYearlyRowsReal(x)`** — combina `financiamentoRealPorAno()` com a projeção teórica: anos já vividos = soma real; ano corrente = real (meses já pagos) **+** projeção do resto do ano (mesclados numa linha só); anos futuros = só projeção. `_schedYearRows` anda a partir do **mês da última parcela real** (`x.now.refMonth`), não de `new Date()` — importante porque o sync pode ficar defasado do calendário de hoje, e alinhar pelo calendário desalinharia o cronograma do ano que ele rotula. Antes disso tudo, a tabela era **só projeção pra frente** (nunca olhava pra trás) — anos já pagos simplesmente não apareciam.
+
+  `_rpDebtNowReal`/`_debtsYearlyRowsReal` **só ativam com exatamente 1 dívida cadastrada** (`_rpSec10`: `debts.length === 1`) — com mais de uma, não há como saber a qual delas o único ledger da aba pertence (não existe coluna "qual dívida"), então cai no `debtNow()`/`_debtsYearlyRows()` teóricos pra todas. Quando ativo, a Seção 10 abre com um aviso "Posição real, não projeção" citando o mês da última parcela. **Cuidado ao adicionar contas nessa seção:** com dado real, "Valor" (parcela paga) pode não ser exatamente `Amortização + Juros` — pode incluir seguro/taxas/correção monetária do mês. Por isso o KPI/tabela somam `amortMes` direto, nunca `parcela − juros` (esse resíduo só era seguro quando a parcela era 100% teórica, por construção do `debtSchedule`).
+
+### Campos editáveis (as únicas partes do relatório interativas de verdade)
+
+Funcionam porque o relatório é **DOM vivo** no overlay, antes de imprimir — nenhum sobrevive ao PDF salvo (o PDF congela o valor que estava na tela no momento do print). Todos seguem o mesmo padrão: contexto puro (sem ler `S`/`HISTORICAL` de novo) guardado em `window._rp*` na hora de montar a seção, um `_rp*Html(...)` que devolve só o HTML do trecho, e um `_rp*Update()` ligado a `oninput`/`onclick` que substitui `innerHTML` de um container com `id` fixo.
+
+| Onde | Campo | Recalcula | Handler |
+|---|---|---|---|
+| Seção 4 (Aportes) | Aporte mensal hipotético | Linha "Hipótese" da tabela modelo×realidade (`_monthsToTarget`) | `_rpAporteHypUpdate` — `oninput`, instantâneo |
+| Seção 7 (Carteira) | Banda (p.p. e % do alvo) | KPI "Fora da banda" + tabela "Posição por ativo" | `_rpBandUpdate` — `oninput`, instantâneo. Rota A/B (abaixo) não dependem da banda, continuam corretas |
+| Seção 8 (Independência FI) | Renda-alvo mensal e taxa de retirada | KPIs Número FI/Progresso + tabela "Data da FI por cenário" | `_rpFiUpdate` — botão **Recalcular** (não `oninput`: roda `buildScenarioPaths`+`findFIDate` por cenário, mais pesado). Muta `S.fi.*` temporariamente e restaura em `finally` no mesmo tick — nunca deixa o app com estado sujo. Gráfico de projeção e Monte Carlo **não** recalculam (ficam com a premissa original do cadastro) |
+| Seção 10 (Dívidas) | Amortização extra hoje (+ qual dívida, se houver mais de uma) | KPIs "Meses economizados" / "Juros economizados" | `_rpAmortExtraUpdate` — `oninput`, instantâneo. Mantém a parcela atual fixa (regime "reduzir prazo") |
+
+Nenhum desses toca `S` de propósito (exceto a Seção 8, que muta e desfaz na hora) — o objetivo é simular "e se", não editar o cadastro a partir do relatório.
 
 ## R6. Impressão
 
@@ -349,19 +375,23 @@ O bloco responsivo do overlay é `@media screen and (max-width: 900px)` — o `s
 `buildReport()` não toca o DOM — é testável em Node. O smoke test cobre 8 cenários:
 
 ```
-node smoke-relatorio.js full        # com Mobills, tudo cheio
-node smoke-relatorio.js nomobills   # sem lançamentos → seção 6 degrada
-node smoke-relatorio.js notargets   # sem alocação alvo → seção 7 sem plano
-node smoke-relatorio.js shorthist   # 4 meses de histórico → sem 12m, sem 24m, sem YoY
-node smoke-relatorio.js emptyport   # carteira vazia
-node smoke-relatorio.js goals       # com metas cadastradas
-node smoke-relatorio.js debts       # com dívida + seguro
-node smoke-relatorio.js xss         # nomes com HTML dentro → o cenário falha se vazar cru
+node scripts/smoke-relatorio.js full        # com Mobills, tudo cheio
+node scripts/smoke-relatorio.js nomobills   # sem lançamentos → seção 6 degrada
+node scripts/smoke-relatorio.js notargets   # sem alocação alvo → seção 7 sem plano
+node scripts/smoke-relatorio.js shorthist   # 4 meses de histórico → sem 12m, sem 24m, sem YoY
+node scripts/smoke-relatorio.js emptyport   # carteira vazia
+node scripts/smoke-relatorio.js goals       # com metas cadastradas
+node scripts/smoke-relatorio.js debts       # com dívida + seguro
+node scripts/smoke-relatorio.js xss         # nomes com HTML dentro → o cenário falha se vazar cru
+node scripts/smoke-relatorio.js histcache        # cache do histórico mais novo que o build → tem de reidratar
+node scripts/smoke-relatorio.js histcache-velho  # cache mais velho que o build → tem de ser ignorado
+node scripts/smoke-relatorio.js mobills14        # 14 meses de Mobills → seção 7 cai para a janela 6v6
+node scripts/smoke-relatorio.js mobills4         #  4 meses → seção 7 vira estado vazio
 ```
 
-O script vive na raiz do projeto (`smoke-relatorio.js`). Cada rodada grava um `out-<cenário>.html` autocontido (com o `style.css` inline) para abrir no browser, e falha se aparecer `NaN`, `undefined`, `Infinity`, `[object` ou `R$ -` no HTML. O esqueleto do stub de DOM está na seção 5.6 acima; o do relatório acrescenta `window.addEventListener`, `document.createElement`, `performance.now` e `requestAnimationFrame`.
+O script vive em `scripts/smoke-relatorio.js`. Cada rodada grava um `out-<cenário>.html` autocontido (com o `style.css` inline) para abrir no browser, e falha se aparecer `NaN`, `undefined`, `Infinity`, `[object` ou `R$ -` no HTML. O esqueleto do stub de DOM está na seção 5.6 acima; o do relatório acrescenta `window.addEventListener`, `document.createElement`, `performance.now` e `requestAnimationFrame`.
 
-Depois de validar: rodar `build.ps1` para regerar o `index.html` autocontido.
+Depois de validar: rodar `scripts/build.ps1` para regerar o `index.html` autocontido.
 
 ## R8. Limitações do relatório
 
@@ -394,3 +424,154 @@ E um ponto em que o relatório apenas **reconhece** a divergência em vez de esc
 | `src/app.js` → `── 20c. RELATÓRIO COMPLETO ──` | formatadores `_rp*`, gráficos SVG, `_rpCtx()`, as 13 `_rpSecN()`, `buildReport()`, `openReport()`, `closeReport()`, `printReport()` |
 | `src/app.js` → `renderInsights()` | o segundo card ("Relatório completo · PDF") com o botão `openReport()` |
 | `src/style.css` → bloco `RELATÓRIO (.rp-*)` | tema claro do documento, `@page`, `@media print` |
+
+---
+
+# Cache do histórico — por que o app não abre mais com dado velho
+
+**Sintoma.** Abrir o app mostrava a foto de patrimônio/receita/gasto/aporte do dia em que o `index.html` foi gerado, e só corrigia ~1,2s depois, quando o sync automático voltava. Quem abre o app diariamente e sincroniza a planilha duas vezes por mês esperava o sync todo dia para ver um número que já estava certo na véspera.
+
+**Causa.** `HISTORICAL` era o único artefato do sync que **não era persistido**. O `syncFromSheets()` gravava tudo o mais em `localStorage` via `pendingWrites` — `finplan_mobills`, `finplan_financiamento`, `finplan_fluxogrid`, `finplan_fluxobold`, `finplan_fluxo_secoes` — e o portfólio ia junto no `S` pelo `saveState()`. O histórico só era substituído em memória (`HISTORICAL.length = 0; …push`), então morria no fim da sessão e o próximo boot caía no array `const` literal que o `build.ps1` congelou dentro do `app.js`.
+
+Como praticamente tudo do app deriva do histórico — patrimônio, taxa de poupança, rentabilidade, TWR, aportes, insights, o relatório inteiro —, o efeito era a tela nascer errada e se corrigir sozinha na frente do usuário.
+
+**Correção.** Seção `── 1a. CACHE DO HISTÓRICO ──`, logo abaixo do array:
+
+- `syncFromSheets()` passou a empilhar `[HISTORICAL_KEY, HISTORICAL]` em `pendingWrites`, junto dos outros espelhos. Grava-se o array **já normalizado** — a conversão de `cres`/`rent`/`txp` de fração para pontos percentuais acontece uma única vez, no sync.
+- `hydrateHistorical()` roda no momento em que o `app.js` é avaliado (antes de qualquer leitura), lê a chave e copia **literalmente** para dentro de `HISTORICAL`. Reidratar sem re-normalizar é o ponto crítico: normalizar de novo multiplicaria toda a rentabilidade por 100.
+- `HISTORICAL_FROM_CACHE` guarda se o cache foi usado, para diagnóstico.
+
+**Quatro travas**, todas cobertas por teste:
+
+| Situação | O que acontece |
+|---|---|
+| JSON corrompido | `try/catch` → fica a foto do build |
+| array vazio ou chave ausente | ignorado |
+| linhas sem `d` no formato `YYYY-MM` | ignorado (valida todas antes de tocar o array) |
+| cache **mais velho** que o embutido | ignorado — um `index.html` recém-gerado com dado mais fresco não pode ser arrastado de volta por um cache velho |
+
+O custo é ~7,8 KB em `localStorage` para 103 meses.
+
+**Efeito colateral bom.** Com histórico e Mobills os dois vindo do cache, a checagem de divergência entre as duas fontes passou a rodar no `init()` (`validateMobillsVsHistorical()`, dentro de `try/catch` para não travar o boot). Antes, `window._mobillsDivergences` ficava `undefined` até o primeiro sync, e o alerta "Mobills × Histórico divergem" e o bloco correspondente do relatório ficavam mudos em todo cold open.
+
+**O que o sync automático virou.** Continua rodando (`setTimeout(…, 1200)` no `init()`, só se houver URL configurada), mas deixou de ser requisito para a tela estar certa — agora é atualização em segundo plano. O rótulo do botão (`✓ Sincronizado HH:MM`, restaurado de `finplan_last_sync`) passou a descrever de fato o dado que está na tela, não uma promessa.
+
+---
+
+# Seção 7 — Gastos: o que cresceu e o que caiu
+
+A seção 6 mostra o retrato: quanto cada seção gasta hoje. A 7 mostra a **derivada por categoria individual** — de onde o gasto cresceu de verdade. Código em `src/app.js`, `_rpSec6b()` (o nome mantém a posição de origem: entrou depois da 6 e antes da carteira).
+
+## V1. As duas escolhas que definem a seção
+
+**Janela de 12 meses contra os 12 anteriores, não mês contra mês.** As duas janelas contêm os doze meses do calendário, então IPVA de janeiro, 13º, matrícula e viagem de julho aparecem nos dois lados e se cancelam: a comparação é **imune a sazonalidade**. O que sobra é deriva de padrão de vida. Mês contra mês, ou trimestre contra trimestre, mede calendário e chama de tendência.
+
+Sem 24 meses de Mobills a seção cai para 6v6 e **avisa na cara** que ali parte de qualquer variação é sazonal, não tendência. Com menos de 3 meses com lançamento em algum dos lados, vira estado vazio dizendo o que falta. A troca é automática — quando o histórico chegar a 24 meses, a seção passa sozinha para 12v12.
+
+**Ordenado por impacto em reais, não por percentual.** É a escolha que faz a seção valer algo. Uma categoria que foi de R$ 20 para R$ 60 subiu 200% e não muda nada no plano; outra que foi de R$ 1.500 para R$ 1.900 subiu 27% e custa R$ 4.800 por ano. Ranking por percentual enche a primeira tela de ruído — cafezinho, estacionamento, uma farmácia — e esconde as três linhas que de fato mexeram o orçamento. O percentual continua na tabela, como coluna, onde é contexto e não critério.
+
+No dado atual isso aparece limpo: **Mercado (+5%) fica acima de Uber (+30%)**, porque são R$ 36 contra R$ 30 por mês.
+
+## V2. O que a seção mostra
+
+- **Quatro KPIs:** gasto médio/mês nas duas janelas, a variação em R$ e %, a variação **contra o IPCA** (gasto subindo 2% com IPCA em 5,5% é queda real de 3,4 p.p. — o sinal importa), e quantas categorias subiram, caíram, nasceram ou morreram.
+- **Um veredito de concentração:** as altas somam X, as quedas devolvem Y, o líquido é Z. Se as três maiores altas respondem por ≥60% do aumento, o texto diz "concentrado — mexer em três linhas resolve"; abaixo disso, "difuso — é o padrão de vida inteiro subindo junto", que é o caso mais difícil e o que o leitor precisa ouvir.
+- **O preço no plano.** O número que amarra esta seção ao resto do relatório: `Δ mensal × 12 ÷ taxa de retirada`. R$ 143/mês de gasto recorrente novo exigem **R$ 42.833 de patrimônio a mais** para serem bancados para sempre a 4%. É a tradução de creep em anos de trabalho, e o argumento mais forte do documento inteiro para cortar gasto fixo.
+- **Maiores altas e maiores quedas**, até 15 cada: média/mês antes, agora, Δ/mês com barra, Δ%, e "Δ no ano" (o Δ × 12 — o que a mudança custa ou devolve em doze meses se ficar como está). Rodapé com o total de todas as altas e de todas as quedas, não só das 15 exibidas.
+- **Consolidado por seção**, com a coluna "% do movimento" para localizar de qual seção veio a mexida.
+- **Gráfico** com as 8 maiores altas e 8 maiores quedas no mesmo eixo — e aqui o vermelho/verde é **invertido** em relação ao resto do relatório, de propósito: nesta seção, cair é bom.
+
+Categorias marcadas **novo** não existiam na janela anterior e **parou** deixaram de aparecer. Não têm variação percentual (dividir por zero), mas têm Δ em reais — e é por isso que ordenar por reais também as trata direito.
+
+## V3. Duas armadilhas que a seção evita
+
+**Dividir pela janela em vez dos meses com dado.** As médias dividem pelos meses **com lançamento** de cada janela, não por 12 fixo. Mês sem dado é lacuna de sync, não mês sem gasto: dividir por 12 quando só 9 meses têm lançamento inventaria uma queda de 25% que nunca aconteceu. As duas coberturas saem escritas no rodapé da seção.
+
+**Somar percentuais.** Os Δ em reais somam: o total das altas menos o total das quedas dá exatamente o Δ do gasto médio, e isso é conferido por teste (`scripts/verifica-variacao.js` recalcula tudo direto das linhas cruas do Mobills e compara com o que a seção afirma). Percentuais não somam, e é por isso que o consolidado por seção usa "% do movimento" — participação no Δ absoluto — em vez de tentar agregar variações relativas.
+
+## V4. Testes
+
+```
+node scripts/smoke-relatorio.js mobills14   # 14 meses → janela 6v6 + aviso de sazonalidade
+node scripts/smoke-relatorio.js mobills4    #  4 meses → estado vazio, sem tabelas
+```
+
+Os dois asserts escopam a checagem no bloco `id="rp-gastos-variacao"`, e não no relatório inteiro: frases como "12 contra 12" aparecem também no *aviso* do modo 6v6 ("insuficiente para 12 contra 12"), e "contra 6" aparece na seção 6 — checar no documento todo dá falso negativo.
+
+---
+
+# Coast FI — as duas formas da mesma equação
+
+O relatório mostra o Coast FI de dois jeitos na seção 9, e é importante entender que **não são dois cálculos**: é uma equação só, resolvida para incógnitas diferentes.
+
+```
+Meta = Patrimônio × (1 + r)^t
+```
+
+| | Fixa | Resolve para | O que responde | Onde |
+|---|---|---|---|---|
+| `coastFIYears()` | o patrimônio que você tem | **t** = `ln(meta ÷ atual) ÷ ln(1+r)` | "meu dinheiro coasta em N anos" | KPI da página FI, motor de insights, seção 9 do relatório |
+| `coastFITarget()` | os anos até aposentar | **W₀** = `meta ÷ (1+r)^t` | "bastaria ter R$ X hoje" | card de progresso do Dashboard, KPI da página FI, seção 9 do relatório |
+
+As duas vivem lado a lado em `src/app.js` (~L1173) e compartilham `_coastRealRate()`. Nenhuma das três telas recalcula a fórmula por conta própria — foi justamente para evitar a terceira cópia divergir que a versão em valor virou função em vez de ficar inline no relatório.
+
+A segunda é a forma canônica na literatura de FIRE — o "Coast FI number" costuma ser um **valor**, um limiar contra o qual você compara o que tem. A primeira é mais útil para responder "e daí?". O relatório mostra as duas porque elas dizem coisas diferentes ao leitor: uma dá uma data, a outra dá uma meta intermediária concreta e mais perto do que a FI.
+
+## C1. O `r` é o mesmo nas duas
+
+Isso não é detalhe. As duas chamam `_coastRealRate()`:
+
+```js
+rReal = (1 + weightedReturn()/100) / (1 + ipca/100) - 1   // Fisher exato
+```
+
+Se fossem taxas diferentes, o relatório poderia dizer "coasta em 25,6 anos" (ou seja, cabe nos 26 que faltam) e ao mesmo tempo "faltam R$ 40 mil para o limiar" — contradição na mesma página. Amarradas ao mesmo `r`, é impossível.
+
+**Retorno real contra meta em R$ de hoje: as duas pontas na mesma moeda.** Boa parte das calculadoras de Coast FI da internet mistura retorno *nominal* com meta em valores de hoje, o que devolve um limiar otimista demais — o erro composto por 26 anos não é pequeno.
+
+## C2. O invariante, e o teste que o trava
+
+Estar acima do limiar em reais **tem** de ser equivalente a coastar em menos anos do que faltam:
+
+```
+W₀ ≥ meta ÷ (1+r)^t   ⟺   ln(meta ÷ W₀) ÷ ln(1+r) ≤ t
+```
+
+O cenário `full` do smoke test confere isso e mais um round-trip: reaplicar `ln(meta ÷ limiar) ÷ ln(1+r)` tem de devolver exatamente o `t` de partida.
+
+```
+coast FI: PASSOU — coasta em 25.55 anos, faltam 26 | limiar 1363827 vs 1405080
+          | acima-em-reais=true acima-em-anos=true | t(limiar)=26.000
+```
+
+Se alguém mexer no `r` de um lado só, ou trocar `investableWealth()` por `currentWealth()` num dos dois, o teste quebra.
+
+## C3. Onde a métrica aparece
+
+| Tela | O que mostra |
+|---|---|
+| **Dashboard** → card "Progresso à Independência Financeira" | marcador verde na própria barra na posição do limiar, mais a linha com o valor e a distância. Ver o Coast FI na régua muda a leitura do progresso: ele é um marco bem mais perto que a FI. |
+| **Independência FI** → KPI "Coast FI" | os anos (como sempre) e, embaixo, `Limiar: R$ X · já passou por / faltam R$ Y`. O ⓘ abre a memória de cálculo com as duas leituras lado a lado. |
+| **Relatório** → seção 9 | tabela linha a linha (meta, anos, retorno real, limiar, patrimônio, gap, e em quantos anos coasta) mais o veredito em prosa — e as **quatro entradas são editáveis**, ver C4. |
+
+## C4. O simulador embutido na seção 9
+
+As quatro entradas da equação — meta, anos até aposentar, retorno real e patrimônio — são `<input type=number>` dentro da própria tabela do relatório. Mexer em qualquer uma recalcula o limiar, a diferença, o % e os anos, via `_rpCoastSim()`. `_rpCoastReset()` volta tudo.
+
+**Por que recalcular em vez de remontar:** `buildReport()` leva ~100ms e devolve uma string nova, o que jogaria a rolagem para o topo a cada tecla. `_rpCoastSim()` escreve só nas células derivadas, por id.
+
+**O campo guarda dois valores.** `data-real` é o que aparece (a taxa arredondada para 6,78%) e serve ao reset e à detecção de edição; `data-exact` é a taxa sem arredondamento. Enquanto o campo não é tocado, a conta usa o exato. Sem isso, o reset devolveria R$ 1.362.459 onde o relatório tinha aberto com R$ 1.363.827 — 0,1% de diferença, mas é o mesmo botão dando dois números, e é assim que um relatório perde a confiança do leitor.
+
+**O documento continua um documento.** O campo é texto com sublinhado tracejado, não caixa de formulário (`.rp-in`), e na impressão vira número puro em tinta preta e negrito, sem borda — a barra de dica some (`.rp-simbar`).
+
+**Simulação impressa é declarada.** O que estiver na tela sai no PDF, inclusive valores simulados. Por isso, assim que qualquer campo difere do real, o callout troca para "Simulação — não são os seus números atuais", e esse aviso **também é impresso**. Nenhum PDF simulado se passa pelo retrato verdadeiro.
+
+Dez cenários foram varridos no browser (retorno pessimista, aposentar aos 50, meta maior e menor, dobro do patrimônio, retorno zero, retorno negativo, meta já atingida, zero anos) confirmando que o invariante de C2 continua valendo **sob simulação**: estar ≥ 100% do limiar segue equivalente a coastar em menos anos do que os disponíveis, em todos os casos aplicáveis, sem nenhum NaN. A linha "Coasta em" mostra isso ao leitor em texto — *"com 26 anos disponíveis, cabe — e é por isso que o patrimônio está acima do limiar"*.
+
+## C5. Uma armadilha adormecida
+
+`coastFIYears()` aplica `weightedReturn()` — que pondera sobre a carteira **inteira** — a um `w0` que é `investableWealth()`, e esse **exclui imóvel**. Ou seja: a taxa vem de um conjunto de ativos maior do que o principal ao qual ela é aplicada.
+
+Hoje isso não causa erro nenhum: não há ativo com `cat: 'imovel'` em `S.portfolio` (a diferença entre `pat` e `pl` no histórico vive só na planilha, não na carteira cadastrada), então os dois conjuntos coincidem e a taxa é a mesma — 12,649% pelos dois caminhos.
+
+**Mas passa a mentir no dia em que um imóvel for cadastrado na aba Patrimônio.** O `ret` dele diluiria a taxa aplicada a um patrimônio do qual ele não faz parte, e o Coast FI apareceria mais distante do que é. A correção seria ponderar `weightedReturn()` só sobre `cat !== 'imovel'` dentro de `coastFIYears()` — não foi feita porque `coastFIYears()` é compartilhada com a página Independência FI e com o motor de insights, e mudá-la muda aquelas telas também.

@@ -107,6 +107,38 @@ const HISTORICAL = [
   {d:'2026-04',pat:1675190,pl:1405079,rec:22421,gas:6693,apo:13500},
 ];
 
+// ── 1a. CACHE DO HISTÓRICO ────────────────────────────────
+// O array acima é a foto congelada pelo build.ps1 no dia em que o index.html
+// foi gerado. Sem este cache, todo cold open mostrava aquela foto e só corrigia
+// ~1,2s depois, quando o sync automático voltava — o histórico era o ÚNICO
+// artefato do sync que não era persistido (mobills, financiamento, fluxogrid,
+// fluxobold e as seções sempre foram).
+//
+// Grava-se o array JÁ NORMALIZADO (cres/rent/txp em pontos percentuais, não em
+// fração), porque a normalização acontece uma única vez, no sync. Reidratar aqui
+// é cópia literal — normalizar de novo multiplicaria a rentabilidade por 100.
+const HISTORICAL_KEY = 'finplan_historical';
+
+function hydrateHistorical() {
+  let cached;
+  try { cached = JSON.parse(localStorage.getItem(HISTORICAL_KEY) || 'null'); }
+  catch (e) { return false; }                       // cache corrompido: fica o do build
+  if (!Array.isArray(cached) || !cached.length) return false;
+  if (!cached.every(r => r && typeof r.d === 'string' && /^\d{4}-\d{2}$/.test(r.d))) return false;
+
+  // Só reidrata se o cache for mais novo que o embutido. Protege o caso de
+  // rebuild: um index.html recém-gerado com dado mais fresco não deve ser
+  // arrastado de volta por um cache velho.
+  const baked = HISTORICAL[HISTORICAL.length - 1];
+  const last = cached[cached.length - 1];
+  if (baked && last.d < baked.d) return false;
+
+  HISTORICAL.length = 0;
+  cached.forEach(r => HISTORICAL.push(r));
+  return true;
+}
+const HISTORICAL_FROM_CACHE = hydrateHistorical();
+
 // ── 1b. DADOS MOBILLS (populado via sync) ─────────────────
 let MOBILLS_RAW = JSON.parse(localStorage.getItem('finplan_mobills') || '[]');
 let FINANCIAMENTO = JSON.parse(localStorage.getItem('finplan_financiamento') || 'null');   // espelho da aba Financiamento
@@ -460,6 +492,9 @@ async function syncFromSheets(silent = false) {
         ['cres','rent','txp'].forEach(k => { if (typeof r[k] === 'number') r[k] *= 100; });
         HISTORICAL.push(r);
       });
+      // Persiste o array já normalizado — é o que hydrateHistorical() reidrata
+      // no próximo cold open, para a tela não abrir na foto do build.
+      pendingWrites.push([HISTORICAL_KEY, HISTORICAL]);
       changed = true;
     }
 
@@ -1116,14 +1151,52 @@ function runwayMonths() {
   return avgGas > 0 ? liquid / avgGas : 0;
 }
 
-// Coast FI: anos até a meta se parar de aportar hoje (juros reais sozinhos)
-function coastFIYears() {
+// Runway com valorização: mesma pergunta do Runway, mas a carteira continua rendendo
+// (retorno real da premissa, aba Patrimônio) enquanto é consumida — dura mais e pode
+// nunca acabar, se o rendimento real sozinho já cobrir o gasto mensal (perpetuidade).
+// Depleção mês a mês: W_n = W_(n-1)*(1+rm) - gasto → resolvendo pra N meses até W=0.
+function runwayMonthsGrowth() {
+  const liquid = investableWealth();
+  const last12 = HISTORICAL.slice(-12);
+  const avgGas = last12.reduce((s, h) => s + h.gas, 0) / Math.max(1, last12.length);
   const ipca = S.assumptions.ipca || 5.5;
   const rReal = (1 + weightedReturn()/100) / (1 + ipca/100) - 1;
+  if (avgGas <= 0) return { months: 0, infinite: false, rReal };
+  const rm = Math.pow(1 + rReal, 1/12) - 1;
+  if (rm <= 0) return { months: liquid / avgGas, infinite: false, rReal }; // sem retorno real positivo, cai no Runway simples
+  if (rm * liquid >= avgGas) return { months: Infinity, infinite: true, rReal }; // rendimento sozinho já cobre o gasto
+  const months = -Math.log(1 - (rm * liquid) / avgGas) / Math.log(1 + rm);
+  return { months, infinite: false, rReal };
+}
+
+// Coast FI: anos até a meta se parar de aportar hoje (juros reais sozinhos)
+// Taxa real usada pelo Coast FI (Fisher exato). Isolada para que as duas formas
+// da métrica — anos e valor — nunca possam usar taxas diferentes.
+function _coastRealRate() {
+  const ipca = S.assumptions.ipca || 5.5;
+  return (1 + weightedReturn()/100) / (1 + ipca/100) - 1;
+}
+
+// Coast FI resolvendo o TEMPO: em quantos anos o patrimônio de hoje, sem mais
+// nenhum aporte, vira a meta.   meta = w0 × (1+r)^t  →  t = ln(meta/w0)/ln(1+r)
+function coastFIYears() {
+  const rReal = _coastRealRate();
   const w0 = investableWealth(), fin = fiNumber();
   if (w0 >= fin) return 0;
   if (rReal <= 0) return null;
   return Math.log(fin / w0) / Math.log(1 + rReal);
+}
+
+// Coast FI resolvendo o VALOR: quanto bastaria ter HOJE para, sem mais nenhum
+// aporte, chegar na meta na idade de aposentadoria.   w0 = meta ÷ (1+r)^t
+// É a mesma equação de coastFIYears() com a outra incógnita isolada, e usa a
+// MESMA taxa — por isso "estar acima deste valor" e "coastar em menos anos do
+// que faltam" são sempre equivalentes. null se o retorno real não for positivo.
+function coastFITarget() {
+  const rReal = _coastRealRate();
+  if (rReal <= 0) return null;
+  const t = Math.max(0, (S.assumptions.retirementAge || 60) - currentAge());
+  return fiNumber() / Math.pow(1 + rReal, t);
 }
 
 // Cobertura: % dos gastos médios que a renda passiva estimada já paga
@@ -1273,6 +1346,105 @@ function debtNow(d) {
   };
 }
 
+// Parser comum do grid FINANCIAMENTO (espelho cru da aba "Financiamento" do sync, ver
+// _buildFinHistTab). Colunas: Data, Natureza, Valor, Amortização, Juros, Seguro, Taxas,
+// Correção Monetária, Saldo Remanescente, Meses Restantes. Devolve TODAS as linhas com data,
+// de QUALQUER Natureza (Parcela, Amortização, Amortização - Parcela, ou outra que a planilha
+// use), já numéricas, em ordem cronológica — quem filtra por Natureza é cada consumidor,
+// conforme o que faz sentido pra ele (ver _finGridParcelas() e financiamentoRealPorAno()).
+function _finGridLinhas() {
+  if (!Array.isArray(FINANCIAMENTO) || !FINANCIAMENTO.length) return null;
+  const norm = s => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  let hIdx = FINANCIAMENTO.findIndex(r => {
+    const cells = r.map(norm);
+    return cells.some(c => c === 'data' || c === 'datas') && cells.some(c => c === 'natureza');
+  });
+  if (hIdx < 0) return null;
+  const headers = FINANCIAMENTO[hIdx].map(norm);
+  const idx = name => headers.indexOf(norm(name));
+  const iData = idx('Data'), iNat = idx('Natureza'), iValor = idx('Valor'), iAmort = idx('Amortização'),
+        iJuros = idx('Juros'), iSeguro = idx('Seguro'), iTaxas = idx('Taxas'), iCorr = idx('Correção Monetária'),
+        iSaldo = idx('Saldo Remanescente'), iMeses = idx('Meses Restantes');
+  if (iNat < 0 || iSaldo < 0) return null;
+  const num = v => typeof v === 'number' ? v : (parseFloat(String(v ?? '').replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')) || 0);
+  const body = FINANCIAMENTO.slice(hIdx + 1).filter(r => r.some(c => c !== '' && c != null));
+  return body.map(r => ({
+    data: iData >= 0 ? r[iData] : null,
+    ano: iData >= 0 ? String(r[iData] ?? '').slice(0, 4) : null,
+    natureza: norm(r[iNat]),
+    parcela: num(r[iValor]),
+    juros: num(r[iJuros]),
+    amort: num(r[iAmort]),
+    seguro: iSeguro >= 0 ? num(r[iSeguro]) : 0,
+    taxas: iTaxas >= 0 ? num(r[iTaxas]) : 0,
+    correcao: iCorr >= 0 ? num(r[iCorr]) : 0,
+    saldoRemanescente: num(r[iSaldo]),
+    mesesRestantes: iMeses >= 0 ? Math.round(num(r[iMeses])) : null,
+  }));
+}
+// Só as linhas "Parcela" — usado pra posição atual (parcela mensal, juros do mês etc.), que
+// não existe numa linha de amortização extraordinária (ela não tem "parcela" nem "juros do mês").
+// De propósito diferente de financiamentoRealPorAno() (a tabela Ano a Ano), que soma TODAS
+// as Naturezas — os cards do topo só fazem sentido em cima de uma parcela de verdade.
+function _finGridParcelas() {
+  const rows = _finGridLinhas();
+  return rows ? rows.filter(r => r.natureza === 'parcela') : null;
+}
+function financiamentoReal() {
+  const parcelas = _finGridParcelas();
+  return parcelas && parcelas.length ? parcelas[parcelas.length - 1] : null;
+}
+// TODAS as linhas (Parcela + Amortização extraordinária), agrupadas por ano civil. Amortização
+// extra também reduz o saldo — ficar só nas linhas "Parcela" subestimava o abatido do ano
+// (e o saldo de fim de ano ficava desatualizado se a amortização extra veio depois da última
+// parcela do ano). Saldo do ano = o da última linha de QUALQUER tipo naquele ano.
+function financiamentoRealPorAno() {
+  const linhas = _finGridLinhas();
+  if (!linhas || !linhas.length) return {};
+  const byYear = {};
+  linhas.forEach(p => {
+    if (!p.ano) return;
+    const y = byYear[p.ano] = byYear[p.ano] || { amort: 0, juros: 0, saldo: null };
+    y.amort += p.amort; y.juros += p.juros; y.saldo = p.saldoRemanescente;
+  });
+  return byYear;
+}
+// Agrupa um cronograma teórico (sched, começando no mês seguinte a anchorMonth) em linhas de
+// ano civil andando pra frente a partir do ANCHOR — não de new Date(). O anchor real (mês da
+// última parcela) costuma ficar atrás do calendário de hoje (defasagem de sync); alinhar pelo
+// calendário de hoje nesse caso desalinha o cronograma em relação ao ano que ele rotula.
+function _schedYearRows(sched, anchorMonth) {
+  const rows = [];
+  const [ay, amNum] = anchorMonth.split('-').map(Number);
+  let prevM = 0, m = 12 - amNum;
+  while (prevM < sched.length) {
+    const mEnd = Math.min(m, sched.length);
+    const slice = sched.slice(prevM, mEnd);
+    const juros = slice.reduce((s, r) => s + r.juros, 0);
+    const amort = slice.reduce((s, r) => s + r.amort, 0);
+    const saldo = mEnd > 0 ? sched[mEnd - 1].saldoFim : sched[0].saldoIni;
+    rows.push({ ano: String(ay + Math.floor((amNum - 1 + mEnd) / 12)), saldo, reducao: amort, juros });
+    prevM = mEnd; m += 12;
+    if (mEnd >= sched.length) break;
+  }
+  return rows;
+}
+// "Ano a ano" real: histórico de verdade (todo ano com linha Parcela na planilha) + projeção
+// teórica só para os anos que ainda não aconteceram — reancorada no mês real, não em hoje.
+function _debtsYearlyRowsReal(x) {
+  const byYear = financiamentoRealPorAno();
+  const realYears = Object.keys(byYear).sort();
+  if (!realYears.length) return null;
+  const out = realYears.map(y => ({ ano: y, saldo: byYear[y].saldo, reducao: byYear[y].amort, juros: byYear[y].juros }));
+  const projRows = x.now.sched.length ? _schedYearRows(x.now.sched, x.now.refMonth) : [];
+  projRows.forEach(r => {
+    const last = out[out.length - 1];
+    if (last && last.ano === r.ano) { last.reducao += r.reducao; last.juros += r.juros; last.saldo = r.saldo; }
+    else out.push(r);
+  });
+  return out;
+}
+
 // ── 5d. EXPLICADOR DE MÉTRICAS (ⓘ) ───────────────────────
 // Cada entrada devolve a conta VIVA: termos com valores atuais e a fonte de cada um.
 const METRIC_DOCS = {
@@ -1303,18 +1475,68 @@ const METRIC_DOCS = {
       },
     };
   },
+  runwaygrowth: () => {
+    const liquid = investableWealth();
+    const last12 = HISTORICAL.slice(-12);
+    const avgGas = last12.reduce((s, h) => s + h.gas, 0) / Math.max(1, last12.length);
+    const rw = runwayMonthsGrowth();
+    const rRealPct = rw.rReal * 100;
+    return {
+      title: 'Runway com valorização',
+      what: 'Igual ao Runway, mas a carteira continua rendendo (retorno real da premissa) enquanto é consumida — dura mais, e pode nunca acabar.',
+      calc: [
+        ['Patrimônio investível (exclui imóvel; RV/FII entram)', fmt(liquid)],
+        ['Gasto médio 12m (Histórico, col. Gastos)', fmt(avgGas) + '/mês'],
+        ['Retorno real da carteira (premissa − IPCA)', fmtPct(rRealPct) + ' a.a.'],
+        ['= Runway com valorização', rw.infinite ? 'nunca acaba (rendimento ≥ gasto)' : Math.round(rw.months) + ' meses (' + (rw.months/12).toFixed(1) + ' anos)'],
+      ],
+      ignores: 'Volatilidade — assume o retorno real médio constante todo mês, sem sequência de perdas (sequence-of-returns risk).',
+      assumes: 'O retorno é a PREMISSA da carteira (aba Patrimônio), não o realizado; gasto mensal constante em termos reais.',
+      sim: {
+        inputs: [
+          { key: 'gasto', label: 'Simular gasto mensal', value: Math.round(avgGas), step: 100, min: 0, unit: 'R$/mês' },
+          { key: 'retorno', label: 'Simular retorno real', value: +rRealPct.toFixed(1), step: 0.5, unit: '% a.a.' },
+        ],
+        recompute: v => {
+          const g = v.gasto, rr = v.retorno / 100;
+          if (!(g > 0)) return '<span style="color:var(--text-muted)">Informe um gasto válido.</span>';
+          const rm = Math.pow(1 + rr, 1/12) - 1;
+          if (rm <= 0) {
+            const m = liquid / g;
+            return `Sem retorno real positivo, vira o Runway simples: <b style="color:var(--accent);font-size:15px">${Math.round(m)} meses</b> <span style="color:var(--text-muted)">(${(m/12).toFixed(1)} anos)</span>`;
+          }
+          if (rm * liquid >= g) {
+            return `<b style="color:var(--green);font-size:15px">Nunca acaba</b> <span style="color:var(--text-muted)">— o rendimento real (${fmt(rm*liquid)}/mês) já cobre o gasto sozinho</span>`;
+          }
+          const m = -Math.log(1 - (rm * liquid) / g) / Math.log(1 + rm);
+          return `<b style="color:var(--accent);font-size:15px">${Math.round(m)} meses</b> <span style="color:var(--text-muted)">(${(m/12).toFixed(1)} anos)</span>`;
+        },
+      },
+    };
+  },
   coastfi: () => {
     const ipca = S.assumptions.ipca || 5.5;
     const rReal = ((1 + weightedReturn()/100) / (1 + ipca/100) - 1) * 100;
     return {
       title: 'Coast FI',
-      what: 'Em quantos anos você chega à FI se NUNCA mais aportar — só juros compostos reais.',
-      calc: [
-        ['Patrimônio investível hoje', fmt(investableWealth())],
-        ['Número FI (meta)', fmt(fiNumber())],
-        ['Retorno real da carteira (premissa − IPCA)', fmtPct(rReal) + ' a.a.'],
-        ['= ln(meta ÷ atual) ÷ ln(1 + retorno real)', (coastFIYears() ?? 0).toFixed(1) + ' anos'],
-      ],
+      what: 'O ponto em que o juro real sozinho já leva você à FI. Uma equação (meta = atual × (1+r)^t), duas leituras: em ANOS, quanto o seu patrimônio de hoje leva para virar a meta; em REAIS, quanto bastaria ter hoje para chegar lá na idade de aposentadoria.',
+      calc: (() => {
+        const t = Math.max(0, (S.assumptions.retirementAge || 60) - currentAge());
+        const alvo = coastFITarget();
+        const w0 = investableWealth();
+        const linhas = [
+          ['Patrimônio investível hoje', fmt(w0)],
+          ['Número FI (meta)', fmt(fiNumber())],
+          ['Retorno real da carteira (premissa − IPCA)', fmtPct(rReal) + ' a.a.'],
+          ['Anos até a aposentadoria', t + ' anos'],
+          ['TEMPO: ln(meta ÷ atual) ÷ ln(1 + r)', (coastFIYears() ?? 0).toFixed(1) + ' anos'],
+        ];
+        if (alvo != null) {
+          linhas.push(['VALOR: meta ÷ (1 + r) elevado a ' + t, fmt(alvo)]);
+          linhas.push([w0 >= alvo ? '= já passou do limiar por' : '= falta para o limiar', fmt(Math.abs(w0 - alvo))]);
+        }
+        return linhas;
+      })(),
       ignores: 'Aportes futuros (é o ponto: zero contribuição) e volatilidade — usa retorno médio constante.',
       assumes: 'O retorno é a PREMISSA da carteira (aba Patrimônio), não o realizado.',
       sim: {
@@ -3428,19 +3650,39 @@ function renderDashboard() {
       </div>
     </div>
 
+    ${(() => {
+      // Coast FI marcado na própria barra: é um limiar intermediário e bem mais
+      // perto que a FI, então vê-lo na régua muda a leitura do progresso.
+      const alvoCo = coastFITarget();
+      const pctCo  = (alvoCo != null && fin > 0) ? Math.min(100, alvoCo / fin * 100) : null;
+      const passou = alvoCo != null && w >= alvoCo;
+      const idadeApos = S.assumptions.retirementAge || 60;
+      return `
     <div class="card mb-16">
       <div class="flex-between mb-8">
         <div class="card-title" style="margin-bottom:0">Progresso à Independência Financeira</div>
         <span style="font-size:13px;font-weight:700;color:var(--accent)">${fmtPct(pct)} · ${fmt(w)} / ${fmt(fin)}</span>
       </div>
-      <div class="progress-bar-wrap">
+      <div class="progress-bar-wrap" style="position:relative">
         <div class="progress-bar" style="width:${pct}%;background:${pct>=100?'var(--green)':pct>=50?'var(--accent)':'var(--yellow)'}"></div>
+        ${pctCo != null ? `<div title="Coast FI: ${fmt(alvoCo)} — a partir daqui o juro real sozinho chega à meta aos ${idadeApos}"
+          style="position:absolute;top:-3px;bottom:-3px;left:${pctCo}%;width:2px;background:var(--green);border-radius:1px;box-shadow:0 0 0 1px var(--bg)"></div>` : ''}
       </div>
       <div class="flex-between mt-8 text-sm text-muted">
         <span>${w >= fin ? '✓ meta atingida' : 'Faltam ' + fmt(fin - w)}</span>
         <span>Meta FI: ${fmt(fin)} (${fmt(S.fi.targetMonthlyIncome)}/mês à ${fmtPct(fiRate())} a.a.)</span>
       </div>
-    </div>
+      ${alvoCo != null ? `
+      <div class="text-sm mt-8" style="padding-top:8px;border-top:1px solid var(--border)">
+        <span class="color-dot" style="background:var(--green)"></span>
+        <b style="color:${passou ? 'var(--green)' : 'var(--text)'}">Coast FI: ${fmt(alvoCo)}</b>
+        <span class="text-muted"> — o que bastaria ter hoje para chegar à meta aos ${idadeApos} sem mais nenhum aporte.
+        ${passou
+          ? `Você já passou por <b style="color:var(--green)">${fmt(w - alvoCo)}</b>: aportar agora <b>antecipa</b> a data, não a torna possível.`
+          : `Faltam <b>${fmt(alvoCo - w)}</b> — ${fmtPct(w / alvoCo * 100)} do limiar.`}</span>
+      </div>` : ''}
+    </div>`;
+    })()}
 
     <div class="grid-2">
       <div class="card">
@@ -5152,8 +5394,8 @@ const SECAO_COLORS = {
 };
 
 /* ── Seções dinâmicas: espelham a aba "Fluxo de Caixa" da planilha (linha 23+) ──
- * O sync manda as linhas cruas (nome + bold); linhas em negrito são seções,
- * as demais são categorias da seção corrente. Se não houver dados (ou o
+ * Macro-conta é marcada pelo PREFIXO "(-)" (gasto) ou "(+)" (receita); as linhas
+ * sem prefixo são categorias da macro-conta corrente. Se não houver dados (ou o
  * agrupamento falhar), cai no SECAO_MAP hardcoded acima.                    */
 let SECAO_DYN = null;   // { map:{cat→sec}, order:[secs], normIdx:{catNormalizada→sec} }
 
@@ -5161,19 +5403,59 @@ function normCat(s) {
   return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
 }
 
+// "(-) Alimentação" / "(+) Total Receitas Ativas" → { sinal, nome }. O prefixo é o que
+// separa macro-conta de categoria na planilha — e é CONTEÚDO, não formatação.
+const RE_SINAL = /^\(([+-])\)\s*/;
+function splitSinal(raw) {
+  const s = String(raw ?? '').trim();
+  const m = s.match(RE_SINAL);
+  return m ? { sinal: m[1], nome: s.slice(m[0].length).trim() } : { sinal: null, nome: s };
+}
+
+// Macro-contas de topo e divisores de bloco da aba Fluxo de Caixa. Vêm SEM prefixo e não
+// são categoria de ninguém — "Gastos Não Recorrentes" é o divisor que separa o bloco
+// recorrente do eventual. Compartilhado com o espelho da planilha (_buildFluxoGridTab).
+const FLUXO_SUPERGRUPO = {
+  'total receitas': 'receitas', 'total receitas ativas': 'receitas',
+  'total receitas passivas': 'receitas', 'total proventos': 'receitas',
+  'total gastos': 'gastos', 'gastos': 'gastos',
+  'gastos nao recorrentes': 'gastos', 'impostos': 'gastos',
+};
+const FLUXO_TOPO = { 'total receitas': true, 'total gastos': true };
+
 function buildSecoesFromFluxo(rows) {
   const map = {}, order = [], normIdx = {};
   const skip = /^(total|totais|m[eé]dia|%|receita)/i;
+  // Negrito só entra como reserva p/ planilha sem prefixo: getFontWeights() não enxerga
+  // formatação condicional e, nesta planilha, erra a partir da 4ª macro-conta (marca
+  // "Outros Familia" como seção e perde "(-) Life", "(-) Lazer", "(-) Transportation"…),
+  // o que jogava Uber em "Show/teatro/festa" e Bar GF em "Presente".
+  const temSinal = (rows || []).some(r => RE_SINAL.test(String(r.name ?? '').trim()));
   let cur = null;
   for (const row of rows || []) {
-    const name = String(row.name || '').trim();
-    if (!name || skip.test(name)) continue;
-    if (row.bold) {
-      cur = name;
-      if (!order.includes(name)) order.push(name);
+    const raw = String(row.name ?? '').trim();
+    const { sinal, nome } = splitSinal(raw);
+    if (!nome) continue;
+    const isMacro = temSinal ? !!sinal : !!row.bold;
+    // Divisor/linha de resumo SEM prefixo fecha a seção corrente sem virar categoria —
+    // senão "Gastos Não Recorrentes" entraria como categoria da última seção (Financeiro)
+    // e tudo abaixo dele seria contado nela. Com prefixo, o usuário marcou como seção:
+    // manda o prefixo, não esta lista.
+    if (!isMacro && (skip.test(nome) || FLUXO_SUPERGRUPO[normCat(nome)])) { cur = null; continue; }
+    if (isMacro) {
+      if (sinal === '+' || skip.test(nome)) { cur = null; continue; }  // bloco de receita / resumo
+      cur = nome;
+      if (!order.includes(nome)) order.push(nome);
+      // Macro sem categorias (ex.: "(-) Outros") recebe lançamento direto: no Mobills a
+      // natureza vem com o prefixo colado. Registra a forma crua sempre; a forma sem
+      // prefixo só se ainda não for categoria de outra seção — "Compras" é as duas coisas
+      // (categoria de Familía e seção própria), e a categoria é a leitura mais específica.
+      map[raw] = nome;
+      normIdx[normCat(raw)] = nome;
+      if (!(nome in map)) { map[nome] = nome; normIdx[normCat(nome)] = nome; }
     } else if (cur) {
-      map[name] = cur;
-      normIdx[normCat(name)] = cur;
+      map[nome] = cur;
+      normIdx[normCat(nome)] = cur;
     }
   }
   return order.length ? { map, order, normIdx } : null;
@@ -6684,6 +6966,7 @@ function renderFI() {
   const mcd     = monteCarloDecum(500, 90);                  // sobrevivência pós-FI
   window._lastMcDecum = mcd;                                 // usado pelo explicador ⓘ
   const rwM     = runwayMonths();
+  const rwG     = runwayMonthsGrowth();
   const coastY  = coastFIYears();
   const cov     = passiveCoverage();
   const projStart = projectionStart().date;
@@ -6843,7 +7126,7 @@ function renderFI() {
       </div>
     </div>
 
-    <div class="kpi-grid mb-16">
+    <div class="kpi-grid kpi-grid-3 mb-16">
       <div class="kpi">
         <div class="kpi-label">FI nominal (ilusão) ${infoBtn('finominal')}</div>
         <div class="kpi-value" style="color:var(--purple)">${fiNominal ? fiNominal.date.toLocaleDateString('pt-BR',{month:'short',year:'numeric'}) : '> 40 anos'}</div>
@@ -6855,9 +7138,24 @@ function renderFI() {
         <div class="kpi-sub">se a renda zerar hoje, o patrimônio investível banca ${Math.round(rwM)} meses de gastos</div>
       </div>
       <div class="kpi">
+        <div class="kpi-label">Runway com valorização ${infoBtn('runwaygrowth')}</div>
+        <div class="kpi-value" style="color:var(--green)">${rwG.infinite ? '∞' : (rwG.months/12).toFixed(1) + ' anos'}</div>
+        <div class="kpi-sub">${rwG.infinite ? `o rendimento real (${fmtPct(rwG.rReal*100)} a.a.) sozinho já cobre o gasto — nunca acaba` : `carteira rendendo ${fmtPct(rwG.rReal*100)} real: banca ${Math.round(rwG.months)} meses`}</div>
+      </div>
+      <div class="kpi">
         <div class="kpi-label">Coast FI ${infoBtn('coastfi')}</div>
         <div class="kpi-value" style="color:${coastY !== null && coastY <= 20 ? 'var(--green)' : 'var(--yellow)'}">${coastY === 0 ? 'Atingido ✓' : coastY !== null ? coastY.toFixed(1) + ' anos' : '—'}</div>
         <div class="kpi-sub">${coastY === 0 ? 'juros sozinhos já sustentam a meta' : coastY !== null ? `sem nunca mais aportar, FI aos ${Math.round(currentAge() + coastY)} anos` : 'retorno real ≤ 0'}</div>
+        ${(() => {
+          // A mesma métrica em reais: o limiar. coastFITarget() usa a mesma taxa
+          // de coastFIYears(), então os dois nunca se contradizem.
+          const alvoCo = coastFITarget();
+          if (alvoCo == null) return '';
+          const passou = w >= alvoCo;
+          return `<div class="kpi-sub" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)">
+            Limiar: <b style="color:${passou ? 'var(--green)' : 'var(--text)'}">${fmt(alvoCo)}</b>
+            ${passou ? `· já passou por ${fmt(w - alvoCo)}` : `· faltam ${fmt(alvoCo - w)}`}</div>`;
+        })()}
       </div>
       <div class="kpi">
         <div class="kpi-label">Cobertura Renda Passiva ${infoBtn('coverage')}</div>
@@ -7205,14 +7503,7 @@ function _buildFluxoGridTab() {
   //   Total Gastos   → (-) Gastos, (-) Gastos Não Recorrentes, (-) Impostos
   // Não sintetizamos nada: só herdamos a cor do grupo (verde/vermelho) por toda a árvore,
   // e o "(-) AP" fica isolado em amarelo. O agrupamento/colapso de cada macro-conta continua.
-  const stripSign = s => String(s ?? '').replace(/^\(\+\)\s*|^\(-\)\s*/, '').trim();
-  const FLUXO_SUPERGRUPO = {
-    'total receitas': 'receitas', 'total receitas ativas': 'receitas',
-    'total receitas passivas': 'receitas', 'total proventos': 'receitas',
-    'total gastos': 'gastos', 'gastos': 'gastos',
-    'gastos nao recorrentes': 'gastos', 'impostos': 'gastos',
-  };
-  const FLUXO_TOPO = { 'total receitas': true, 'total gastos': true };
+  const stripSign = s => splitSinal(s).nome;   // FLUXO_SUPERGRUPO/FLUXO_TOPO agora são globais
   const FLUXO_SUPERGRUPO_COR = { receitas: '#22c55e', gastos: '#f87171' };
   const FLUXO_AP_COR = '#eab308';
   const resolveGrupo = label => {
@@ -7227,19 +7518,23 @@ function _buildFluxoGridTab() {
     return SECAO_COLORS[label] || null;
   };
 
-  // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna (carrega o índice original
-  // p/ consultar o negrito da col A = macro-conta/seção). Hierarquia de negrito com 2 níveis:
+  // corpo = linhas depois do cabeçalho com rótulo na 1ª coluna. Hierarquia de 2 níveis:
   // "Total Receitas/Gastos" (topo) → "(+)/(-) ..." (seção) → categorias (detalhe). Recolher o
   // topo esconde a seção inteira; recolher uma seção esconde só suas categorias.
+  // O que marca seção é o PREFIXO (+)/(-), não o negrito: getFontWeights() ignora formatação
+  // condicional e nesta planilha desalinha depois da 3ª macro-conta. Negrito fica de reserva
+  // só quando a planilha não usa prefixo nenhum.
   const esc = s => String(s).replace(/'/g, "\\'");
   const bold = Array.isArray(FLUXOBOLD) ? FLUXOBOLD : [];
+  const temSinal = FLUXOGRID.some(r => RE_SINAL.test(String(r[0] ?? '').trim()));
   const body = [];
   let curColor = null, curTop = null, curSection = null;
   for (let i = hIdx + 1; i < FLUXOGRID.length; i++) {
     const label = String(FLUXOGRID[i][0] ?? '').trim();
     if (label === '') continue;
-    const section = !!bold[i];
-    const topo = section && isTopo(label);
+    const ehTopo = isTopo(label);
+    const section = temSinal ? (RE_SINAL.test(label) || ehTopo) : !!bold[i];
+    const topo = section && ehTopo;
     if (section) {
       curColor = colorForGrupo(label, resolveGrupo(label));
       if (topo) { curTop = label; curSection = null; }
@@ -9103,11 +9398,19 @@ function _rpCtx() {
   // Aqui é recalculada e ancorada no último mês COM DADO do Mobills.
   const mb = { ok: false, rows: [], raw: MOBILLS_RAW || [], months: [], secOrder: [] };
   if (MOBILLS && MOBILLS.length) {
+    // Âncora do relatório inteiro é o último mês do HISTÓRICO (lastD), nunca o mês mais
+    // recente que aparecer no Mobills — o Mobills pode ter lançamento futuro (conta
+    // recorrente já cadastrada com antecedência), e isso arrastaria a Seção 6 inteira
+    // (mês de referência, janelas de 3/6/12m, "último" por categoria) pra um mês que
+    // ainda nem fechou. Filtra ANTES de agregar, não depois — senão o corte vaza em
+    // qualquer stat que olhe "o mais recente" por conta própria (ex: natLast).
+    const mobFiltrado = MOBILLS.filter(r => r.d <= lastD);
+    const mobRows = mobFiltrado.length ? mobFiltrado : MOBILLS;   // sem overlap (raro): usa tudo, não quebra a seção
     mb.ok = true;
-    mb.rows = MOBILLS;
+    mb.rows = mobRows;
     const bySec = {}, byNat = {}, byMonth = {}, bySecMonth = {}, byNatMonth = {}, natCount = {}, natLast = {};
     const natSec = {};
-    MOBILLS.forEach(r => {
+    mobRows.forEach(r => {
       const v = Math.abs(r.val || 0);
       const nat = r.cat || 'Sem categoria';
       const sec = getSecao(nat);
@@ -9212,19 +9515,66 @@ function _rpDrawdownNow(c) {
   return { peak, peakD, cur, pct: peak > 0 ? (peak - cur) / peak * 100 : 0 };
 }
 
+// Aporte/Mercado/Drawdown num trecho [fromIdx, toIdx] de H (mesma lógica de _rpYearRows,
+// mkt = Δ patrimônio líquido − aporte líquido). fromIdx é o índice do marco ANTERIOR
+// (ou 0 no primeiro marco, usando o 1º registro do histórico como base) — se coincidir
+// com toIdx (marco batido no mesmo mês do anterior, ou já no 1º registro), não há trecho.
+function _rpMktInWindow(H, fromIdx, toIdx) {
+  if (fromIdx === toIdx) return { apoPL: null, mkt: null, dd: null };
+  const win = H.slice(fromIdx + 1, toIdx + 1);
+  const apoPL = _rpSum(win.map(apoPLOf));
+  const plFrom = H[fromIdx].pl || 0, plTo = H[toIdx].pl || 0;
+  const mkt = (plTo - plFrom) - apoPL;
+  let peak = H[fromIdx].pl != null ? H[fromIdx].pl : -Infinity, dd = 0;
+  for (let i = fromIdx; i <= toIdx; i++) {
+    const pl = H[i].pl;
+    if (pl == null) continue;
+    if (pl > peak) peak = pl;
+    if (peak > 0) dd = Math.max(dd, (peak - pl) / peak * 100);
+  }
+  return { apoPL, mkt, dd };
+}
+
 // Marcos de patrimônio de 100k em 100k (os dados do card do Dashboard são locais lá).
 // Base = h.pat (patrimônio TOTAL), a mesma de _buildMilestonesCard: usar h.pl aqui
 // atrasaria cada marco em meses e sumiria com os últimos, contradizendo a tela.
 function _rpMilestones(c) {
+  const H = c.H;
   const out = [];
-  let next = 100000, prevD = null;
-  for (const h of c.H) {
+  let next = 100000, prevD = null, prevIdx = -1;
+  H.forEach((h, i) => {
     while ((h.pat || 0) >= next) {
-      out.push({ v: next, d: h.d, gap: prevD ? monthsBetween(prevD, h.d) : null });
-      prevD = h.d; next += 100000;
+      const gap = prevD ? monthsBetween(prevD, h.d) : null;
+      const idade = Number(h.d.slice(0, 4)) - S.profile.birthYear;
+      const ritmo = (gap != null && gap > 0) ? Math.round(100000 / gap) : null;
+      const win = _rpMktInWindow(H, prevIdx < 0 ? 0 : prevIdx, i);
+      out.push({ v: next, d: h.d, gap, idade, ritmo, apoPL: win.apoPL, mkt: win.mkt, dd: win.dd });
+      prevD = h.d; prevIdx = i; next += 100000;
     }
-  }
+  });
   return out;
+}
+
+// Projeção do próximo marco de 100k: régua empírica (Δpat real dos últimos 12 meses,
+// com fallback de data mais próxima p/ tolerar lacuna de sync — mesmo padrão do bloco
+// "Velocidade" de computeInsights), sem premissa de retorno.
+function _rpNextMilestone(c) {
+  const H = c.H, lastH = H[H.length - 1];
+  if (!lastH) return null;
+  const patNow = lastH.pat || 0;
+  const nextV = (Math.floor(patNow / 100000) + 1) * 100000;
+  const key12 = addMonths(lastH.d, -12);
+  const past = H.filter(h => h.d < lastH.d);
+  const base = H.find(h => h.d === key12) ||
+    past.slice().sort((a, b) => Math.abs(monthsBetween(a.d, key12)) - Math.abs(monthsBetween(b.d, key12)))[0] ||
+    null;
+  if (!base) return null;
+  const janela = monthsBetween(base.d, lastH.d);
+  const delta = patNow - (base.pat || 0);
+  if (janela <= 0 || delta <= 0) return null;
+  const ritmoMes = delta / janela;
+  const meses = (nextV - patNow) / ritmoMes;
+  return { nextV, meses, ritmoMes, janela };
 }
 
 // ═══════ 1. RETRATO DE HOJE ═══════
@@ -9269,7 +9619,7 @@ function _rpSec1(c) {
       _rpCls(pp12)),
     _rpKpi('Aporte médio 12m', fmt(c.avgApo), `${fmt(c.apo12)} no ano · receita média ${fmt(c.avgRec)}/mês`),
     _rpKpi('Diagnóstico', `${nBad + nWarn} ${nBad + nWarn === 1 ? 'ponto' : 'pontos'}`,
-      `${nBad} ${nBad === 1 ? 'alerta' : 'alertas'} e ${nWarn} ${nWarn === 1 ? 'atenção' : 'atenções'} na seção 12`,
+      `${nBad} ${nBad === 1 ? 'alerta' : 'alertas'} e ${nWarn} ${nWarn === 1 ? 'atenção' : 'atenções'} na seção ${_rpSecNo('diagnostico')}`,
       nBad ? 'rp-neg' : nWarn ? 'rp-warn' : 'rp-pos'),
   ]);
 
@@ -9337,7 +9687,7 @@ function _rpSec2(c) {
 
   html += _rpKpis([
     _rpKpi('Desde o início', fmt(c.patNow), real ? `${_rpX(real.nomMult)} nominal · ${_rpX(real.realMult)} em poder de compra` : `primeiro registro em ${monthLabel(c.H[0].d)}`),
-    _rpKpi('Crescimento do saldo', real ? _rpPct(real.nomCAGR) + ' a.a.' : '—', 'CAGR do saldo — <b>inclui aporte</b>, não é retorno da carteira; o retorno está na seção 3'),
+    _rpKpi('Crescimento do saldo', real ? _rpPct(real.nomCAGR) + ' a.a.' : '—', 'CAGR do saldo — <b>inclui aporte</b>, não é retorno da carteira; o retorno está na seção ' + _rpSecNo('resultado')),
     _rpKpi('Crescimento real do saldo', real ? _rpPct(real.realCAGR) + ' a.a.' : '—', real ? `o mesmo CAGR já sem a inflação de ${_rpPct(real.inflAcum)} acumulada no período` : '', real && real.realCAGR > 0 ? 'rp-pos' : 'rp-neg'),
     _rpKpi('Maior queda já atravessada', _rpPct(mdd), dd.pct >= 5 ? `hoje ${_rpPct(dd.pct)} abaixo do pico de ${fmt(dd.peak)} (${monthLabel(dd.peakD)})` : 'hoje no topo histórico ou a menos de 5% dele'),
   ], 4);
@@ -9358,17 +9708,17 @@ function _rpSec2(c) {
 
   html += _rpH3('Ano a ano');
   html += _rpTable(
-    `<th>Ano</th><th class="n">Patrimônio (fim)</th><th class="n">Investível</th><th class="n">Δ investível</th><th class="n">Aporte</th><th class="n">Mercado</th><th class="n">Receita/mês</th><th class="n">Gasto/mês</th><th class="n">Poupança</th>`,
+    `<th>Ano</th><th class="n">Patrimônio (fim)</th><th class="n">Patrimônio Líquido</th><th class="n">Δ patrimônio líquido</th><th class="n">Aporte</th><th class="n">Mercado</th><th class="n">Receita/mês</th><th class="n">Gasto/mês</th><th class="n">Gasto total (ano)</th><th class="n">Poupança</th>`,
     yr.map(r => `<tr>` +
       `<td class="lbl">${r.y}${r.parcial ? ` <span class="rp-dim">(${r.n}m)</span>` : ''}</td>` +
       `<td class="n">${fmt(r.pat)}</td><td class="n">${fmt(r.pl)}</td>` +
       `<td class="n ${_rpCls(r.dPl)}">${r.dPl == null ? '—' : _rpMoneyS(r.dPl)}</td>` +
       `<td class="n">${fmt(r.apo)}</td>` +
       `<td class="n ${_rpCls(r.mkt)}">${r.mkt == null ? '—' : _rpMoneyS(r.mkt)}</td>` +
-      `<td class="n">${fmt(r.recAvg)}</td><td class="n">${fmt(r.gasAvg)}</td>` +
+      `<td class="n">${fmt(r.recAvg)}</td><td class="n">${fmt(r.gasAvg)}</td><td class="n">${fmt(r.gas)}</td>` +
       `<td class="n">${_rpPct(r.sr)}</td></tr>`).join(''),
     null, 'rp-t-sm');
-  html += `<p class="rp-note">“Mercado” é Δ investível − aporte: o que a carteira fez sozinha, sem o seu depósito. Anos parciais têm o nº de meses ao lado.</p>`;
+  html += `<p class="rp-note">“Mercado” é Δ patrimônio líquido − aporte: o que a carteira fez sozinha, sem o seu depósito. “Gasto total (ano)” soma os meses do ano; nos anos parciais reflete só os meses já registrados. Anos parciais têm o nº de meses ao lado.</p>`;
 
   if (ar) {
     html += _rpH3('Bolso vs. juros');
@@ -9395,11 +9745,22 @@ function _rpSec2(c) {
   if (ms.length) {
     const fast = ms.filter(m => m.gap != null).reduce((a, b) => (a && a.gap <= b.gap) ? a : b, null);
     const slow = ms.filter(m => m.gap != null).reduce((a, b) => (a && a.gap >= b.gap) ? a : b, null);
+    const nextMs = _rpNextMilestone(c);
     html += _rpH3('Marcos de 100 mil — patrimônio total');
     html += _rpTable(
-      `<th>Marco</th><th>Atingido em</th><th class="n">Meses desde o anterior</th>`,
-      ms.slice(-12).map(m => `<tr><td class="lbl">${fmtK(m.v)}</td><td>${monthLabel(m.d)}</td><td class="n">${m.gap == null ? '—' : m.gap}</td></tr>`).join(''),
-      null, 'rp-t-sm');
+      `<th>Marco</th><th>Atingido em</th><th class="n">Idade</th><th class="n">Meses desde o anterior</th><th class="n">Ritmo do trecho</th><th class="n">Aporte no trecho</th><th class="n">Mercado no trecho</th><th class="n">Drawdown no trecho</th>`,
+      ms.slice(-12).map(m => `<tr>` +
+        `<td class="lbl">${fmtK(m.v)}</td><td>${monthLabel(m.d)}</td>` +
+        `<td class="n">${m.idade} anos</td>` +
+        `<td class="n">${m.gap == null ? '—' : m.gap}</td>` +
+        `<td class="n">${m.ritmo == null ? '—' : fmt(m.ritmo) + '/mês'}</td>` +
+        `<td class="n">${m.apoPL == null ? '—' : fmt(m.apoPL)}</td>` +
+        `<td class="n ${_rpCls(m.mkt)}">${m.mkt == null ? '—' : _rpMoneyS(m.mkt)}</td>` +
+        `<td class="n ${m.dd != null && m.dd >= 10 ? 'rp-neg' : 'rp-dim'}">${m.dd != null && m.dd >= 10 ? '−' + m.dd.toFixed(0) + '%' : '—'}</td>` +
+        `</tr>`).join(''),
+      nextMs ? `<td class="lbl">${fmtK(nextMs.nextV)} <span class="rp-dim">(projeção)</span></td>` +
+        `<td colspan="7" class="rp-dim">no ritmo empírico dos últimos ${nextMs.janela} meses (${fmt(Math.round(nextMs.ritmoMes))}/mês de patrimônio total), chega em ~${_rpDur(nextMs.meses)} — por volta de ${monthLabel(addMonths(c.lastD, Math.round(nextMs.meses)))}</td>` : null,
+      'rp-t-sm');
     if (fast && slow && fast !== slow) {
       // gap 0 = dois marcos cruzados no mesmo mês (o patrimônio saltou mais de
       // 100k de uma vez). "0 meses" lê como bug; dizer o que de fato aconteceu.
@@ -9410,6 +9771,7 @@ function _rpSec2(c) {
         `São ${ms.length} marcos em ${monthsBetween(c.H[0].d, c.lastD)} meses de histórico.` +
         (ms.length > 12 ? ' A tabela mostra os 12 últimos.' : ''));
     }
+    html += `<p class="rp-note">“Aporte”/“Mercado no trecho” seguem a lógica da tabela Ano a ano (Mercado = Δ patrimônio líquido − aporte líquido); no primeiro marco, contam desde o início do histórico. “Ritmo” não se aplica ao primeiro marco (sem marco anterior) nem quando dois marcos caem no mesmo mês. “Drawdown no trecho” só aparece quando a queda pico-a-vale dentro do período passou de 10%.</p>`;
   }
 
   if (dd.pct >= 5) {
@@ -9418,6 +9780,72 @@ function _rpSec2(c) {
   }
 
   return { id: 'patrimonio', title: 'Patrimônio — trajetória', src: 'planilha (histórico)', html };
+}
+
+// Indicadores ajustados ao risco (Sharpe/Sortino/Calmar/Information Ratio), calculados sobre a
+// série REAL de retornos mensais (realizedReturns()) — não sobre a volatilidade "assumida" por
+// classe (portfolioVol()), que ignora correlação e já é sinalizada em outro KPI como otimista.
+// CDI entra como referência livre de risco (mesma convenção do resto do app).
+function _rpVarAnualizada(vals) {
+  if (vals.length < 2) return null;
+  const mean = _rpAvg(vals);
+  const variance = _rpAvg(vals.map(v => (v - mean) ** 2));
+  return Math.sqrt(variance) * Math.sqrt(12) * 100; // desvio-padrão anualizado, em %
+}
+// Downside deviation: só penaliza meses abaixo do MAR (aqui, 0 — "não perder dinheiro").
+function _rpDownsideDev(rs) {
+  if (rs.length < 2) return null;
+  const belowSq = rs.map(x => Math.min(0, x.r) ** 2);
+  return Math.sqrt(_rpAvg(belowSq)) * Math.sqrt(12) * 100;
+}
+// Tracking error: desvio-padrão anualizado do excesso mensal sobre o CDI equivalente do mês.
+function _rpTrackingError(rs) {
+  if (rs.length < 2) return null;
+  const excess = rs.map(x => {
+    const y = parseInt(x.d.slice(0, 4));
+    const cdiM = Math.pow(1 + (CDI_YEARLY[y] ?? 10) / 100, 1 / 12) - 1;
+    return x.r - cdiM;
+  });
+  return _rpVarAnualizada(excess);
+}
+// Drawdown pico-a-vale (pl) só dentro da janela; se fromD for dado, inclui 1 mês antes
+// dele (o ponto de partida/pico de entrada na janela) — senão a queda do 1º mês da janela
+// nunca aparece porque não há "pico anterior" pra comparar.
+function _rpDDInWindow(H, fromD) {
+  let startIdx = 0;
+  if (fromD) {
+    const idx = H.findIndex(h => h.d === fromD);
+    startIdx = idx > 0 ? idx - 1 : 0;
+  }
+  let peak = -Infinity, maxDD = 0;
+  for (let i = startIdx; i < H.length; i++) {
+    const pl = H[i].pl;
+    if (pl == null) continue;
+    if (pl > peak) peak = pl;
+    if (peak > 0) maxDD = Math.max(maxDD, (peak - pl) / peak * 100);
+  }
+  return maxDD;
+}
+// Amostra mínima pra não publicar um Sharpe calculado em cima de 3 meses de dado.
+const _RP_MIN_MESES_RISCO = 6;
+function _rpRiskAdjusted(c, monthsWindow) {
+  const rs = realizedReturns();
+  const rsW = monthsWindow ? rs.slice(-monthsWindow) : rs;
+  const n = rsW.length;
+  if (n < _RP_MIN_MESES_RISCO) return { n };
+  const twrW = twr(monthsWindow), cdiW = cdiAnnualized(monthsWindow);
+  const alpha = twrW - cdiW;
+  const vol = _rpVarAnualizada(rsW.map(x => x.r));
+  const downside = _rpDownsideDev(rsW);
+  const dd = monthsWindow ? _rpDDInWindow(c.H, rsW[0].d) : maxDrawdownHist();
+  const te = _rpTrackingError(rsW);
+  return {
+    n, vol, downside, dd,
+    sharpe: vol > 0 ? alpha / vol : null,
+    sortino: downside > 0 ? alpha / downside : null,
+    calmar: dd > 0 ? twrW / dd : null,
+    ir: te > 0 ? alpha / te : null,
+  };
 }
 
 // ═══════ 3. RESULTADO — RENTABILIDADE ═══════
@@ -9483,6 +9911,26 @@ function _rpSec3(c) {
       : cur > 0 ? `Hoje são ${cur} ${cur === 1 ? 'mês' : 'meses'} negativos seguidos.`
       : 'O último mês fechou positivo.'));
 
+  html += _rpH3('Indicadores ajustados ao risco');
+  const rWins = [
+    { label: '12 meses', n: 12 },
+    { label: '24 meses', n: 24 },
+    { label: 'Desde o início', n: null },
+  ].map(w => ({ ...w, r: _rpRiskAdjusted(c, w.n) }));
+  html += _rpTable(
+    `<th>Janela</th><th class="n">Meses</th><th class="n">Volatilidade</th><th class="n">Downside dev.</th><th class="n">Max. drawdown</th><th class="n">Sharpe</th><th class="n">Sortino</th><th class="n">Calmar</th><th class="n">Information Ratio</th>`,
+    rWins.map(w => `<tr><td class="lbl">${w.label}</td><td class="n">${w.r.n}</td>` +
+      `<td class="n">${w.r.vol == null ? '—' : _rpPct(w.r.vol) + ' a.a.'}</td>` +
+      `<td class="n">${w.r.downside == null ? '—' : _rpPct(w.r.downside) + ' a.a.'}</td>` +
+      `<td class="n">${w.r.dd == null ? '—' : _rpPct(w.r.dd)}</td>` +
+      `<td class="n ${_rpCls(w.r.sharpe)}">${_rpX(w.r.sharpe)}</td>` +
+      `<td class="n ${_rpCls(w.r.sortino)}">${_rpX(w.r.sortino)}</td>` +
+      `<td class="n ${_rpCls(w.r.calmar)}">${_rpX(w.r.calmar)}</td>` +
+      `<td class="n ${_rpCls(w.r.ir)}">${_rpX(w.r.ir)}</td></tr>`).join(''),
+    null, 'rp-t-sm');
+  html += `<p class="rp-note">Sharpe = (retorno − CDI) ÷ volatilidade; Sortino troca a volatilidade pelo desvio só dos meses negativos; Calmar = retorno ÷ maior queda pico-a-vale da janela; Information Ratio = (retorno − CDI) ÷ tracking error (desvio do excesso mensal sobre o CDI). Todos anualizados, com a volatilidade calculada em cima da série REAL de retornos (não a premissa por classe do card acima). ` +
+    `Janelas com menos de ${_RP_MIN_MESES_RISCO} meses de dado mostram “—”: amostra curta demais pra um índice de risco não virar ruído.</p>`;
+
   // Só anos de 12 meses compostos. Um ano parcial plotado como barra fica
   // indistinguível de um ano fechado ao lado, e ainda contamina a média.
   const anosT = _rpYearRows(c).filter(r => r.ret != null);
@@ -9506,6 +9954,21 @@ function _rpSec3(c) {
       ? `<i>Atenção: a tabela CDI_YEARLY não tem o ano corrente — anos ausentes caem num fallback de 10% a.a. e distorcem o alpha.</i>` : ''));
 
   return { id: 'resultado', title: 'Resultado — rentabilidade', src: 'planilha (col. Rentabilidade) + CDI_YEARLY', html };
+}
+
+// Linha "Hipótese" da tabela modelo-vs-realidade — extraída pra recalcular ao vivo
+// (mesmo padrão da Rota B: contexto em window._rpAporteHyp, sem gerar o relatório de novo).
+function _rpAporteHypRow(ap) {
+  const ctx = window._rpAporteHyp;
+  if (!ctx) return '';
+  const m = _monthsToTarget(ctx.invest, ap, ctx.rReal, ctx.fin);
+  return `<tr id="rp-aporte-hyp-row"><td class="lbl">Hipótese (o que você digitar)</td><td class="n">${fmt(ap)}</td>` +
+    `<td class="n">${m == null ? '> 600' : m}</td><td class="n">${_fmtAnos(m)}</td></tr>`;
+}
+function _rpAporteHypUpdate(rawVal) {
+  const ap = Math.max(0, Math.round(Number(rawVal) || 0));
+  const el = document.getElementById('rp-aporte-hyp-row');
+  if (el) el.outerHTML = _rpAporteHypRow(ap);
 }
 
 // ═══════ 4. APORTES ═══════
@@ -9557,15 +10020,20 @@ function _rpSec4(c) {
     `<td>Total</td><td class="n">${fmt(_rpSum(yr.map(r => r.apo)))}</td><td class="n">—</td><td class="n">—</td>` +
     `<td class="n">${c.H.filter(h => (h.apo || 0) < 0).length}</td><td class="n">—</td>`,
     'rp-t-sm');
-  html += `<p class="rp-note">“% da receita” usa o aporte como está na planilha — ele inclui rendimento reinvestido, então pode passar de 100% e não é taxa de poupança. A taxa honesta está na seção 5.</p>`;
+  html += `<p class="rp-note">“% da receita” usa o aporte como está na planilha — ele inclui rendimento reinvestido, então pode passar de 100% e não é taxa de poupança. A taxa honesta está na seção ${_rpSecNo('fluxo')}.</p>`;
 
   html += _rpH3('O que as projeções assumem vs. o que acontece');
+  const apHypDefault = Math.max(0, Math.round(c.avgApo));
+  window._rpAporteHyp = { invest: c.invest, rReal, fin: c.fin };
+  html += `<div class="rp-rotab-input"><label for="rp-aporte-hyp-val">Teste outro aporte mensal (R$)</label> ` +
+    `<input type="number" id="rp-aporte-hyp-val" value="${apHypDefault}" min="0" step="50" oninput="_rpAporteHypUpdate(this.value)"></div>`;
   html += _rpTable(
     `<th>Origem</th><th class="n">Aporte mensal</th><th class="n">Meses até a meta</th><th class="n">Chega em</th>`,
     `<tr><td class="lbl">Cadastro (Fluxo de Caixa)</td><td class="n">${fmt(modelSav)}</td>` +
     `<td class="n">${mMod == null ? '> 600' : mMod}</td><td class="n">${_fmtAnos(mMod)}</td></tr>` +
     `<tr><td class="lbl">Realizado (média 12m do histórico)</td><td class="n">${fmt(c.avgApo)}</td>` +
-    `<td class="n">${mReal == null ? '> 600' : mReal}</td><td class="n">${_fmtAnos(mReal)}</td></tr>`,
+    `<td class="n">${mReal == null ? '> 600' : mReal}</td><td class="n">${_fmtAnos(mReal)}</td></tr>` +
+    _rpAporteHypRow(apHypDefault),
     null, 'rp-t-sm');
   html += _rpP(`O cadastro assume receita de ${fmt(inc)} menos gasto de ${fmt(exp)} = <b>${fmt(modelSav)}/mês</b> de poupança, e é esse número que alimenta a data da FI, os cenários e o Monte Carlo. ` +
     `O histórico mostra <b>${fmt(c.avgApo)}/mês</b> de aporte real nos últimos 12 meses` +
@@ -9579,7 +10047,7 @@ function _rpSec4(c) {
   }
   if (c.avgApo > 0 && qAvg < c.avgApo * 0.6) {
     html += _rpCall('warn', 'O último trimestre aportou menos de 60% da média anual',
-      `${fmt(qAvg)}/mês contra ${fmt(c.avgApo)}/mês de média em 12 meses. Parte disso pode ser sazonal — bônus concentrados em poucos meses fazem a média subir e o trimestre “normal” parecer fraco. Vale olhar junto com a tendência de receita na seção 5.`);
+      `${fmt(qAvg)}/mês contra ${fmt(c.avgApo)}/mês de média em 12 meses. Parte disso pode ser sazonal — bônus concentrados em poucos meses fazem a média subir e o trimestre “normal” parecer fraco. Vale olhar junto com a tendência de receita na seção ${_rpSecNo('fluxo')}.`);
   }
 
   return { id: 'aportes', title: 'Aportes', src: 'planilha (col. Aporte) + cadastro', html };
@@ -9615,7 +10083,7 @@ function _rpSec5(c) {
 
   html += _rpH3('Últimos 12 meses, mês a mês');
   html += _rpTable(
-    `<th>Mês</th><th class="n">Receita</th><th class="n">Gasto</th><th class="n">Sobra</th><th class="n">Taxa de poupança</th><th class="n">Aporte</th><th class="n">Investível</th><th class="c">Atípico</th>`,
+    `<th>Mês</th><th class="n">Receita</th><th class="n">Gasto</th><th class="n">Sobra</th><th class="n">Taxa de poupança</th><th class="n">Aporte</th><th class="n">Patrimônio Líquido</th><th class="c">Atípico</th>`,
     c.L12.map(h => {
       const sob = h.rec - h.gas;
       const sr = savingsRateOf(h);
@@ -9704,7 +10172,10 @@ function _rpSec6(c) {
   const yoyM = addMonths(ref, -12);
   const tot12 = mb.totIn(w12);
   const tot1 = mb.byMonth[ref] || 0;
-  const nMonths = mb.months.length;
+  // Só meses até a referência — meses futuros do Mobills (contas já lançadas com
+  // antecedência) não contam como "cobertura", senão infla a contagem e destoa do
+  // texto do KPI, que já diz explicitamente "de X a ref".
+  const nMonths = mb.months.filter(m => m <= ref).length;
   const nNat = Object.keys(mb.byNat).length;
   const secs = mb.secOrder;
 
@@ -9720,8 +10191,8 @@ function _rpSec6(c) {
 
   html += _rpKpis([
     _rpKpi('Gasto em 12 meses', fmt(tot12), `média de ${fmt(tot12 / Math.max(1, w12.filter(m => mb.byMonth[m]).length))}/mês nos ${w12.filter(m => mb.byMonth[m]).length} meses com lançamento`),
-    _rpKpi('Mês de referência', monthLabel(ref), `${fmt(tot1)} · último mês com lançamento no Mobills`),
-    _rpKpi('Cobertura', `${nMonths} ${nMonths === 1 ? 'mês' : 'meses'}`, `${_rpN(mb.rows.length)} lançamentos de ${monthLabel(mb.months[0])} a ${monthLabel(ref)}`),
+    _rpKpi('Mês de referência', monthLabel(ref), `${fmt(tot1)} · último mês fechado (mesma âncora do resto do relatório — ignora lançamento futuro no Mobills)`),
+    _rpKpi('Cobertura', `${nMonths} ${nMonths === 1 ? 'mês' : 'meses'}`, `${_rpN(mb.rows.filter(r => r.d <= ref).length)} lançamentos de ${monthLabel(mb.months[0])} a ${monthLabel(ref)}`),
     _rpKpi('Granularidade', `${secs.length} seções`, `${nNat} categorias distintas${mb.natSec ? '' : ''}`),
   ], 4);
 
@@ -9961,7 +10432,305 @@ const _RP_CAT_LBL = {
   cash: 'Caixa', prev: 'Previdência', imovel: 'Imóvel', outro: 'Outros',
 };
 
-// ═══════ 7. CARTEIRA — COMPOSIÇÃO E BALANCEAMENTO ═══════
+// Rota B — distribuição déficit-proporcional de um aporte novo (só compra, zero IR).
+// Extraída à parte pra poder recalcular ao vivo no relatório aberto (ver _rpRotaBUpdate),
+// sem precisar gerar o relatório de novo pra testar um valor de aporte diferente.
+function _rpRotaBHtml(ap, rows, target, total, tgtTotal) {
+  if (ap <= 0) return _rpEmpty('Aporte zerado — nada a distribuir. Digite um valor acima de zero.');
+  const nt = total + ap;
+  const dist = rows.map(a => {
+    const tp = (target[a.id] || 0) / 100;
+    return { a, tp, ideal: nt * tp, def: Math.max(0, nt * tp - a.value) };
+  });
+  const totDef = _rpSum(dist.map(d => d.def));
+  let rem = ap;
+  dist.forEach(d => {
+    d.ap = totDef > 0 ? Math.min(rem, Math.round(ap * d.def / totDef)) : Math.round(ap * d.tp);
+    rem -= d.ap;
+  });
+  if (rem > 0 && dist.length) {
+    const big = dist.reduce((b, d) => d.def > b.def ? d : b, dist[0]);
+    big.ap += rem;
+  }
+  let html = _rpTable(
+    `<th>Ativo</th><th class="n">% alvo</th><th class="n">Aporte sugerido</th><th class="n">Fica com</th><th class="n">Nova %</th><th class="n">Desvio novo</th>`,
+    dist.filter(d => d.ap > 0 || d.a.value > 0).sort((x, y) => y.ap - x.ap).map(d => {
+      const nv = d.a.value + d.ap, np = nv / nt * 100, nd = np - d.tp * 100;
+      return `<tr><td class="lbl">${_rpEsc(d.a.name)}</td><td class="n rp-dim">${_rpPct(d.tp * 100)}</td>` +
+        `<td class="n ${d.ap > 0 ? 'rp-pos' : 'rp-dim'}">${d.ap > 0 ? fmt(d.ap) : '—'}</td>` +
+        `<td class="n">${fmt(nv)}</td><td class="n">${_rpPct(np)}</td>` +
+        `<td class="n rp-dim">${_rpPP(nd)}</td></tr>`;
+    }).join(''),
+    `<td>Total</td><td class="n">${_rpPct(tgtTotal)}</td><td class="n">${fmt(ap)}</td><td class="n">${fmt(nt)}</td><td class="n">100,0%</td><td class="n">—</td>`,
+    'rp-t-sm');
+  html += `<p class="rp-note">Rota B não zera o desvio de uma vez — ela corrige na direção certa a cada aporte. Com ${fmt(ap)}, o desvio some em poucos aportes sem custo fiscal.</p>`;
+  return html;
+}
+// Handler do input de aporte da Rota B — lê o contexto stashado em window._rpRotaB
+// (a instância aberta do relatório) e substitui só o miolo da tabela, sem tocar no resto.
+function _rpRotaBUpdate(rawVal) {
+  const ctx = window._rpRotaB;
+  const el = document.getElementById('rp-rotab-body');
+  if (!ctx || !el) return;
+  const ap = Math.max(0, Math.round(Number(rawVal) || 0));
+  el.innerHTML = _rpRotaBHtml(ap, ctx.rows, ctx.target, ctx.total, ctx.tgtTotal);
+}
+
+// ═══════ 7. GASTOS — O QUE CRESCEU E O QUE CAIU ═══════
+// A seção anterior mostra o retrato: quanto cada seção gasta hoje. Esta mostra a
+// DERIVADA por categoria individual — de onde o gasto cresceu de verdade.
+//
+// Duas escolhas de método que definem a seção:
+//  1. Janela de 12m vs. os 12m anteriores, não mês contra mês. As duas janelas
+//     contêm os 12 meses do calendário, então IPVA, 13º e viagem de julho
+//     aparecem nos dois lados e se cancelam: a comparação é imune a sazonalidade.
+//     Sem 24 meses de Mobills cai para 6v6, que NÃO é — e o relatório avisa.
+//  2. Ordenado por impacto em REAIS, não por percentual. Uma categoria que foi de
+//     R$ 20 para R$ 60 subiu 200% e não muda nada no plano; outra que foi de
+//     R$ 1.500 para R$ 1.900 subiu 27% e custa R$ 4.800 por ano.
+function _rpSec6b(c) {
+  const mb = c.mb;
+  const SRC = 'Mobills (via sync)';
+  const TITLE = 'Gastos — o que cresceu e o que caiu';
+  const ID = 'gastos-variacao';
+
+  if (!mb.ok) {
+    return { id: ID, title: TITLE, src: SRC,
+      html: _rpEmpty('<b>Sem dados de Mobills.</b> Esta seção compara o gasto de cada categoria entre duas janelas de tempo, e para isso precisa dos lançamentos individuais. Sincronize a planilha e gere de novo.') };
+  }
+
+  // Escolha da janela conforme o histórico disponível
+  const nMes = mb.months.length;
+  const k = nMes >= 24 ? 12 : 6;
+  const sazonalOk = k === 12;
+  const recentes = mb.win(k);
+  const anteriores = mb.win(2 * k).slice(0, k);
+  const cvB = recentes.filter(m => mb.byMonth[m]).length;     // meses com lançamento
+  const cvA = anteriores.filter(m => mb.byMonth[m]).length;
+
+  if (cvA < 3 || cvB < 3) {
+    return { id: ID, title: TITLE, src: SRC,
+      html: _rpEmpty(`<b>Histórico curto demais para comparar.</b> São ${nMes} ${nMes === 1 ? 'mês' : 'meses'} de Mobills ` +
+        `(${cvB} na janela recente, ${cvA} na anterior) — precisa de pelo menos 3 meses com lançamento em cada lado, e idealmente 24 meses no total ` +
+        `para a comparação ficar imune a sazonalidade.`) };
+  }
+
+  // Média por mês em cada janela, dividindo pelos meses COM lançamento de cada
+  // uma (mês sem dado é lacuna de sync, não mês sem gasto — dividir por k fixo
+  // inventaria queda).
+  const linha = (totA, totB) => {
+    const a = totA / cvA, b = totB / cvB;
+    return { a, b, d: b - a, pct: a > 0 ? (b / a - 1) * 100 : null,
+             novo: a === 0 && b > 0, parou: b === 0 && a > 0 };
+  };
+
+  const rows = Object.keys(mb.byNat).map(nat => ({
+    nat,
+    ...linha(mb.natIn(nat, anteriores), mb.natIn(nat, recentes)),
+  })).filter(r => r.a > 0 || r.b > 0);
+
+  const totA = _rpSum(rows.map(r => r.a)), totB = _rpSum(rows.map(r => r.b));
+  const dTot = totB - totA;
+  const pctTot = totA > 0 ? (totB / totA - 1) * 100 : null;
+
+  const altas = rows.filter(r => r.d > 0.5).sort((x, y) => y.d - x.d);
+  const quedas = rows.filter(r => r.d < -0.5).sort((x, y) => x.d - y.d);
+  const somaAltas = _rpSum(altas.map(r => r.d));
+  const somaQuedas = _rpSum(quedas.map(r => r.d));
+  const top3 = _rpSum(altas.slice(0, 3).map(r => r.d));
+  const novas = rows.filter(r => r.novo);
+  const extintas = rows.filter(r => r.parou);
+
+  const lblB = `${monthLabel(recentes[0])}–${monthLabel(recentes[recentes.length - 1])}`;
+  const lblA = `${monthLabel(anteriores[0])}–${monthLabel(anteriores[anteriores.length - 1])}`;
+
+  // Quanto o creep custa em patrimônio: cada real de gasto recorrente novo
+  // precisa de 1/taxa de retirada em patrimônio para ser bancado para sempre.
+  const custoFI = c.fiR > 0 ? (dTot * 12) / (c.fiR / 100) : null;
+
+  let html = _rpKpis([
+    _rpKpi('Gasto médio por mês', fmt(totB), `${fmt(totA)} na janela anterior · ${lblB} vs ${lblA}`),
+    _rpKpi('Variação', _rpMoneyS(dTot) + '/mês', pctTot == null ? '—' : `${_rpPctS(pctTot)} · ${_rpMoneyS(dTot * 12)} no ano`,
+      _rpCls(dTot, true)),
+    _rpKpi('Contra a inflação', pctTot == null ? '—' : _rpPP(pctTot - c.ipca),
+      `IPCA das premissas em ${_rpPct(c.ipca)} — ${pctTot != null && pctTot > c.ipca ? 'o gasto sobe acima dela, é creep real' : 'em termos reais o gasto está estável ou caindo'}`,
+      pctTot == null ? '' : pctTot > c.ipca ? 'rp-neg' : 'rp-pos'),
+    _rpKpi('Categorias em movimento', `${altas.length} ↑ · ${quedas.length} ↓`,
+      `de ${rows.length} com gasto em alguma das janelas` +
+      (novas.length || extintas.length ? ` · ${novas.length} novas, ${extintas.length} extintas` : '')),
+  ], 4);
+
+  // A leitura que importa: o creep está concentrado ou difuso?
+  if (dTot > 0 && somaAltas > 0) {
+    const conc = top3 / somaAltas * 100;
+    html += _rpCall(conc >= 60 ? 'warn' : '',
+      conc >= 60 ? 'A alta está concentrada' : 'A alta está difusa',
+      `As categorias que subiram somam <b>${fmt(somaAltas)}/mês</b> a mais; as que caíram devolveram <b>${fmt(Math.abs(somaQuedas))}/mês</b> — ` +
+      `líquido de <b>${_rpMoneyS(dTot)}/mês</b>. ` +
+      (conc >= 60
+        ? `As três maiores altas respondem por <b>${_rpPct(conc)}</b> de todo o aumento: ${altas.slice(0, 3).map(r => `<b>${_rpEsc(r.nat)}</b> (${_rpMoneyS(r.d)})`).join(', ')}. ` +
+          `Concentrado é boa notícia — mexer em três linhas resolve.`
+        : `A maior alta isolada responde por só ${_rpPct(altas[0].d / somaAltas * 100)} do aumento, e as três maiores por ${_rpPct(conc)}. ` +
+          `Difuso é mais difícil: não há uma linha para cortar, é o padrão de vida inteiro subindo junto.`) +
+      (custoFI != null && dTot > 0
+        ? ` E o preço no plano: ${fmt(dTot)}/mês de gasto recorrente novo exigem <b>${fmt(custoFI)}</b> de patrimônio a mais para serem bancados para sempre a ${_rpPct(c.fiR)} — sua meta de FI subiu esse tanto.`
+        : ''));
+  } else if (dTot < 0) {
+    html += _rpCall('pos', `O gasto médio caiu ${fmt(Math.abs(dTot))}/mês`,
+      `As quedas somaram <b>${fmt(Math.abs(somaQuedas))}/mês</b> contra <b>${fmt(somaAltas)}/mês</b> de altas. ` +
+      (custoFI != null
+        ? `Em valores de FI, isso vale <b>${fmt(Math.abs(custoFI))}</b> de patrimônio que você não precisa mais acumular — cortar gasto recorrente é a única alavanca que mexe no numerador e no denominador ao mesmo tempo.`
+        : ''));
+  }
+
+  // ── Tabelas de alta e queda ───────────────────────────
+  const maxD = Math.max(...rows.map(r => Math.abs(r.d)), 1);
+  // Sem coluna de Seção aqui de propósito: o agrupamento vem de getSecao(), que
+  // cai no SECAO_MAP hardcoded quando a categoria não está na aba Fluxo de Caixa
+  // — e aí exibe um rótulo desatualizado com cara de verdade. A categoria é a
+  // unidade acionável nesta tabela; o corte por seção está no consolidado abaixo,
+  // onde é agregado e o erro de uma linha não se disfarça de fato.
+  const linhaTab = r => `<tr>` +
+    `<td class="lbl">${_rpEsc(r.nat)}</td>` +
+    `<td class="n">${fmt(r.a)}</td><td class="n">${fmt(r.b)}</td>` +
+    `<td class="n ${_rpCls(r.d, true)}">${_rpBar(Math.abs(r.d) / maxD * 100, r.d > 0 ? 'neg' : 'pos')} ${_rpMoneyS(r.d)}</td>` +
+    `<td class="n ${_rpCls(r.d, true)}">${r.novo ? '<b>novo</b>' : r.parou ? '<b>parou</b>' : _rpPctS(r.pct, 0)}</td>` +
+    `<td class="n ${_rpCls(r.d, true)}">${_rpMoneyS(r.d * 12)}</td></tr>`;
+
+  const CAB = `<th>Categoria</th><th class="n">${lblA}</th><th class="n">${lblB}</th>` +
+    `<th class="n">Δ por mês</th><th class="n">Δ %</th><th class="n">Δ no ano</th>`;
+
+  if (altas.length) {
+    html += _rpH3(`Maiores altas${altas.length > 15 ? ' — as 15 primeiras' : ''}`);
+    html += _rpTable(CAB, altas.slice(0, 15).map(linhaTab).join(''),
+      `<td>Todas as ${altas.length} altas</td><td class="n">${fmt(_rpSum(altas.map(r => r.a)))}</td>` +
+      `<td class="n">${fmt(_rpSum(altas.map(r => r.b)))}</td><td class="n rp-neg">${_rpMoneyS(somaAltas)}</td>` +
+      `<td class="n">—</td><td class="n rp-neg">${_rpMoneyS(somaAltas * 12)}</td>`, 'rp-t-sm');
+  }
+
+  if (quedas.length) {
+    html += _rpH3(`Maiores quedas${quedas.length > 15 ? ' — as 15 primeiras' : ''}`);
+    html += _rpTable(CAB, quedas.slice(0, 15).map(linhaTab).join(''),
+      `<td>Todas as ${quedas.length} quedas</td><td class="n">${fmt(_rpSum(quedas.map(r => r.a)))}</td>` +
+      `<td class="n">${fmt(_rpSum(quedas.map(r => r.b)))}</td><td class="n rp-pos">${_rpMoneyS(somaQuedas)}</td>` +
+      `<td class="n">—</td><td class="n rp-pos">${_rpMoneyS(somaQuedas * 12)}</td>`, 'rp-t-sm');
+  }
+
+  html += `<p class="rp-note">Ordenado por <b>impacto em reais</b>, não por percentual: uma categoria que foi de R$ 20 para R$ 60 subiu 200% e não muda nada no plano; outra que foi de R$ 1.500 para R$ 1.900 subiu 27% e custa ${fmt(4800)} por ano. ` +
+    `“Δ no ano” é o Δ mensal × 12 — o que essa mudança custa (ou devolve) em doze meses se ficar como está. ` +
+    `Categorias marcadas <b>novo</b> não existiam na janela anterior e <b>parou</b> deixaram de aparecer, então não têm variação percentual.</p>`;
+
+  // ── Agregado por seção ────────────────────────────────
+  const secRows = mb.secOrder.map(s => ({
+    s, ...linha(mb.secIn(s, anteriores), mb.secIn(s, recentes)),
+  })).filter(r => r.a > 0 || r.b > 0).sort((x, y) => y.d - x.d);
+
+  if (secRows.length) {
+    const maxDS = Math.max(...secRows.map(r => Math.abs(r.d)), 1);
+    html += _rpH3('Consolidado por seção');
+    html += _rpTable(
+      `<th>Seção</th><th class="n">${lblA}</th><th class="n">${lblB}</th><th class="n">Δ por mês</th><th class="n">Δ %</th><th class="n">Δ no ano</th><th class="n">% do movimento</th>`,
+      secRows.map(r => `<tr><td class="lbl">${_rpEsc(r.s)}</td>` +
+        `<td class="n">${fmt(r.a)}</td><td class="n">${fmt(r.b)}</td>` +
+        `<td class="n ${_rpCls(r.d, true)}">${_rpBar(Math.abs(r.d) / maxDS * 100, r.d > 0 ? 'neg' : 'pos')} ${_rpMoneyS(r.d)}</td>` +
+        `<td class="n ${_rpCls(r.d, true)}">${r.novo ? '<b>novo</b>' : r.parou ? '<b>parou</b>' : _rpPctS(r.pct, 0)}</td>` +
+        `<td class="n ${_rpCls(r.d, true)}">${_rpMoneyS(r.d * 12)}</td>` +
+        `<td class="n rp-dim">${_rpPct(Math.abs(r.d) / Math.max(1, somaAltas + Math.abs(somaQuedas)) * 100)}</td></tr>`).join(''),
+      `<td>Total</td><td class="n">${fmt(totA)}</td><td class="n">${fmt(totB)}</td>` +
+      `<td class="n ${_rpCls(dTot, true)}">${_rpMoneyS(dTot)}</td>` +
+      `<td class="n ${_rpCls(dTot, true)}">${pctTot == null ? '—' : _rpPctS(pctTot, 0)}</td>` +
+      `<td class="n ${_rpCls(dTot, true)}">${_rpMoneyS(dTot * 12)}</td><td class="n">100,0%</td>`,
+      'rp-t-sm');
+  }
+
+  // Gráfico: as maiores variações, alta e queda no mesmo eixo
+  const barras = [...altas.slice(0, 8), ...quedas.slice(0, 8).reverse()];
+  if (barras.length >= 3) {
+    html += _rpSvgBars({
+      values: barras.map(r => r.d), labels: barras.map(r => r.nat),
+      h: 190, color: '#b3261e', negColor: '#0f7a4f', fmtY: v => _rpK(v),
+      alt: 'maiores variações de gasto por categoria',
+      cap: `Variação da média mensal, ${lblA} → ${lblB}. Vermelho é gasto que subiu, verde é gasto que caiu — invertido em relação ao resto do relatório de propósito: aqui, cair é bom.`,
+    });
+  }
+
+  // ── Método, dito na cara ──────────────────────────────
+  html += _rpCall(sazonalOk ? '' : 'warn',
+    sazonalOk ? `Comparação de 12 contra 12 meses — imune a sazonalidade` : `Comparação de 6 contra 6 meses — sensível a sazonalidade`,
+    sazonalOk
+      ? `As duas janelas contêm os doze meses do calendário, então IPVA, 13º, matrícula e viagem de férias caem nos dois lados e se cancelam. ` +
+        `O que sobra é deriva de padrão de vida, não calendário.`
+      : `Só há <b>${nMes} meses</b> de Mobills, insuficiente para 12 contra 12 — a comparação usa ${lblB} contra ${lblA}. ` +
+        `Duas janelas de seis meses não contêm os mesmos meses do ano, então parte de qualquer variação aqui é sazonal, não tendência: ` +
+        `IPVA em janeiro ou viagem em julho vão aparecer como “alta” de uma janela contra a outra. Com 24 meses de histórico esta seção troca sozinha para 12v12.`) +
+    ` Médias dividem pelos meses <i>com lançamento</i> de cada janela (${cvB} na recente, ${cvA} na anterior), não por ${k} fixo — mês sem dado é lacuna de sync, e dividir por ${k} inventaria queda.`;
+
+  return { id: ID, title: TITLE, src: SRC, html };
+}
+
+// ═══════ 8. CARTEIRA — COMPOSIÇÃO E BALANCEAMENTO ═══════
+// Banda de rebalanceamento editável — recalcula só o KPI "Fora da banda" e a tabela
+// "Posição por ativo" (contexto em window._rpBand). Rota A/B (mais abaixo) não dependem
+// da banda em si, só do desvio ao alvo — continuam corretas independente do valor testado aqui.
+function _rpBandCompute(bandAbs, bandRel) {
+  const ctx = window._rpBand;
+  const bandHalf = t => Math.min(bandAbs, t * bandRel / 100);
+  const an = ctx.rows.map(a => {
+    const realPct = a.value / ctx.total * 100;
+    const tPct = ctx.target[a.id] || 0;
+    const delta = realPct - tPct;
+    const half = bandHalf(tPct);
+    return {
+      a, realPct, tPct, delta, half,
+      out: ctx.hasTgt && Math.abs(delta) > half + 1e-9,
+      trade: ctx.total * tPct / 100 - a.value,
+      rel: tPct > 0 ? delta / tPct * 100 : null,
+    };
+  });
+  const outN = an.filter(x => x.out).length;
+  const turnover = _rpSum(an.filter(x => x.trade > 0).map(x => x.trade));
+  return { an, outN, turnover };
+}
+function _rpBandKpiHtml(bandAbs, bandRel, outN, turnover) {
+  const ctx = window._rpBand;
+  return _rpKpi('Fora da banda', ctx.hasTgt ? `${outN} de ${ctx.rows.length}` : '—',
+    ctx.hasTgt ? `regra ${_rpN(bandAbs)}/${_rpN(bandRel)} · giro de ${fmt(turnover)} para zerar` : 'sem alocação alvo definida',
+    outN ? 'rp-warn' : 'rp-pos');
+}
+function _rpBandTableHtml(an, outN) {
+  const ctx = window._rpBand;
+  return _rpTable(
+    `<th>Ativo</th><th>Classe</th><th class="n">Valor</th><th class="n">% atual</th><th class="n">% alvo</th>` +
+    `<th class="n">Desvio</th><th class="n">Desvio rel.</th><th class="n">Banda</th><th class="c">Status</th><th class="n">Retorno</th>`,
+    an.slice().sort((x, y) => y.a.value - x.a.value).map(x => `<tr>` +
+      `<td class="lbl">${_rpEsc(x.a.name)}</td>` +
+      `<td class="rp-dim">${_rpEsc(_RP_CAT_LBL[x.a.cat] || x.a.cat)}</td>` +
+      `<td class="n">${fmt(x.a.value)}</td>` +
+      `<td class="n">${_rpBar(x.realPct)} ${_rpPct(x.realPct)}</td>` +
+      `<td class="n rp-dim">${ctx.hasTgt ? _rpPct(x.tPct) : '—'}</td>` +
+      `<td class="n ${x.out ? (x.delta > 0 ? 'rp-neg' : 'rp-warn') : 'rp-dim'}">${ctx.hasTgt ? _rpPP(x.delta) : '—'}</td>` +
+      `<td class="n rp-dim">${x.rel == null ? '—' : _rpPctS(x.rel, 0)}</td>` +
+      `<td class="n rp-dim">${ctx.hasTgt ? `±${_rpPct(x.half)}` : '—'}</td>` +
+      `<td class="c">${!ctx.hasTgt ? '—' : x.out ? '<b class="rp-neg">fora</b>' : '<span class="rp-pos">dentro</span>'}</td>` +
+      `<td class="n rp-dim">${_rpPct(x.a.ret || 0)}</td></tr>`).join(''),
+    `<td>Total</td><td></td><td class="n">${fmt(ctx.total)}</td><td class="n">100,0%</td>` +
+    `<td class="n">${ctx.hasTgt ? _rpPct(ctx.tgtTotal) : '—'}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td>` +
+    `<td class="c">${ctx.hasTgt ? outN + ' fora' : '—'}</td><td class="n">${_rpPct(ctx.wNom)}</td>`,
+    'rp-t-sm');
+}
+function _rpBandUpdate() {
+  const ctx = window._rpBand;
+  if (!ctx) return;
+  const absEl = document.getElementById('rp-band-abs'), relEl = document.getElementById('rp-band-rel');
+  const bandAbs = Math.max(0.1, Number(absEl.value) || 0.1);
+  const bandRel = Math.max(1, Number(relEl.value) || 1);
+  const { an, outN, turnover } = _rpBandCompute(bandAbs, bandRel);
+  const kpiEl = document.getElementById('rp-band-kpi');
+  if (kpiEl) kpiEl.innerHTML = _rpBandKpiHtml(bandAbs, bandRel, outN, turnover);
+  const tblEl = document.getElementById('rp-band-table');
+  if (tblEl) tblEl.innerHTML = _rpBandTableHtml(an, outN);
+}
+
 function _rpSec7(c) {
   const P = c.port;
   if (!P.rows.length || P.total <= 0) {
@@ -10003,37 +10772,22 @@ function _rpSec7(c) {
   const top3 = _rpSum(idio.slice(0, 3).map(a => a.value));
 
   const wNom = weightedReturn(), wReal = weightedReturnReal(), vol = portfolioVol();
+  window._rpBand = { rows: P.rows, target: P.target, total, hasTgt, tgtTotal, wNom };
 
   let html = _rpKpis([
     _rpKpi('Carteira cadastrada', fmt(total), `${P.rows.length} ativos · investível ${fmt(c.invest)}`),
     _rpKpi('Retorno esperado', _rpPct(wNom) + ' a.a.', `${_rpPct(wReal)} real (descontado IPCA de ${_rpPct(c.ipca)}) — é essa taxa que roda nas projeções`),
     _rpKpi('Volatilidade estimada', _rpPct(vol) + ' a.a.', 'ponderada por classe, sem correlação'),
-    _rpKpi('Fora da banda', hasTgt ? `${outN} de ${P.rows.length}` : '—',
-      hasTgt ? `regra ${_rpN(band.abs)}/${_rpN(band.rel)} · giro de ${fmt(turnover)} para zerar` : 'sem alocação alvo definida',
-      outN ? 'rp-warn' : 'rp-pos'),
+    `<div id="rp-band-kpi" style="display:contents">${_rpBandKpiHtml(band.abs, band.rel, outN, turnover)}</div>`,
   ], 4);
 
   html += _rpH3('Posição por ativo');
-  html += _rpTable(
-    `<th>Ativo</th><th>Classe</th><th class="n">Valor</th><th class="n">% atual</th><th class="n">% alvo</th>` +
-    `<th class="n">Desvio</th><th class="n">Desvio rel.</th><th class="n">Banda</th><th class="c">Status</th><th class="n">Retorno</th>`,
-    an.slice().sort((x, y) => y.a.value - x.a.value).map(x => `<tr>` +
-      `<td class="lbl">${_rpEsc(x.a.name)}</td>` +
-      `<td class="rp-dim">${_rpEsc(_RP_CAT_LBL[x.a.cat] || x.a.cat)}</td>` +
-      `<td class="n">${fmt(x.a.value)}</td>` +
-      `<td class="n">${_rpBar(x.realPct)} ${_rpPct(x.realPct)}</td>` +
-      `<td class="n rp-dim">${hasTgt ? _rpPct(x.tPct) : '—'}</td>` +
-      `<td class="n ${x.out ? (x.delta > 0 ? 'rp-neg' : 'rp-warn') : 'rp-dim'}">${hasTgt ? _rpPP(x.delta) : '—'}</td>` +
-      `<td class="n rp-dim">${x.rel == null ? '—' : _rpPctS(x.rel, 0)}</td>` +
-      `<td class="n rp-dim">${hasTgt ? `±${_rpPct(x.half)}` : '—'}</td>` +
-      `<td class="c">${!hasTgt ? '—' : x.out ? '<b class="rp-neg">fora</b>' : '<span class="rp-pos">dentro</span>'}</td>` +
-      `<td class="n rp-dim">${_rpPct(x.a.ret || 0)}</td></tr>`).join(''),
-    `<td>Total</td><td></td><td class="n">${fmt(total)}</td><td class="n">100,0%</td>` +
-    `<td class="n">${hasTgt ? _rpPct(tgtTotal) : '—'}</td><td class="n">—</td><td class="n">—</td><td class="n">—</td>` +
-    `<td class="c">${hasTgt ? outN + ' fora' : '—'}</td><td class="n">${_rpPct(wNom)}</td>`,
-    'rp-t-sm');
+  html += `<div class="rp-rotab-input">` +
+    `<label for="rp-band-abs">Banda (p.p.)</label> <input type="number" id="rp-band-abs" value="${band.abs}" min="0.1" step="0.5" oninput="_rpBandUpdate()"> ` +
+    `<label for="rp-band-rel">Banda (% do alvo)</label> <input type="number" id="rp-band-rel" value="${band.rel}" min="1" step="1" oninput="_rpBandUpdate()"></div>`;
+  html += `<div id="rp-band-table">${_rpBandTableHtml(an, outN)}</div>`;
   html += `<p class="rp-note">Percentuais sobre a carteira <b>inteira</b> (inclui imóvel, se houver) — é a mesma base da aba Patrimônio. ` +
-    `A banda é a regra ${_rpN(band.abs)}/${_rpN(band.rel)}: o menor entre ${_rpN(band.abs)} p.p. e ${_rpN(band.rel)}% do alvo.` +
+    `A banda é o menor entre os dois campos acima: p.p. absolutos ou % do alvo daquele ativo — mesma regra da aba Patrimônio, testável aqui.` +
     (hasTgt && Math.abs(tgtTotal - 100) > 0.5 ? ` <b class="rp-warn">Seus alvos somam ${_rpPct(tgtTotal)}, não 100% — o plano não fecha em zero.</b>` : '') + `</p>`;
 
   if (hasTgt) {
@@ -10065,39 +10819,16 @@ function _rpSec7(c) {
       `<td>Giro</td><td class="n">—</td><td class="n">${fmt(turnover)}</td><td class="n">${fmt(total)}</td><td class="c">—</td>`,
       'rp-t-sm');
 
-    // Rota B: aporte novo direcionado (deficit-proporcional, só compra) — mesma lógica do simulador
+    // Rota B: aporte novo direcionado (deficit-proporcional, só compra) — mesma lógica do simulador.
+    // Editável: pré-preenche com o aporte médio de 12m, mas o campo abaixo recalcula ao vivo
+    // (_rpRotaBUpdate), sem precisar fechar e gerar o relatório de novo pra testar outro valor.
     const ap = Math.max(0, Math.round(c.avgApo));
-    if (ap > 0) {
-      const nt = total + ap;
-      const dist = P.rows.map(a => {
-        const tp = (P.target[a.id] || 0) / 100;
-        return { a, tp, ideal: nt * tp, def: Math.max(0, nt * tp - a.value) };
-      });
-      const totDef = _rpSum(dist.map(d => d.def));
-      let rem = ap;
-      dist.forEach(d => {
-        d.ap = totDef > 0 ? Math.min(rem, Math.round(ap * d.def / totDef)) : Math.round(ap * d.tp);
-        rem -= d.ap;
-      });
-      if (rem > 0 && dist.length) {
-        const big = dist.reduce((b, d) => d.def > b.def ? d : b, dist[0]);
-        big.ap += rem;
-      }
-      html += _rpP(`<b>Rota B — aporte novo.</b> Direcionar o próximo aporte para quem está mais abaixo do alvo, sem vender nada: zero IR, zero marcação. ` +
-        `Simulado com <b>${fmt(ap)}</b> (seu aporte médio de 12 meses).`);
-      html += _rpTable(
-        `<th>Ativo</th><th class="n">% alvo</th><th class="n">Aporte sugerido</th><th class="n">Fica com</th><th class="n">Nova %</th><th class="n">Desvio novo</th>`,
-        dist.filter(d => d.ap > 0 || d.a.value > 0).sort((x, y) => y.ap - x.ap).map(d => {
-          const nv = d.a.value + d.ap, np = nv / nt * 100, nd = np - d.tp * 100;
-          return `<tr><td class="lbl">${_rpEsc(d.a.name)}</td><td class="n rp-dim">${_rpPct(d.tp * 100)}</td>` +
-            `<td class="n ${d.ap > 0 ? 'rp-pos' : 'rp-dim'}">${d.ap > 0 ? fmt(d.ap) : '—'}</td>` +
-            `<td class="n">${fmt(nv)}</td><td class="n">${_rpPct(np)}</td>` +
-            `<td class="n rp-dim">${_rpPP(nd)}</td></tr>`;
-        }).join(''),
-        `<td>Total</td><td class="n">${_rpPct(tgtTotal)}</td><td class="n">${fmt(ap)}</td><td class="n">${fmt(nt)}</td><td class="n">100,0%</td><td class="n">—</td>`,
-        'rp-t-sm');
-      html += `<p class="rp-note">Rota B não zera o desvio de uma vez — ela corrige na direção certa a cada aporte. Com ${fmt(ap)}/mês, o desvio some em poucos meses sem custo fiscal.</p>`;
-    }
+    window._rpRotaB = { rows: P.rows, target: P.target, total, tgtTotal };
+    html += _rpP(`<b>Rota B — aporte novo.</b> Direcionar o próximo aporte para quem está mais abaixo do alvo, sem vender nada: zero IR, zero marcação. ` +
+      `Pré-preenchido com <b>${fmt(ap)}</b> (seu aporte médio de 12 meses) — digite outro valor pra simular.`);
+    html += `<div class="rp-rotab-input"><label for="rp-rotab-val">Aporte a simular (R$)</label> ` +
+      `<input type="number" id="rp-rotab-val" value="${ap}" min="0" step="50" oninput="_rpRotaBUpdate(this.value)"></div>`;
+    html += `<div id="rp-rotab-body">${_rpRotaBHtml(ap, P.rows, P.target, total, tgtTotal)}</div>`;
   } else if (hasTgt) {
     html += _rpCall('pos', 'Carteira dentro das bandas', `Todas as ${P.rows.length} posições estão dentro da banda ${_rpN(band.abs)}/${_rpN(band.rel)}. Nada a fazer — rebalanceamento sem desvio é só custo.`);
   } else {
@@ -10121,7 +10852,74 @@ function _rpSec7(c) {
   return { id: 'carteira', title: 'Carteira — composição e balanceamento', src: 'cadastro (Patrimônio)', html };
 }
 
-// ═══════ 8. INDEPENDÊNCIA FINANCEIRA ═══════
+// ═══════ 9. INDEPENDÊNCIA FINANCEIRA ═══════
+// Renda-alvo e taxa de retirada editáveis — recalcula o Número FI e a data por cenário.
+// Mais pesado que os outros campos editáveis (buildScenarioPaths + findFIDate por cenário),
+// por isso é um botão "Recalcular" em vez de oninput a cada tecla. Muta S.fi.* temporariamente
+// e restaura no mesmo tick síncrono (try/finally) — nunca sobra estado sujo entre chamadas.
+// Escopo deliberadamente contido: só KPIs + tabela de cenários recalculam. O gráfico de
+// projeção e o Monte Carlo abaixo continuam mostrando a premissa ORIGINAL do cadastro —
+// refazer os dois exigiria redesenhar SVG e rodar 500+ simulações de novo a cada clique.
+function _rpFiCompute(income, mode, rate) {
+  const orig = { targetMonthlyIncome: S.fi.targetMonthlyIncome, mode: S.fi.mode, realRate: S.fi.realRate, withdrawalRate: S.fi.withdrawalRate };
+  S.fi.targetMonthlyIncome = income;
+  S.fi.mode = mode;
+  if (mode === 'perpetuidade') S.fi.realRate = rate; else S.fi.withdrawalRate = rate;
+  try {
+    const fin = fiNumber();
+    const fiR = fiRate();
+    const invest = investableWealth();
+    const pct = fin > 0 ? invest / fin * 100 : 0;
+    const months = (S.assumptions.projectionYears || 30) * 12;
+    const paths = buildScenarioPaths(months);
+    const rows = paths.map(p => ({ p, fi: findFIDate(p.path) }));
+    return { fin, fiR, invest, pct, rows };
+  } finally {
+    S.fi.targetMonthlyIncome = orig.targetMonthlyIncome;
+    S.fi.mode = orig.mode;
+    S.fi.realRate = orig.realRate;
+    S.fi.withdrawalRate = orig.withdrawalRate;
+  }
+}
+function _rpFiKpisHtml(res) {
+  return _rpKpi('Número FI', fmt(res.fin), `${fmt(window._rpFi.income)}/mês a ${_rpPct(res.fiR)} — modo ${window._rpFi.mode === 'perpetuidade' ? 'perpetuidade (vive do juro real)' : 'regra dos 4% (SWR)'}`) +
+    _rpKpi('Progresso', _rpPct(res.pct), `${fmt(res.invest)} de ${fmt(res.fin)} · faltam ${fmt(Math.max(0, res.fin - res.invest))}`);
+}
+function _rpFiTableHtml(res) {
+  return _rpTable(
+    `<th>Cenário</th><th class="n">Retorno real</th><th class="n">Chega em</th><th class="n">Idade</th><th class="n">Prazo</th><th class="n">Patrimônio no cruzamento</th><th class="n">Renda passiva</th>`,
+    res.rows.map(r => {
+      const rr = weightedReturnReal() + (r.p.retDelta || 0);
+      if (!r.fi) return `<tr><td class="lbl">${_rpEsc(r.p.name)}</td><td class="n">${_rpPct(rr)}</td>` +
+        `<td class="n rp-neg" colspan="4">não atinge em ${S.assumptions.projectionYears} anos</td><td class="n">—</td></tr>`;
+      return `<tr${r.p.id === 'base' ? ' class="grp"' : ''}><td class="lbl">${_rpEsc(r.p.name)}</td>` +
+        `<td class="n">${_rpPct(rr)}</td>` +
+        `<td class="n">${_rpDateLabel(r.fi.date)}</td>` +
+        `<td class="n">${r.fi.date.getFullYear() - S.profile.birthYear} anos</td>` +
+        `<td class="n">${_rpDur(r.fi.months)}</td>` +
+        `<td class="n">${fmt(r.fi.wealth)}</td>` +
+        `<td class="n">${fmt(r.fi.wealth * res.fiR / 100 / 12)}/mês</td></tr>`;
+    }).join(''),
+    null, 'rp-t-sm');
+}
+function _rpFiUpdate() {
+  const incomeEl = document.getElementById('rp-fi-income'), rateEl = document.getElementById('rp-fi-rate');
+  if (!incomeEl || !rateEl) return;
+  const income = Math.max(0, Number(incomeEl.value) || 0);
+  const rate = Math.max(0.1, Number(rateEl.value) || 0.1);
+  window._rpFi = { income, mode: S.fi.mode, rate };
+  const btn = document.getElementById('rp-fi-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Calculando…'; }
+  setTimeout(() => {
+    const res = _rpFiCompute(income, S.fi.mode, rate);
+    const kpiEl = document.getElementById('rp-fi-kpis');
+    if (kpiEl) kpiEl.innerHTML = _rpFiKpisHtml(res);
+    const tblEl = document.getElementById('rp-fi-table');
+    if (tblEl) tblEl.innerHTML = _rpFiTableHtml(res);
+    if (btn) { btn.disabled = false; btn.textContent = 'Recalcular'; }
+  }, 20);
+}
+
 function _rpSec8(c) {
   const months = (S.assumptions.projectionYears || 30) * 12;
   const paths = buildScenarioPaths(months);
@@ -10139,33 +10937,24 @@ function _rpSec8(c) {
     return { p, fi };
   });
   const base = rows.find(r => r.p.id === 'base') || rows[0];
+  window._rpFi = { income: S.fi.targetMonthlyIncome, mode: S.fi.mode, rate: c.fiR };
 
   let html = _rpKpis([
-    _rpKpi('Número FI', fmt(c.fin), `${fmt(S.fi.targetMonthlyIncome)}/mês a ${_rpPct(c.fiR)} — modo ${S.fi.mode === 'perpetuidade' ? 'perpetuidade (vive do juro real)' : 'regra dos 4% (SWR)'}`),
-    _rpKpi('Progresso', _rpPct(pct), `${fmt(c.invest)} de ${fmt(c.fin)} · faltam ${fmt(Math.max(0, c.fin - c.invest))}`),
+    `<div id="rp-fi-kpis" style="display:contents">${_rpFiKpisHtml({ fin: c.fin, fiR: c.fiR, invest: c.invest, pct })}</div>`,
     _rpKpi('Cobertura passiva', _rpPct(cov.pct), `o rendimento esperado paga ${_rpPct(cov.pct)} do gasto médio de ${fmt(cov.avgGas)}/mês`),
     _rpKpi('Colchão', `${Math.round(run)} meses`, `${(run / 12).toFixed(1).replace('.', ',')} anos sem nenhuma renda`,
       run >= 60 ? 'rp-pos' : run >= 24 ? '' : 'rp-warn'),
   ], 4);
 
   html += _rpH3('Data da FI por cenário');
-  html += _rpTable(
-    `<th>Cenário</th><th class="n">Retorno real</th><th class="n">Chega em</th><th class="n">Idade</th><th class="n">Prazo</th><th class="n">Patrimônio no cruzamento</th><th class="n">Renda passiva</th>`,
-    rows.map(r => {
-      const rr = weightedReturnReal() + (r.p.retDelta || 0);
-      if (!r.fi) return `<tr><td class="lbl">${_rpEsc(r.p.name)}</td><td class="n">${_rpPct(rr)}</td>` +
-        `<td class="n rp-neg" colspan="4">não atinge em ${S.assumptions.projectionYears} anos</td><td class="n">—</td></tr>`;
-      return `<tr${r.p.id === 'base' ? ' class="grp"' : ''}><td class="lbl">${_rpEsc(r.p.name)}</td>` +
-        `<td class="n">${_rpPct(rr)}</td>` +
-        `<td class="n">${_rpDateLabel(r.fi.date)}</td>` +
-        `<td class="n">${r.fi.date.getFullYear() - S.profile.birthYear} anos</td>` +
-        `<td class="n">${_rpDur(r.fi.months)}</td>` +
-        `<td class="n">${fmt(r.fi.wealth)}</td>` +
-        `<td class="n">${fmt(r.fi.wealth * c.fiR / 100 / 12)}/mês</td></tr>`;
-    }).join(''),
-    null, 'rp-t-sm');
+  html += `<div class="rp-rotab-input">` +
+    `<label for="rp-fi-income">Renda-alvo mensal (R$)</label> <input type="number" id="rp-fi-income" value="${Math.round(S.fi.targetMonthlyIncome)}" min="0" step="100"> ` +
+    `<label for="rp-fi-rate">Taxa de retirada (%)</label> <input type="number" id="rp-fi-rate" value="${c.fiR}" min="0.1" step="0.1"> ` +
+    `<button type="button" class="rp-btn" id="rp-fi-btn" onclick="_rpFiUpdate()">Recalcular</button></div>`;
+  html += `<div id="rp-fi-table">${_rpFiTableHtml({ rows, fiR: c.fiR })}</div>`;
   html += `<p class="rp-note">Projeções em <b>valores de hoje</b> (retorno real, já sem inflação) a partir de ${monthLabel(start.str)}. ` +
-    `Os cenários mexem em retorno, crescimento de receita e de gasto ao mesmo tempo — não são só variação de rentabilidade.</p>`;
+    `Os cenários mexem em retorno, crescimento de receita e de gasto ao mesmo tempo — não são só variação de rentabilidade. ` +
+    `<b>Recalcular</b> atualiza só os KPIs e esta tabela — o gráfico e o Monte Carlo abaixo continuam com a premissa original do cadastro.</p>`;
 
   // Curva das projeções
   const step = Math.max(1, Math.ceil(months / 120));
@@ -10213,6 +11002,71 @@ function _rpSec8(c) {
   }
   html += `<ul class="rp-ul">${items.map(t => `<li>${t}</li>`).join('')}</ul>`;
 
+  // ── Coast FI em reais: o limiar, não só a data ────────
+  // Mesma equação de coastFIYears(), isolando a outra incógnita:
+  //     Meta = W0 × (1 + r)^t
+  //   coastFIYears() fixa W0 e resolve t  →  "coasta em N anos"
+  //   aqui fixamos t (anos até aposentar) e resolvemos W0  →  "bastaria ter R$ X hoje"
+  // O r é o MESMO (weightedReturnReal()/100, o que a função do app usa por dentro),
+  // então os dois números nunca podem divergir.
+  const alvoCoast = coastFITarget();
+  const anosApos = Math.max(0, (S.assumptions.retirementAge || 60) - c.age);
+  if (alvoCoast != null) {
+    const gap = c.invest - alvoCoast;
+    const pctCoast = alvoCoast > 0 ? c.invest / alvoCoast * 100 : 0;
+    html += _rpH3('Coast FI — o número, não só a data');
+    // As quatro entradas da equação são editáveis: o valor da métrica está em
+    // "e se?", não no retrato. O recálculo é local (_rpCoastSim) e não remonta o
+    // relatório — remontar perderia a rolagem e levaria ~100ms à toa.
+    // data-real = valor exibido (usado pelo reset e para detectar edição).
+    // data-exact = valor sem arredondamento; enquanto o campo não for tocado a
+    // conta usa ele, senão o reset devolveria um número diferente do que o
+    // relatório mostrou ao abrir.
+    const inp = (id, val, step, min, unit, exact) =>
+      `<input class="rp-in" id="${id}" type="number" value="${val}" step="${step}" min="${min}"` +
+      ` data-real="${val}" data-exact="${exact === undefined ? val : exact}"` +
+      ` oninput="_rpCoastSim()" onfocus="this.select()">${unit ? `<span class="rp-in-u">${unit}</span>` : ''}`;
+    html += _rpTable(
+      `<th>Linha</th><th class="n">Valor</th><th>De onde vem</th>`,
+      `<tr><td class="lbl">Meta de independência</td>` +
+      `<td class="n">${inp('rp-co-meta', Math.round(c.fin), 50000, 0, 'R$')}</td>` +
+      `<td class="rp-dim">${fmt(S.fi.targetMonthlyIncome)}/mês a ${_rpPct(c.fiR)}, em R$ de hoje</td></tr>` +
+      `<tr><td class="lbl">Anos até a aposentadoria</td>` +
+      `<td class="n">${inp('rp-co-anos', anosApos, 1, 0, 'anos')}</td>` +
+      `<td class="rp-dim">${anosApos > 0 ? `você tem ${c.age} e cadastrou ${S.assumptions.retirementAge || 60}` : 'você já passou da idade de aposentadoria cadastrada'}</td></tr>` +
+      `<tr><td class="lbl">Retorno real esperado</td>` +
+      `<td class="n">${inp('rp-co-ret', +weightedReturnReal().toFixed(2), 0.25, -5, '% a.a.', weightedReturnReal())}</td>` +
+      `<td class="rp-dim">nominal de ${_rpPct(weightedReturn())} descontado o IPCA de ${_rpPct(c.ipca)}</td></tr>` +
+      `<tr class="grp"><td>Coast FI — bastaria ter hoje</td>` +
+      `<td class="n" id="rp-co-alvo">${fmt(alvoCoast)}</td>` +
+      `<td>meta ÷ (1 + r)<sup id="rp-co-exp">${anosApos}</sup> — o principal que, sozinho, vira a meta na data</td></tr>` +
+      `<tr><td class="lbl">Patrimônio investível hoje</td>` +
+      `<td class="n">${inp('rp-co-pat', Math.round(c.invest), 10000, 0, 'R$')}</td>` +
+      `<td class="rp-dim">carteira cadastrada, sem imóvel</td></tr>` +
+      `<tr class="grp"><td id="rp-co-gapl">${gap >= 0 ? 'Excedente sobre o Coast FI' : 'Falta para o Coast FI'}</td>` +
+      `<td class="n ${gap >= 0 ? 'rp-pos' : 'rp-neg'}" id="rp-co-gap">${fmt(Math.abs(gap))}</td>` +
+      `<td id="rp-co-pct">${_rpPct(pctCoast)} do limiar</td></tr>` +
+      `<tr><td class="lbl rp-dim">Coasta em</td>` +
+      `<td class="n rp-dim" id="rp-co-anosr">${coast == null ? '—' : coast.toFixed(1).replace('.', ',') + ' anos'}</td>` +
+      `<td class="rp-dim" id="rp-co-anosd">ln(meta ÷ patrimônio) ÷ ln(1 + r) — a mesma equação lida pelo outro lado</td></tr>`,
+      null, 'rp-t-sm');
+    html += `<div class="rp-simbar">` +
+      `<span class="rp-simhint">Os quatro campos acima são editáveis — mexa em qualquer um e o limiar, a diferença e os anos se recalculam.</span>` +
+      `<button type="button" class="rp-simreset" id="rp-co-reset" onclick="_rpCoastReset()" hidden>↺ voltar aos meus números</button>` +
+      `</div>`;
+    html += `<div id="rp-co-call">` + _rpCall(gap >= 0 ? 'pos' : '',
+      gap >= 0 ? `Você já passou do Coast FI` : `Faltam ${fmt(Math.abs(gap))} para o Coast FI`,
+      gap >= 0
+        ? `Bastariam <b>${fmt(alvoCoast)}</b> hoje para chegar em ${fmt(c.fin)} aos ${S.assumptions.retirementAge || 60} só com juro real, e você tem <b>${fmt(c.invest)}</b>. ` +
+          `Todo aporte daqui pra frente <b>antecipa</b> a data — não é mais o que a torna possível.`
+        : `Com <b>${fmt(alvoCoast)}</b> hoje, o juro real de ${_rpPct(weightedReturnReal())} entregaria os ${fmt(c.fin)} aos ${S.assumptions.retirementAge || 60} sem mais nenhum aporte. ` +
+          `Você está em <b>${_rpPct(pctCoast)}</b> desse limiar. ` +
+          `É um marco anterior à independência e mais perto: a partir dele, parar de aportar deixa de adiar a meta.`) + `</div>`;
+    html += `<p class="rp-note">Mesma equação do “Coast FI em ${coast == null ? '—' : coast.toFixed(1).replace('.', ',')} anos” acima (<code>meta = atual × (1+r)ᵗ</code>), resolvida para o <b>valor</b> em vez do <b>tempo</b>. ` +
+      `Os dois usam o mesmo retorno real, então dizem a mesma coisa de dois jeitos — se um mudar, o outro muda junto. ` +
+      `Retorno real contra meta em R$ de hoje: as duas pontas na mesma moeda, ao contrário de boa parte das calculadoras de Coast FI, que misturam retorno nominal com meta em valores de hoje e devolvem um limiar otimista demais.</p>`;
+  }
+
   html += _rpH3('Monte Carlo');
   if (mc) {
     const dAt = m => new Date(start.date.getFullYear(), start.date.getMonth() + m, 1);
@@ -10246,7 +11100,7 @@ function _rpSec8(c) {
   return { id: 'fi', title: 'Independência financeira', src: 'cadastro + projeção', html };
 }
 
-// ═══════ 9. OBJETIVOS ═══════
+// ═══════ 10. OBJETIVOS ═══════
 function _rpSec9(c) {
   const gs = S.goals || [];
   if (!gs.length) {
@@ -10288,26 +11142,100 @@ function _rpSec9(c) {
   return { id: 'objetivos', title: 'Objetivos', src: 'cadastro (Linha da Vida)', html };
 }
 
-// ═══════ 10. DÍVIDAS E FINANCIAMENTO ═══════
+// ═══════ 11. DÍVIDAS E FINANCIAMENTO ═══════
+// Amortização extra hipotética — mantém a parcela atual fixa (regime "reduzir prazo") e
+// reconta quantos meses/juros faltam a partir de um saldo reduzido. Pura: recebe a posição
+// atual da dívida (de debtNow(), já calculada), não lê S de novo — mesmo padrão da Rota B.
+function _rpAmortExtraHtml(idx, extra) {
+  const ctx = window._rpAmortExtra;
+  if (!ctx || !ctx.infos[idx]) return '';
+  const d = ctx.infos[idx];
+  if (extra <= 0) return _rpEmpty('Digite um valor de amortização extra acima de zero pra simular.');
+  if (extra >= d.saldoAtual) return _rpEmpty('Esse valor já quita a dívida inteira — sobrariam ' + fmt(extra - d.saldoAtual) + '.');
+  const jm = d.taxaMes / 100;
+  let saldo = d.saldoAtual - extra, months = 0, juros = 0, impossivel = false;
+  while (saldo > 0.01 && months < 1200) {
+    const j = saldo * jm;
+    let amort = d.parcelaAtual - j;
+    if (amort <= 0) { impossivel = true; break; }
+    amort = Math.min(amort, saldo);
+    saldo -= amort; juros += j; months++;
+  }
+  if (impossivel) return _rpEmpty('Com a parcela atual, esse saldo nunca seria quitado (a parcela não cobre nem o juro) — o modelo não converge com esse valor.');
+  const ganhoMeses = d.mesesRestantes - months;
+  const ganhoJuros = d.jurosRestantes - juros;
+  return _rpKpis([
+    _rpKpi('Meses economizados', `${ganhoMeses}`, `de ${d.mesesRestantes} para ${months} meses restantes`, ganhoMeses > 0 ? 'rp-pos' : ''),
+    _rpKpi('Juros economizados', fmt(Math.max(0, ganhoJuros)), `de ${fmt(d.jurosRestantes)} para ${fmt(juros)} de juros até o fim`, ganhoJuros > 0 ? 'rp-pos' : ''),
+  ], 2) + `<p class="rp-note">Mantém a parcela atual de ${fmt(d.parcelaAtual)} fixa (regime "reduzir prazo", não "reduzir parcela"). Mesma simplificação da tabela acima: sem seguro, TR ou correção monetária.</p>`;
+}
+function _rpAmortExtraUpdate() {
+  const sel = document.getElementById('rp-amort-sel');
+  const idx = sel ? Number(sel.value) : 0;
+  const val = document.getElementById('rp-amort-val');
+  const extra = Math.max(0, Math.round(Number(val ? val.value : 0) || 0));
+  const body = document.getElementById('rp-amort-body');
+  if (body) body.innerHTML = _rpAmortExtraHtml(idx, extra);
+}
+
+// Reancora a posição da dívida no último pagamento REAL (financiamentoReal()) em vez do
+// cronograma teórico projetado a partir do cadastro. Saldo/parcela/meses restantes vêm da
+// planilha; taxa e sistema (SAC/Price) continuam do cadastro (a planilha não traz a taxa
+// contratual) só pra reprojetar juros restantes e data de quitação a partir da posição real.
+function _rpDebtNowReal(d, real) {
+  const theo = debtNow(d);
+  if (!real) return { ...theo, isReal: false };
+  const mesesRestantes = real.mesesRestantes != null ? real.mesesRestantes : theo.mesesRestantes;
+  if (mesesRestantes <= 0 || real.saldoRemanescente <= 0.01) {
+    return { quitada: true, sched: [], idx: 0, saldoAtual: 0, parcelaAtual: 0, jurosMes: 0, amortMes: 0, mesesRestantes: 0, jurosRestantes: 0, isReal: true, realData: real };
+  }
+  const refMonth = real.data ? String(real.data).slice(0, 7) : d.dataRef;
+  // sched começa em idx 0 = agora (a posição real), não no meio de um cronograma antigo —
+  // por isso idx:0, diferente do debtNow() teórico que caminha a partir de dataRef.
+  const sched = debtSchedule({ saldo: real.saldoRemanescente, taxaMes: d.taxaMes, parcelas: mesesRestantes, sistema: d.sistema });
+  const jurosRestantes = sched.reduce((s, r) => s + r.juros, 0);
+  return {
+    quitada: false, sched, idx: 0,
+    saldoAtual: real.saldoRemanescente, parcelaAtual: real.parcela,
+    jurosMes: real.juros, amortMes: real.amort,
+    mesesRestantes, jurosRestantes,
+    quitacao: addMonths(refMonth, sched.length),
+    isReal: true, realData: real, refMonth,
+  };
+}
+
 function _rpSec10(c) {
   const debts = (S.debts || []);
-  const infos = debts.map(d => ({ d, now: debtNow(d) })).filter(x => x.now && !x.now.quitada);
+  // Dado real só é aplicado com exatamente 1 dívida cadastrada — com mais de uma, não dá
+  // pra saber a qual delas o único ledger da aba Financiamento pertence (a planilha não
+  // tem coluna de "qual dívida"), então cai no cronograma teórico pra todas.
+  const finReal = debts.length === 1 ? financiamentoReal() : null;
+  const infos = debts.map(d => ({ d, now: finReal ? _rpDebtNowReal(d, finReal) : debtNow(d) })).filter(x => x.now && !x.now.quitada);
   const am = S.amort;
   let html = '';
 
   if (infos.length) {
+    if (finReal) {
+      html += _rpCall('', 'Posição real, não projeção', `Saldo, parcela e meses restantes vêm da última linha "Parcela" da aba Financiamento` +
+        (finReal.data ? ` (${monthLabel(String(finReal.data).slice(0, 7))})` : '') +
+        `. Juros ainda a pagar e data de quitação são recalculados a partir daí, com a taxa e o sistema do cadastro — a planilha não traz a taxa contratual.`);
+    }
     const saldo = _rpSum(infos.map(x => x.now.saldoAtual));
     const parc = _rpSum(infos.map(x => x.now.parcelaAtual));
     const juros = _rpSum(infos.map(x => x.now.jurosMes));
+    const amort = _rpSum(infos.map(x => x.now.amortMes));
     const jurosRest = _rpSum(infos.map(x => x.now.jurosRestantes));
     const fim = infos.reduce((a, x) => (!a || x.now.quitacao > a) ? x.now.quitacao : a, null);
 
+    // Peso na renda usa a ÚLTIMA renda registrada, sem média — mais sensível a queda/corte
+    // recente de renda do que os 12 meses de c.avgRec (usado no resto da seção/relatório).
+    const recUlt = c.last.rec || 0;
     html += _rpKpis([
       _rpKpi('Saldo devedor', fmt(saldo), `${infos.length} ${infos.length === 1 ? 'dívida ativa' : 'dívidas ativas'} · última quitação em ${fim ? monthLabel(fim) : '—'}`),
-      _rpKpi('Parcela mensal', fmt(parc), `${fmt(juros)} de juros e ${fmt(parc - juros)} de amortização — ${_rpPct(parc > 0 ? juros / parc * 100 : 0)} da parcela é juro`),
+      _rpKpi('Parcela mensal', fmt(parc), `${fmt(juros)} de juros e ${fmt(amort)} de amortização — ${_rpPct(parc > 0 ? juros / parc * 100 : 0)} da parcela é juro`),
       _rpKpi('Juros ainda a pagar', fmt(jurosRest), `${_rpPct(saldo > 0 ? jurosRest / saldo * 100 : 0)} do saldo atual, se levar até o fim`),
-      _rpKpi('Peso na renda', c.avgRec > 0 ? _rpPct(parc / c.avgRec * 100) : '—', `da receita média de ${fmt(c.avgRec)}/mês`,
-        c.avgRec > 0 && parc / c.avgRec > 0.3 ? 'rp-warn' : ''),
+      _rpKpi('Peso na renda', recUlt > 0 ? _rpPct(parc / recUlt * 100) : '—', `da receita de ${monthLabel(c.lastD)} (${fmt(recUlt)})`,
+        recUlt > 0 && parc / recUlt > 0.3 ? 'rp-warn' : ''),
     ], 4);
 
     html += _rpTable(
@@ -10318,15 +11246,20 @@ function _rpSec10(c) {
         `<td class="n">${x.now.mesesRestantes}</td><td>${monthLabel(x.now.quitacao)}</td>` +
         `<td class="n">${fmt(x.now.jurosRestantes)}</td></tr>`).join(''),
       `<td>Total</td><td class="n">${fmt(saldo)}</td><td class="n">${fmt(parc)}</td><td class="n">${fmt(juros)}</td>` +
-      `<td class="n">${fmt(parc - juros)}</td><td class="n">—</td><td>—</td><td class="n">${fmt(jurosRest)}</td>`,
+      `<td class="n">${fmt(amort)}</td><td class="n">—</td><td>—</td><td class="n">${fmt(jurosRest)}</td>`,
       'rp-t-sm');
-    html += `<p class="rp-note">Parcela <b>teórica</b> (juros + amortização), sem seguros, taxa de administração ou correção monetária/TR. Valores nominais, sem desconto a valor presente.</p>`;
+    html += finReal
+      ? `<p class="rp-note">Saldo, parcela, juros e amortização do mês são os <b>valores reais</b> da última parcela registrada — a coluna "Valor" da planilha pode não bater exatamente com Juros + Amortização se incluir seguro, taxas ou correção monetária daquele mês (ver aba Financiamento — Histórico). "Juros até o fim" e "Quitação" são projeção teórica a partir da posição real, com a taxa e o sistema do cadastro. Sem desconto a valor presente.</p>`
+      : `<p class="rp-note">Parcela <b>teórica</b> (juros + amortização), sem seguros, taxa de administração ou correção monetária/TR. Valores nominais, sem desconto a valor presente.</p>`;
 
     // Mesma base da aba Financiamento: valor contratado (valorTotal, ou o saldo
     // do cadastro quando ele nao foi informado) — nao o saldo de hoje, que faria
     // o '% quitado' comecar perto de zero mesmo com metade do financiamento pago.
     const baseTotal = _rpSum(infos.map(x => x.d.valorTotal || x.d.saldo || 0)) || saldo;
-    const yrs = _debtsYearlyRows(infos);
+    // Com dado real, o histórico vem da planilha (todo ano com linha Parcela) — não só a
+    // projeção daqui pra frente, que sozinha nunca mostrava os anos já vividos.
+    const yrsReal = (finReal && infos.length === 1 && infos[0].now.isReal) ? _debtsYearlyRowsReal(infos[0]) : null;
+    const yrs = yrsReal || _debtsYearlyRows(infos);
     if (yrs && yrs.length) {
       html += _rpH3('Ano a ano');
       html += _rpTable(
@@ -10336,8 +11269,25 @@ function _rpSec10(c) {
           `<td class="n">${_rpBar(baseTotal > 0 ? (1 - r.saldo / baseTotal) * 100 : 0)} ${_rpPct(baseTotal > 0 ? (1 - r.saldo / baseTotal) * 100 : 0, 0)}</td></tr>`).join(''),
         null, 'rp-t-sm');
       html += `<p class="rp-note">"% quitado" é sobre o <b>valor contratado</b> (${fmt(baseTotal)}), mesma base da aba Financiamento` +
-        (infos.some(x => !x.d.valorTotal) ? ' — em dívida sem <i>valor total</i> cadastrado, o app usa o saldo do registro, o que subestima o já pago.' : '.') + '</p>';
+        (infos.some(x => !x.d.valorTotal) ? ' — em dívida sem <i>valor total</i> cadastrado, o app usa o saldo do registro, o que subestima o já pago.' : '.') +
+        (yrsReal ? ' Anos já vividos vêm da soma das parcelas reais registradas naquele ano civil; o ano corrente mistura o que já foi pago com a projeção do que falta; anos futuros são só projeção.' : '') + '</p>';
     }
+
+    // ── Amortização extra (hipotética) ──
+    window._rpAmortExtra = { infos: infos.map(x => ({
+      name: x.d.name || 'Dívida', taxaMes: x.d.taxaMes,
+      saldoAtual: x.now.saldoAtual, parcelaAtual: x.now.parcelaAtual,
+      mesesRestantes: x.now.mesesRestantes, jurosRestantes: x.now.jurosRestantes,
+    })) };
+    html += _rpH3('Simular amortização extra');
+    html += `<div class="rp-rotab-input">` +
+      (infos.length > 1
+        ? `<label for="rp-amort-sel">Dívida</label> <select id="rp-amort-sel" onchange="_rpAmortExtraUpdate()">` +
+          infos.map((x, i) => `<option value="${i}">${_rpEsc(x.d.name || 'Dívida ' + (i + 1))}</option>`).join('') + `</select> `
+        : '') +
+      `<label for="rp-amort-val">Valor extra hoje (R$)</label> ` +
+      `<input type="number" id="rp-amort-val" value="0" min="0" step="500" oninput="_rpAmortExtraUpdate()"></div>`;
+    html += `<div id="rp-amort-body">${_rpEmpty('Digite um valor de amortização extra acima de zero pra simular.')}</div>`;
   } else if (debts.length) {
     html += _rpCall('pos', 'Todas as dívidas cadastradas estão quitadas', `${debts.length} ${debts.length === 1 ? 'registro' : 'registros'} em Financiamento, nenhum com saldo em aberto.`);
   } else {
@@ -10373,7 +11323,7 @@ function _rpSec10(c) {
   return { id: 'dividas', title: 'Dívidas e financiamento', src: 'cadastro (Financiamento + Simulador)', html };
 }
 
-// ═══════ 11. PROTEÇÃO ═══════
+// ═══════ 12. PROTEÇÃO ═══════
 function _rpSec11(c) {
   const g = protectionGaps();
   const pr = S.protection || {};
@@ -10428,7 +11378,7 @@ function _rpSec11(c) {
 }
 
 
-// ═══════ 12. DIAGNÓSTICO AUTOMÁTICO ═══════
+// ═══════ 13. DIAGNÓSTICO AUTOMÁTICO ═══════
 // Reusa o motor de insights inteiro (as ~23 regras documentadas em INSIGHTS.md),
 // só reagrupa por severidade e junta o plano de ação.
 function _rpSec12(c) {
@@ -10466,7 +11416,7 @@ function _rpSec12(c) {
   return { id: 'diagnostico', title: 'Diagnóstico automático', src: 'motor de insights (INSIGHTS.md)', html };
 }
 
-// ═══════ 13. METODOLOGIA E QUALIDADE DOS DADOS ═══════
+// ═══════ 14. METODOLOGIA E QUALIDADE DOS DADOS ═══════
 function _rpSec13(c) {
   const a = S.assumptions || {};
   let html = _rpP('Nada neste relatório vem de IA nem de chamada de rede: são as mesmas funções que alimentam as outras páginas do app, ' +
@@ -10509,16 +11459,16 @@ function _rpSec13(c) {
   if (c.stale >= 2) caveats.push(`<b>O histórico para em ${monthLabel(c.lastD)}</b>, ${c.stale} meses atrás. Tudo aqui — inclusive as datas projetadas — está calculado sobre essa foto.`);
   if (!(new Date().getFullYear() in CDI_YEARLY)) caveats.push(`<b>A tabela de CDI não tem ${new Date().getFullYear()}.</b> Anos ausentes caem num fallback de 10% a.a., o que distorce o alpha e a comparação com o CDI.`);
   if (c.mb.ok) {
-    caveats.push(`<b>Gasto do Mobills usa valor absoluto.</b> Estorno e crédito inflam o gasto em vez de abater — a soma da seção 6 é gasto bruto, não líquido.`);
-    caveats.push(`<b>Duas contas de gasto convivem.</b> A seção 5 usa a coluna Gasto da planilha; a seção 6 soma os lançamentos do Mobills. Elas divergem por construção, e a divergência está medida no fim da seção 6.`);
+    caveats.push(`<b>Gasto do Mobills usa valor absoluto.</b> Estorno e crédito inflam o gasto em vez de abater — a soma da seção ${_rpSecNo('gastos')} é gasto bruto, não líquido.`);
+    caveats.push(`<b>Duas contas de gasto convivem.</b> A seção ${_rpSecNo('fluxo')} usa a coluna Gasto da planilha; a seção ${_rpSecNo('gastos')} soma os lançamentos do Mobills. Elas divergem por construção, e a divergência está medida no fim da seção ${_rpSecNo('gastos')}.`);
   } else {
     caveats.push(`<b>Sem dados de Mobills</b>, a seção de gastos categorizados está vazia e o Lean FI não pode ser calculado.`);
   }
   caveats.push(`<b>A idade está fixada em 2026</b> no código (<code>currentAge()</code> faz <code>2026 − ano de nascimento</code>). Vira erro de um ano a partir de 2027.`);
   caveats.push(`<b>O Monte Carlo não tem correlação entre classes:</b> soma as volatilidades ponderadas, o que superestima o risco da carteira e alarga a dispersão dos percentis.`);
   caveats.push(`<b>Proteção não desconta a valor presente</b> e ignora reserva do cônjuge, pensão e benefício de empresa — é estimativa conservadora, para cima.`);
-  caveats.push(`<b>Aporte da planilha inclui rendimento reinvestido</b>, então não é taxa de poupança. A taxa honesta é (receita − gasto) ÷ receita, na seção 5.`);
-  caveats.push(`<b>Projeções assumem gasto constante em termos reais.</b> Se a inflação pessoal roda acima do IPCA (seção 5), a meta de hoje não compra o padrão de vida de amanhã.`);
+  caveats.push(`<b>Aporte da planilha inclui rendimento reinvestido</b>, então não é taxa de poupança. A taxa honesta é (receita − gasto) ÷ receita, na seção ${_rpSecNo('fluxo')}.`);
+  caveats.push(`<b>Projeções assumem gasto constante em termos reais.</b> Se a inflação pessoal roda acima do IPCA (seção ${_rpSecNo('fluxo')}), a meta de hoje não compra o padrão de vida de amanhã.`);
   if (!_rpSum(Object.values(c.port.target))) caveats.push(`<b>Sem alocação alvo definida</b>, não há medida de desvio nem plano de rebalanceamento.`);
   html += `<ul class="rp-ul">${caveats.map(t => `<li>${t}</li>`).join('')}</ul>`;
 
@@ -10530,11 +11480,25 @@ function _rpSec13(c) {
 }
 
 // ── Montagem do documento ─────────────────────────────────
+// Ordem canônica das seções. Única fonte de verdade da numeração: _rpSecNo() a
+// consulta para as referências cruzadas na prosa ("ver seção N"), e buildReport()
+// confere se o que foi montado bate com ela. Inserir seção = mexer só aqui e no
+// array de builders; nenhuma referência na prosa precisa ser recontada à mão.
+const _RP_SECTIONS = [
+  'retrato', 'patrimonio', 'resultado', 'aportes', 'fluxo', 'gastos',
+  'gastos-variacao', 'carteira', 'fi', 'objetivos', 'dividas', 'protecao',
+  'diagnostico', 'metodologia',
+];
+function _rpSecNo(id) {
+  const i = _RP_SECTIONS.indexOf(id);
+  return i < 0 ? '?' : String(i + 1);
+}
+
 function buildReport() {
   const c = _rpCtx();
   try { c.insights = computeInsights(); } catch (e) { console.warn('[Relatório] insights falharam:', e); c.insights = []; }
 
-  const builders = [_rpSec1, _rpSec2, _rpSec3, _rpSec4, _rpSec5, _rpSec6, _rpSec7, _rpSec8, _rpSec9, _rpSec10, _rpSec11, _rpSec12, _rpSec13];
+  const builders = [_rpSec1, _rpSec2, _rpSec3, _rpSec4, _rpSec5, _rpSec6, _rpSec6b, _rpSec7, _rpSec8, _rpSec9, _rpSec10, _rpSec11, _rpSec12, _rpSec13];
   const secs = [];
   builders.forEach((fn, i) => {
     try {
@@ -10546,6 +11510,16 @@ function buildReport() {
         html: _rpEmpty('Esta seção não pôde ser calculada: <b>' + _rpEsc(e && e.message ? e.message : String(e)) + '</b>. As outras seções não foram afetadas.') });
     }
   });
+
+  // Se alguém inserir builder sem atualizar _RP_SECTIONS (ou vice-versa), as
+  // referências cruzadas da prosa passam a apontar para a seção errada em
+  // silêncio. Barato conferir.
+  const ids = secs.map(x => x.id).filter(x => !/^erro-/.test(x));
+  const esperado = _RP_SECTIONS.join(',');
+  if (ids.join(',') !== esperado) {
+    console.warn('[Relatório] _RP_SECTIONS fora de sincronia com os builders.\n  montado:  ' +
+      ids.join(',') + '\n  esperado: ' + esperado);
+  }
 
   const toc = `<div class="rp-toc"><div class="rp-toc-title">Neste relatório</div><ol>` +
     secs.map(s => `<li><span class="rp-toc-n">${s.n}.</span><a href="#rp-${s.id}">${_rpEsc(s.title)}</a></li>`).join('') +
@@ -10614,6 +11588,75 @@ function openReport() {
   });
 }
 
+// ── Simulador do Coast FI (seção 9 do relatório) ──────────
+// Recalcula só as células derivadas: remontar o relatório inteiro perderia a
+// rolagem. Enquanto algum campo diferir do real, um aviso fica visível — e
+// imprime junto, para nenhum PDF simulado se passar pelo retrato verdadeiro.
+function _rpCoastSim() {
+  const g = id => document.getElementById(id);
+  const meta = g('rp-co-meta'), anos = g('rp-co-anos'), ret = g('rp-co-ret'), pat = g('rp-co-pat');
+  if (!meta || !anos || !ret || !pat) return;
+
+  // Campo intocado usa o valor exato (sem o arredondamento da exibição);
+  // campo editado usa o que foi digitado.
+  const val = el => {
+    const v = parseFloat(el.value);
+    const real = parseFloat(el.dataset.real);
+    return (isFinite(v) && Math.abs(v - real) < 1e-9) ? parseFloat(el.dataset.exact) : (isFinite(v) ? v : 0);
+  };
+  const vMeta = Math.max(0, val(meta));
+  const vAnos = Math.max(0, val(anos));
+  const vRet  = val(ret);
+  const vPat  = Math.max(0, val(pat));
+  const r = vRet / 100;
+
+  const simulando = [meta, anos, ret, pat].some(el => Math.abs(parseFloat(el.value) - parseFloat(el.dataset.real)) > 1e-9);
+  const alvo = r > -1 ? vMeta / Math.pow(1 + r, vAnos) : null;
+  const gap = (alvo == null) ? null : vPat - alvo;
+  const pct = (alvo > 0) ? vPat / alvo * 100 : null;
+  // o mesmo par de leituras: o tempo que o patrimônio simulado levaria
+  const tAnos = (r > 0 && vPat > 0 && vMeta > vPat) ? Math.log(vMeta / vPat) / Math.log(1 + r)
+              : (vPat >= vMeta && vMeta > 0) ? 0 : null;
+
+  const set = (id, txt, cls) => {
+    const el = g(id); if (!el) return;
+    el.innerHTML = txt;
+    if (cls !== undefined) el.className = cls;
+  };
+  set('rp-co-alvo', alvo == null ? '—' : fmt(alvo));
+  set('rp-co-exp', String(vAnos));
+  set('rp-co-gapl', gap == null ? 'Diferença' : gap >= 0 ? 'Excedente sobre o Coast FI' : 'Falta para o Coast FI');
+  set('rp-co-gap', gap == null ? '—' : fmt(Math.abs(gap)), 'n ' + (gap >= 0 ? 'rp-pos' : 'rp-neg'));
+  set('rp-co-pct', pct == null ? '—' : _rpPct(pct) + ' do limiar');
+  set('rp-co-anosr', tAnos == null ? (r <= 0 ? 'nunca' : '—') : tAnos === 0 ? 'já atingida' : tAnos.toFixed(1).replace('.', ',') + ' anos',
+      'n rp-dim');
+  set('rp-co-anosd', tAnos == null || tAnos === 0
+    ? 'ln(meta ÷ patrimônio) ÷ ln(1 + r) — a mesma equação lida pelo outro lado'
+    : `com ${vAnos} ${vAnos === 1 ? 'ano' : 'anos'} disponíveis, ${tAnos <= vAnos ? '<b>cabe</b>' : '<b>não cabe</b>'} — e é por isso que ${tAnos <= vAnos ? 'o patrimônio está acima' : 'está abaixo'} do limiar`,
+    'rp-dim');
+
+  const btn = g('rp-co-reset');
+  if (btn) btn.hidden = !simulando;
+  const call = g('rp-co-call');
+  if (call) {
+    if (!simulando) { call.innerHTML = call.dataset.real || call.innerHTML; return; }
+    if (!call.dataset.real) call.dataset.real = call.innerHTML;
+    call.innerHTML = _rpCall('warn', 'Simulação — não são os seus números atuais',
+      alvo == null ? 'Com retorno real de −100% ou menos a conta não existe.'
+      : `Com meta de <b>${fmt(vMeta)}</b>, <b>${vAnos}</b> ${vAnos === 1 ? 'ano' : 'anos'} pela frente e retorno real de <b>${_rpPct(vRet)}</b>, ` +
+        `o Coast FI seria <b>${fmt(alvo)}</b> — ${gap >= 0 ? `<b>${fmt(gap)}</b> abaixo` : `<b>${fmt(-gap)}</b> acima`} do patrimônio de <b>${fmt(vPat)}</b> que você simulou. ` +
+        `Se imprimir agora, o PDF sai com estes valores, não com os seus.`);
+  }
+}
+
+function _rpCoastReset() {
+  ['rp-co-meta', 'rp-co-anos', 'rp-co-ret', 'rp-co-pat'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = el.dataset.real;
+  });
+  _rpCoastSim();
+}
+
 function closeReport() {
   const ov = document.getElementById('rp-overlay');
   if (ov) { ov.classList.add('hidden'); ov.innerHTML = ''; }
@@ -10637,6 +11680,10 @@ function init() {
   loadState();
   loadSecoesDyn();          // seções da aba Fluxo de Caixa (persistidas do último sync)
   refreshMobillsFilter();
+  // Histórico e Mobills já vêm do cache (ver 1a), então a checagem de divergência
+  // pode rodar antes do primeiro sync — sem isto, o alerta Mobills × Histórico e o
+  // bloco correspondente do relatório ficavam mudos em todo cold open.
+  try { validateMobillsVsHistorical(); } catch (e) { /* não bloqueia o boot */ }
   Chart.register(ChartAnnotation);
   renderPage('dashboard');
 

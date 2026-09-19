@@ -1,5 +1,5 @@
 $port = 8090
-$dir  = $PSScriptRoot
+$dir  = Split-Path -Parent $PSScriptRoot   # script mora em scripts/ — serve a raiz do projeto
 $url  = "http://localhost:$port/"
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add($url)

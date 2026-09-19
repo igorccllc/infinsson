@@ -1367,6 +1367,29 @@ tr.fi-row td:first-child { font-weight: 700; }
 .rp-p { font-size: 12.5px; color: var(--ink2); margin: 9px 0; }
 .rp-p b, .rp-ul b, .rp-t b { color: var(--ink); font-weight: 700; }
 .rp-note { font-size: 11px; color: var(--ink3); margin-top: 8px; font-style: italic; }
+
+/* Campos editáveis do relatório (Rota B, aporte hipotético, banda, amortização extra,
+   renda-alvo/taxa de retirada). Só existem na tela viva do relatório (antes de imprimir);
+   cada um recalcula via seu próprio _rp*Update, sem gerar o relatório de novo. */
+.rp-rotab-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 16px; font-size: 12.5px; color: var(--ink2); }
+.rp-rotab-input label { font-weight: 700; color: var(--ink); }
+.rp-rotab-input input, .rp-rotab-input select {
+  width: 130px; font: inherit; font-size: 13px; color: var(--ink);
+  padding: 5px 8px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);
+}
+.rp-rotab-input select { width: auto; max-width: 220px; }
+.rp-rotab-input input:focus, .rp-rotab-input select:focus { outline: 2px solid var(--acc); outline-offset: 1px; }
+.rp-btn {
+  font: inherit; font-size: 13px; font-weight: 700; color: #fff; cursor: pointer;
+  background: var(--acc); border: none; border-radius: 4px; padding: 6px 14px;
+}
+.rp-btn:hover { filter: brightness(1.08); }
+.rp-btn:disabled { opacity: .6; cursor: default; }
+@media print {
+  /* No papel o input vira só o valor — sem borda de campo de formulário; botão não imprime */
+  .rp-rotab-input input, .rp-rotab-input select { border: none; background: transparent; padding: 0; width: auto; font-weight: 700; }
+  .rp-btn { display: none; }
+}
 .rp-ul { margin: 8px 0; padding-left: 17px; font-size: 12.5px; color: var(--ink2); }
 .rp-ul li { margin-bottom: 4px; }
 
@@ -1449,6 +1472,35 @@ tr.fi-row td:first-child { font-weight: 700; }
   padding: 1px 5px; border-radius: 3px; margin-right: 7px; vertical-align: 1.5px;
   border: 1px solid currentColor;
 }
+
+/* ── Campo editável dentro do documento ──────────────────
+   Parece texto sublinhado, não formulário: o relatório continua um documento.
+   Na impressão vira número puro (ver @media print). */
+.rp-in {
+  width: 96px; text-align: right;
+  font: inherit; font-variant-numeric: tabular-nums;
+  color: var(--acc); background: transparent;
+  border: none; border-bottom: 1px dashed var(--acc);
+  padding: 0 2px 1px; margin: 0; border-radius: 0;
+  -moz-appearance: textfield;
+}
+.rp-in::-webkit-outer-spin-button,
+.rp-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rp-in:focus { outline: none; border-bottom-style: solid; background: var(--tint); }
+.rp-in:hover { background: var(--tint); }
+.rp-in-u { color: var(--ink3); font-size: .9em; margin-left: 3px; }
+
+.rp-simbar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: -6px 0 12px; font-size: 11px; color: var(--ink3);
+}
+.rp-simhint::before { content: '✎ '; color: var(--acc); }
+.rp-simreset {
+  font: inherit; font-weight: 700; color: var(--acc);
+  background: none; border: 1px solid var(--acc); border-radius: 4px;
+  padding: 2px 8px; cursor: pointer;
+}
+.rp-simreset:hover { background: var(--acc); color: #fff; }
 
 /* Estado vazio de uma seção */
 .rp-empty {
@@ -1535,6 +1587,16 @@ tr.fi-row td:first-child { font-weight: 700; }
      barra e respiro encolhem — a tabela de 11 colunas fecha em ~616px contra
      703px de área útil, folga de 12% para nome de seção comprido ou valor de
      sete dígitos vindos da planilha. */
+  /* Campo editável imprime como número, não como formulário. O valor que estiver
+     na tela é o que sai no papel — inclusive um simulado, e é por isso que o
+     aviso de simulação também é impresso. */
+  .rp-in {
+    border: none !important; background: none !important;
+    color: var(--ink) !important; width: auto !important;
+    padding: 0 !important; font-weight: 600;
+  }
+  .rp-simbar { display: none !important; }
+
   .rp-t thead th { white-space: normal; }
   .rp-b { width: 14px; margin-right: 3px; }
   .rp-t-sm tbody td { padding: 3.5px 2px; }
