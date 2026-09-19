@@ -1,2 +1,4 @@
 src/_cache_chartjs.js
 src/_cache_anno.js
+out-*.html
+*.bak

@@ -20,7 +20,9 @@ if ($kb -lt 500) {
 }
 
 Write-Output "Enviando pro GitHub..."
-git add index.html manifest.json sw.js icon-192.png icon-512.png docs/INSIGHTS.md src/ scripts/build.ps1 scripts/deploy.ps1 scripts/serve.ps1
+# scripts/ e src/ entram inteiros (o .gitignore barra out-*.html, *.bak e o cache do Chart.js).
+# sheets-sync.gs nao roda daqui — roda no Apps Script — mas esta e a unica copia viva dele.
+git add .gitignore index.html manifest.json sw.js icon-192.png icon-512.png docs/INSIGHTS.md sheets-sync.gs src/ scripts/
 git commit -m "update: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 git push
 if ($LASTEXITCODE -ne 0) {
