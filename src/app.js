@@ -144,6 +144,8 @@ let MOBILLS_RAW = JSON.parse(localStorage.getItem('finplan_mobills') || '[]');
 let FINANCIAMENTO = JSON.parse(localStorage.getItem('finplan_financiamento') || 'null');   // espelho da aba Financiamento
 let FLUXOGRID = JSON.parse(localStorage.getItem('finplan_fluxogrid') || 'null');            // espelho da aba Fluxo de Caixa (grade inteira)
 let FLUXOBOLD = JSON.parse(localStorage.getItem('finplan_fluxobold') || 'null');            // negrito da col A por linha (macro-contas)
+let POSICAO = null;      // posição ativo-a-ativo; quem carrega é _posLoad() (ver abaixo)
+let _posRaw = undefined; // string crua da última leitura, p/ não reparsear 40 KB à toa
 let MOBILLS = MOBILLS_RAW;   // view sem os itens ignorados (ver refreshMobillsFilter); MOBILLS_RAW guarda o bruto
 
 // ── 2. ESTADO PADRÃO ──────────────────────────────────────
@@ -4452,11 +4454,309 @@ function switchScenarioTab(scId) {
   _renderScDetailTable(scId, scPaths);
 }
 
+// ── 9b. ATIVOS — POSIÇÃO DETALHADA ───────────────────────
+// Lê o que o Carteira XP gravou em finplan_posicao_ativos ao processar a Posição
+// Detalhada da XP. Emissor e conglomerado já vêm resolvidos de lá — a regra do FGC
+// mora numa função só, naquela página, e aqui a gente só consome.
+let ativosFiltro = 'all';
+let ativosSort = { col: 'liquido', dir: 'desc' };
+function setAtivosFiltro(v) { ativosFiltro = v; renderPortfolio(); }
+function setAtivosSort(c) {
+  if (ativosSort.col === c) ativosSort.dir = ativosSort.dir === 'asc' ? 'desc' : 'asc';
+  else ativosSort = { col: c, dir: (c === 'nome' || c === 'venc' || c === 'emissor') ? 'asc' : 'desc' };
+  renderPortfolio();
+}
+
+// "105,00% CDI" e "CDI +2,00%" → pós · "+17,00%" → pré · "IPC-A +10,14%" → inflação.
+// Tesouro Direto não traz coluna de taxa no export: cai no nome da seção, que já diz
+// "Inflação" ou "Prefixado".
+function _posIndexador(it) {
+  const t = String(it.taxa || '').toUpperCase();
+  if (/IPC|IGP|INFLA/.test(t)) return 'Inflação';
+  if (/CDI|SELIC/.test(t))     return 'Pós-fixado';
+  if (/^\s*\+?\s*[\d.,]+\s*%\s*$/.test(t)) return 'Prefixado';
+  const s = String(it.sec || '').toUpperCase();
+  if (/INFLA|IPC/.test(s)) return 'Inflação';
+  if (/PR[EÉ]/.test(s))    return 'Prefixado';
+  if (/P[OÓ]S/.test(s))    return 'Pós-fixado';
+  return 'Sem indexador';
+}
+const INDEX_COR = { 'Pós-fixado':'#4f8ef7', 'Prefixado':'#fbbf24', 'Inflação':'#22c55e', 'Sem indexador':'#64748b' };
+
+function _posVenc(s) {
+  const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? { d: +m[1], m: +m[2], y: +m[3] } : null;
+}
+// Mês da posição como número (ano*12+mês) — base pra "vence nos próximos N meses".
+function _posBaseMes() {
+  const m = String(POSICAO && POSICAO.key || '').match(/(\d{4})-(\d{2})/);
+  return m ? (+m[1]) * 12 + (+m[2]) : null;
+}
+
+// Relê do localStorage a cada render: quem grava é o Carteira XP, que roda num iframe
+// e só escreve DEPOIS que o app já carregou. Ler uma vez na inicialização deixava a
+// posição invisível até dar F5. Só reparseia quando a string muda.
+function _posLoad() {
+  try {
+    const raw = localStorage.getItem('finplan_posicao_ativos');
+    if (raw !== _posRaw) { _posRaw = raw; POSICAO = raw ? JSON.parse(raw) : null; }
+  } catch (e) { POSICAO = null; }
+  return POSICAO;
+}
+
+// Corpo de uma das abas de posição. Sem card nem cabeçalho — quem monta isso é o
+// renderPortfolio, pras abas ficarem no cabeçalho da página como no resto do app.
+function _ativosBody(tab) {
+  _posLoad();
+  if (!POSICAO || !Array.isArray(POSICAO.itens) || !POSICAO.itens.length) {
+    return `<div class="card" style="padding:40px;text-align:center">
+      <p style="font-size:15px;color:var(--text-muted);margin-bottom:8px">Nenhuma posição carregada.</p>
+      <p style="font-size:13px;color:var(--text-dim)">Abra <b>Carteira XP</b> no menu lateral e solte lá o arquivo
+      <b>Posição Detalhada</b> (.xlsx) da XP — os ativos aparecem aqui automaticamente.</p>
+    </div>`;
+  }
+  const its = POSICAO.itens;
+  const tot = its.reduce((s, i) => s + (i.liquido || 0), 0);
+  const body = tab === 'venc'      ? _ativosVencHtml(its, tot)
+             : tab === 'indexador' ? _ativosIndexHtml(its, tot)
+             : tab === 'emissor'   ? _ativosEmissorHtml(its, tot)
+             : _ativosTabelaHtml(its, tot);
+  return `<div class="card">${body}</div>`;
+}
+
+// Subtítulo do cabeçalho nas abas de posição: identifica a foto que está na tela.
+function _ativosSubtitulo() {
+  _posLoad();
+  if (!POSICAO || !POSICAO.itens || !POSICAO.itens.length) return 'Posição detalhada da corretora — nenhum arquivo carregado';
+  const tot = POSICAO.itens.reduce((s, i) => s + (i.liquido || 0), 0);
+  return `${POSICAO.itens.length} ativos · ${fmt(tot)} · posição em ${_rpEsc(POSICAO.dateStr || '—')}`;
+}
+
+function _ativosTabelaHtml(its, tot) {
+  const cats = [...new Set(its.map(i => i.cat))].sort();
+  const rows = ativosFiltro === 'all' ? its.slice() : its.filter(i => i.cat === ativosFiltro);
+  const dir = ativosSort.dir === 'asc' ? 1 : -1;
+  const val = (r, c) => {
+    if (c === 'venc') { const v = _posVenc(r.venc); return v ? v.y * 10000 + v.m * 100 + v.d : null; }
+    if (c === 'nome' || c === 'emissor' || c === 'cat') return String(r[c] || '');
+    if (c === 'index') return _posIndexador(r);
+    return r[c];
+  };
+  rows.sort((a, b) => {
+    const av = val(a, ativosSort.col), bv = val(b, ativosSort.col);
+    const an = av == null || av === '', bn = bv == null || bv === '';
+    if (an && bn) return 0;
+    if (an) return 1;                       // vazio sempre no fim, dos dois lados
+    if (bn) return -1;
+    return typeof av === 'string' ? dir * av.localeCompare(bv, 'pt-BR') : dir * (av - bv);
+  });
+  const arrow = c => ativosSort.col === c ? (ativosSort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  const COLS = [['nome','Ativo',''], ['cat','Categoria',''], ['emissor','Emissor',''], ['index','Indexador',''],
+                ['taxa','Taxa',''], ['venc','Vencimento','r'], ['aplicado','Aplicado','r'], ['liquido','Líquido','r']];
+  const head = COLS.map(([k, l, cls]) =>
+    `<th class="${cls} hist-sortable" onclick="setAtivosSort('${k}')" title="Ordenar por ${l}">${l}${arrow(k)}</th>`).join('') + '<th class="r">%</th>';
+  const somaFiltro = rows.reduce((s, i) => s + (i.liquido || 0), 0);
+  const body = rows.map(i => {
+    const idx = _posIndexador(i);
+    const v = _posVenc(i.venc);
+    return `<tr>
+      <td title="${_rpEsc(i.nome)}">${_rpEsc(i.nome)}</td>
+      <td class="muted">${_rpEsc(i.cat)}</td>
+      <td class="muted">${_rpEsc(i.emissor || '—')}</td>
+      <td><span class="color-dot" style="background:${INDEX_COR[idx]}"></span>${idx}</td>
+      <td class="muted">${_rpEsc(i.taxa || '—')}</td>
+      <td class="r ${v ? '' : 'muted'}">${v ? String(v.d).padStart(2,'0') + '/' + String(v.m).padStart(2,'0') + '/' + v.y : '—'}</td>
+      <td class="r muted">${i.aplicado == null ? '—' : fmt(i.aplicado)}</td>
+      <td class="r accent">${fmt(i.liquido || 0)}</td>
+      <td class="r muted">${fmtPct(tot > 0 ? (i.liquido || 0) / tot * 100 : 0)}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="flex-between mb-12">
+      <select onchange="setAtivosFiltro(this.value)" style="background:var(--surface-3);border:1px solid var(--border-2);border-radius:5px;padding:5px 8px;color:var(--text);font-size:12px">
+        <option value="all" ${ativosFiltro === 'all' ? 'selected' : ''}>Todas as categorias (${its.length})</option>
+        ${cats.map(c => `<option value="${_rpEsc(c)}" ${ativosFiltro === c ? 'selected' : ''}>${_rpEsc(c)} (${its.filter(i => i.cat === c).length})</option>`).join('')}
+      </select>
+      <span class="text-dim" style="font-size:11px">${rows.length} ativos · ${fmt(somaFiltro)}</span>
+    </div>
+    <div class="table-wrap" style="max-height:460px;overflow:auto">
+      <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    </div>`;
+}
+
+function _ativosVencHtml(its, tot) {
+  const base = _posBaseMes();
+  const com = [], sem = [];
+  its.forEach(i => { const v = _posVenc(i.venc); (v ? com : sem).push(v ? { ...i, _v: v } : i); });
+  const totCom = com.reduce((s, i) => s + (i.liquido || 0), 0);
+  const totSem = sem.reduce((s, i) => s + (i.liquido || 0), 0);
+  const dentro = n => base == null ? null : com.filter(i => {
+    const t = i._v.y * 12 + i._v.m;
+    return t > base && t <= base + n;
+  }).reduce((s, i) => s + (i.liquido || 0), 0);
+  const v12 = dentro(12), v24 = dentro(24);
+
+  const byYear = {};
+  com.forEach(i => { (byYear[i._v.y] = byYear[i._v.y] || []).push(i); });
+  const anos = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+  const maxV = Math.max(...anos.map(y => byYear[y].reduce((s, i) => s + (i.liquido || 0), 0)), 1);
+  let acc = 0;
+  const rows = anos.map(y => {
+    const li = byYear[y];
+    const v = li.reduce((s, i) => s + (i.liquido || 0), 0);
+    acc += v;
+    return `<tr>
+      <td>${y}</td>
+      <td class="muted">${li.length}</td>
+      <td style="width:38%"><span style="display:block;height:8px;background:var(--surface-3);border-radius:4px;overflow:hidden"><span style="display:block;height:100%;width:${(v / maxV * 100).toFixed(1)}%;background:var(--accent);border-radius:4px"></span></span></td>
+      <td class="r accent">${fmt(v)}</td>
+      <td class="r muted">${fmtPct(tot > 0 ? v / tot * 100 : 0)}</td>
+      <td class="r muted">${fmt(acc)}</td>
+    </tr>`;
+  }).join('');
+
+  return `<div class="kpi-grid kpi-grid-3 mb-16">
+      <div class="kpi"><div class="kpi-label">Vence em 12 meses</div>
+        <div class="kpi-value" style="color:var(--accent)">${v12 == null ? '—' : fmt(v12)}</div>
+        <div class="kpi-sub">${v12 == null ? 'sem data da posição' : fmtPct(tot > 0 ? v12 / tot * 100 : 0) + ' do patrimônio'}</div></div>
+      <div class="kpi"><div class="kpi-label">Vence em 24 meses</div>
+        <div class="kpi-value">${v24 == null ? '—' : fmt(v24)}</div>
+        <div class="kpi-sub">${v24 == null ? '—' : fmtPct(tot > 0 ? v24 / tot * 100 : 0) + ' do patrimônio'}</div></div>
+      <div class="kpi"><div class="kpi-label">Sem vencimento</div>
+        <div class="kpi-value" style="color:var(--text-muted)">${fmt(totSem)}</div>
+        <div class="kpi-sub">${sem.length} ativos — fundos, FIIs e liquidez diária</div></div>
+    </div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Ano</th><th>Ativos</th><th>Distribuição</th><th class="r">Valor</th><th class="r">% do total</th><th class="r">Acumulado</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td><strong>Com vencimento</strong></td><td class="muted">${com.length}</td><td></td><td class="r accent"><strong>${fmt(totCom)}</strong></td><td class="r muted">${fmtPct(tot > 0 ? totCom / tot * 100 : 0)}</td><td></td></tr></tfoot>
+      </table>
+    </div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:10px">Agrupado pelo ano de vencimento. Ativos sem data (fundos, FIIs, ações) ficam fora da tabela e aparecem só no card acima.</div>`;
+}
+
+function _ativosIndexHtml(its, tot) {
+  const ORDEM = ['Pós-fixado', 'Prefixado', 'Inflação', 'Sem indexador'];
+  const map = {};
+  its.forEach(i => {
+    const k = _posIndexador(i);
+    (map[k] = map[k] || { valor: 0, n: 0 }).valor += (i.liquido || 0);
+    map[k].n++;
+  });
+  const linhas = ORDEM.filter(k => map[k]).map(k => ({ k, ...map[k] }));
+  const maxV = Math.max(...linhas.map(l => l.valor), 1);
+  // Base de comparação = só o que tem indexador; RV/fundos distorceriam o percentual.
+  const totIdx = linhas.filter(l => l.k !== 'Sem indexador').reduce((s, l) => s + l.valor, 0);
+
+  const barras = linhas.map(l => {
+    const pctTot = tot > 0 ? l.valor / tot * 100 : 0;
+    const pctIdx = l.k === 'Sem indexador' || totIdx <= 0 ? null : l.valor / totIdx * 100;
+    return `<div style="margin-bottom:14px">
+      <div class="flex-between" style="font-size:12px;margin-bottom:4px">
+        <span><span class="color-dot" style="background:${INDEX_COR[l.k]}"></span><strong>${l.k}</strong> <span class="text-dim">· ${l.n} ativos</span></span>
+        <span><strong>${fmt(l.valor)}</strong> <span class="text-dim">${pctIdx == null ? fmtPct(pctTot) + ' do total' : fmtPct(pctIdx) + ' da renda fixa'}</span></span>
+      </div>
+      <div style="height:12px;background:var(--surface-3);border-radius:6px;overflow:hidden">
+        <div style="height:100%;width:${(l.valor / maxV * 100).toFixed(1)}%;background:${INDEX_COR[l.k]};border-radius:6px;opacity:.8"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Vencimento médio ponderado por indexador — prazo é o risco que o indexador não mostra.
+  const base = _posBaseMes();
+  const prazo = {};
+  if (base != null) {
+    its.forEach(i => {
+      const v = _posVenc(i.venc); if (!v) return;
+      const k = _posIndexador(i), m = Math.max(0, v.y * 12 + v.m - base);
+      (prazo[k] = prazo[k] || { pesoMes: 0, peso: 0 });
+      prazo[k].pesoMes += m * (i.liquido || 0);
+      prazo[k].peso += (i.liquido || 0);
+    });
+  }
+  const prazoRows = ORDEM.filter(k => prazo[k] && prazo[k].peso > 0).map(k => {
+    const meses = prazo[k].pesoMes / prazo[k].peso;
+    return `<tr><td><span class="color-dot" style="background:${INDEX_COR[k]}"></span>${k}</td>
+      <td class="r">${Math.round(meses)} meses</td><td class="r muted">${(meses / 12).toFixed(1).replace('.', ',')} anos</td></tr>`;
+  }).join('');
+
+  return `${barras}
+    ${prazoRows ? `<div class="card-title" style="margin-top:20px;margin-bottom:8px">Prazo médio até o vencimento</div>
+    <div class="table-wrap"><table><thead><tr><th>Indexador</th><th class="r">Prazo médio</th><th class="r">Em anos</th></tr></thead><tbody>${prazoRows}</tbody></table></div>` : ''}
+    <div style="font-size:11px;color:var(--text-dim);margin-top:10px">Classificação pela coluna de rentabilidade do relatório (<i>105% CDI</i>, <i>CDI +2%</i>, <i>+17%</i>, <i>IPC-A +10%</i>). O Tesouro Direto não traz essa coluna: nele vale o nome do bloco. Prazo médio é ponderado pelo valor líquido.</div>`;
+}
+
+function _ativosEmissorHtml(its, tot) {
+  const FGC_LIMITE = 250000;
+  // FGC cobre só emissão bancária (CDB/LCI/LCA) — 'Bancário' vem classificado do Carteira XP.
+  const rf = its.filter(i => i.grupo === 'Bancário' || i.grupo === 'Privado');
+  if (!rf.length) return `<div style="padding:18px 0;color:var(--text-muted);font-size:13px">Sem renda fixa de crédito na posição — nada a concentrar por emissor.</div>`;
+  const map = {};
+  rf.forEach(i => { (map[i.emissor || '—'] = map[i.emissor || '—'] || []).push(i); });
+  const grupos = Object.entries(map).map(([em, li]) => {
+    const valor = li.reduce((s, i) => s + (i.liquido || 0), 0);
+    const fgcVal = li.filter(i => i.grupo === 'Bancário').reduce((s, i) => s + (i.liquido || 0), 0);
+    return { em, li, valor, fgcVal, exced: Math.max(0, fgcVal - FGC_LIMITE) };
+  }).sort((a, b) => b.valor - a.valor);
+
+  const maxV = Math.max(...grupos.map(g => g.valor), 1);
+  const totExc = grupos.reduce((s, g) => s + g.exced, 0);
+  const nExced = grupos.filter(g => g.exced > 0).length;
+  const maior = grupos.length && tot > 0 ? grupos[0].valor / tot * 100 : 0;
+
+  const rows = grupos.map(g => {
+    const fgcCell = g.fgcVal > 0
+      ? (g.exced > 0 ? `<td class="r red">acima em ${fmt(g.exced)}</td>` : `<td class="r green">dentro</td>`)
+      : `<td class="r muted">fora do FGC</td>`;
+    return `<tr>
+      <td>${_rpEsc(g.em)} <span class="text-dim" style="font-size:11px">· ${g.li.length}</span></td>
+      <td style="width:30%"><span style="display:block;height:8px;background:var(--surface-3);border-radius:4px;overflow:hidden"><span style="display:block;height:100%;width:${(g.valor / maxV * 100).toFixed(1)}%;background:${g.exced > 0 ? 'var(--red)' : 'var(--accent)'};border-radius:4px"></span></span></td>
+      <td class="r accent">${fmt(g.valor)}</td>
+      <td class="r muted">${fmtPct(tot > 0 ? g.valor / tot * 100 : 0)}</td>
+      ${fgcCell}</tr>`;
+  }).join('');
+
+  return `<div class="kpi-grid kpi-grid-3 mb-16">
+      <div class="kpi"><div class="kpi-label">Emissores</div><div class="kpi-value">${grupos.length}</div>
+        <div class="kpi-sub">maior concentra ${fmtPct(maior)} do patrimônio</div></div>
+      <div class="kpi"><div class="kpi-label">Acima do limite do FGC</div>
+        <div class="kpi-value" style="color:${totExc > 0 ? 'var(--red)' : 'var(--green)'}">${fmt(totExc)}</div>
+        <div class="kpi-sub">${nExced === 0 ? 'nenhum emissor acima de R$ 250 mil' : nExced + (nExced === 1 ? ' emissor acima' : ' emissores acima') + ' do limite'}</div></div>
+      <div class="kpi"><div class="kpi-label">Crédito privado</div>
+        <div class="kpi-value" style="color:var(--yellow)">${fmt(rf.filter(i => i.grupo === 'Privado').reduce((s, i) => s + (i.liquido || 0), 0))}</div>
+        <div class="kpi-sub">CRI, CRA e debêntures — sem cobertura do FGC</div></div>
+    </div>
+    <div class="table-wrap" style="max-height:420px;overflow:auto">
+      <table><thead><tr><th>Emissor</th><th>Concentração</th><th class="r">Valor</th><th class="r">% do total</th><th class="r">FGC</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:10px">O FGC cobre R$ 250 mil por CPF por instituição, contando principal + juros, e vale só para emissão bancária (CDB/LCI/LCA). Não considera o teto global de R$ 1 milhão a cada 4 anos nem co-titularidade. Emissores do mesmo conglomerado já entram somados.</div>`;
+}
+
 // ── 10. PATRIMÔNIO ────────────────────────────────────────
+let portTab = 'carteira';
+function setPortTab(t) { portTab = t; destroyCharts(); renderPortfolio(); }
+
 function renderPortfolio() {
   const el    = document.getElementById('page-portfolio');
   const total = S.portfolio.reduce((s,a)=>s+a.value,0);
   const wtdRet= weightedReturn();
+
+  const PORT_TABS = [['carteira','Carteira'], ['ativos','Ativos'], ['venc','Vencimentos'],
+                     ['indexador','Indexador'], ['emissor','Emissor / FGC']];
+  const tabsHtml = `<div class="tabs" style="margin-bottom:16px">${PORT_TABS.map(([k, l]) =>
+    `<button class="tab-btn ${portTab === k ? 'active' : ''}" onclick="setPortTab('${k}')">${l}</button>`).join('')}</div>`;
+
+  // Abas de posição: cabeçalho + tabs + o corpo da aba. Sai cedo pra não montar
+  // (nem tentar desenhar gráfico em) a tela da carteira cadastrada.
+  if (portTab !== 'carteira') {
+    el.innerHTML = `
+      <div class="page-header"><div>
+        <div class="page-title">Patrimônio</div>
+        <div class="page-subtitle">${_ativosSubtitulo()}</div>
+      </div></div>
+      ${tabsHtml}
+      ${_ativosBody(portTab === 'ativos' ? 'tabela' : portTab)}`;
+    return;
+  }
 
   const rows = S.portfolio.map(a => {
     const pct = total > 0 ? (a.value/total)*100 : 0;
@@ -4601,6 +4901,8 @@ function renderPortfolio() {
       </div>
       <button class="btn btn-primary btn-sm" onclick="openAddAsset()">+ Ativo</button>
     </div>
+
+    ${tabsHtml}
 
     <div class="kpi-grid-3 mb-16">
       <div class="kpi">
@@ -11100,7 +11402,161 @@ function _rpSec8(c) {
   return { id: 'fi', title: 'Independência financeira', src: 'cadastro + projeção', html };
 }
 
-// ═══════ 10. OBJETIVOS ═══════
+// ═══════ 10. ATIVOS — POSIÇÃO DETALHADA ═══════
+// Espelha a aba Patrimônio → Ativos. Fonte é a Posição Detalhada da XP, carregada no
+// Carteira XP; aqui a leitura é estática (relatório impresso não tem aba pra clicar),
+// então as quatro visões viram subseções empilhadas, com as tabelas grandes truncadas.
+function _rpSecAtivos(c) {
+  const META = { id: 'ativos', title: 'Ativos — posição detalhada', src: 'Posição Detalhada (XP) via Carteira XP' };
+  _posLoad();
+  if (!POSICAO || !Array.isArray(POSICAO.itens) || !POSICAO.itens.length) {
+    return { ...META, html: _rpEmpty('Nenhuma posição da corretora carregada. Abra <b>Carteira XP</b> no menu e solte o arquivo <b>Posição Detalhada</b> (.xlsx) — o detalhe por ativo, vencimento, indexador e emissor aparece aqui.') };
+  }
+  const its = POSICAO.itens;
+  const tot = _rpSum(its.map(i => i.liquido || 0));
+  const base = _posBaseMes();
+
+  // ── vencimentos ──
+  const com = [], sem = [];
+  its.forEach(i => { const v = _posVenc(i.venc); (v ? com : sem).push(v ? { ...i, _v: v } : i); });
+  const dentro = n => base == null ? null : _rpSum(com.filter(i => {
+    const t = i._v.y * 12 + i._v.m; return t > base && t <= base + n;
+  }).map(i => i.liquido || 0));
+  const v12 = dentro(12), v24 = dentro(24);
+  const pct12 = v12 == null || tot <= 0 ? null : v12 / tot * 100;
+  const totSem = _rpSum(sem.map(i => i.liquido || 0));
+
+  // ── emissores / FGC ──
+  const FGC = 250000;
+  const credito = its.filter(i => i.grupo === 'Bancário' || i.grupo === 'Privado');
+  const porEmissor = {};
+  credito.forEach(i => { (porEmissor[i.emissor || '—'] = porEmissor[i.emissor || '—'] || []).push(i); });
+  const emissores = Object.entries(porEmissor).map(([em, li]) => {
+    const valor = _rpSum(li.map(i => i.liquido || 0));
+    const fgcVal = _rpSum(li.filter(i => i.grupo === 'Bancário').map(i => i.liquido || 0));
+    return { em, n: li.length, valor, fgcVal, exced: Math.max(0, fgcVal - FGC) };
+  }).sort((a, b) => b.valor - a.valor);
+  const totExc = _rpSum(emissores.map(g => g.exced));
+  const nExced = emissores.filter(g => g.exced > 0).length;
+  const privado = _rpSum(credito.filter(i => i.grupo === 'Privado').map(i => i.liquido || 0));
+  const totCredito = _rpSum(credito.map(i => i.liquido || 0));
+
+  let html = _rpKpis([
+    _rpKpi('Ativos na posição', _rpN(its.length), `${fmt(tot)} líquidos em ${monthLabel(POSICAO.key)} · já descontado IR/IOF provisionado`),
+    _rpKpi('Vence em 12 meses', v12 == null ? '—' : fmt(v12), pct12 == null ? 'sem data da posição no arquivo' : `${_rpPct(pct12)} do total — é o que você vai ter de reinvestir`,
+      pct12 == null ? '' : pct12 >= 40 ? 'rp-warn' : ''),
+    _rpKpi('Emissores de crédito', _rpN(emissores.length), `${fmt(totCredito)} em CDB/LCI/LCA, CRI/CRA e debêntures`),
+    _rpKpi('Acima do teto do FGC', fmt(totExc), nExced === 0 ? 'nenhum emissor bancário passa de R$ 250 mil' : `${nExced} ${nExced === 1 ? 'emissor' : 'emissores'} sem cobertura no excedente`,
+      totExc > 0 ? 'rp-neg' : 'rp-pos'),
+  ], 4);
+
+  html += _rpP(`Esta seção lê a <b>Posição Detalhada</b> da corretora, ativo a ativo — é a única fonte do relatório que enxerga ` +
+    `vencimento, indexador e emissor. A seção ${_rpSecNo('carteira')} trata da carteira <i>cadastrada</i>, agrupada por classe: lá o número é a premissa que alimenta as projeções, ` +
+    `aqui é a foto do que está custodiado em ${monthLabel(POSICAO.key)}.`);
+
+  // ── por indexador ──
+  const ORDEM = ['Pós-fixado', 'Prefixado', 'Inflação', 'Sem indexador'];
+  const idx = {};
+  its.forEach(i => {
+    const k = _posIndexador(i);
+    const o = idx[k] = idx[k] || { valor: 0, n: 0, pesoMes: 0, peso: 0 };
+    o.valor += (i.liquido || 0); o.n++;
+    const v = _posVenc(i.venc);
+    if (v && base != null) { o.pesoMes += Math.max(0, v.y * 12 + v.m - base) * (i.liquido || 0); o.peso += (i.liquido || 0); }
+  });
+  const linhasIdx = ORDEM.filter(k => idx[k]);
+  const totIdx = linhasIdx.filter(k => k !== 'Sem indexador').reduce((s, k) => s + idx[k].valor, 0);
+
+  html += _rpH3('Por indexador');
+  html += _rpTable(
+    `<th>Indexador</th><th class="n">Ativos</th><th class="n">Valor</th><th class="n">% da renda fixa</th><th class="n">Prazo médio</th>`,
+    linhasIdx.map(k => {
+      const o = idx[k];
+      const meses = o.peso > 0 ? o.pesoMes / o.peso : null;
+      return `<tr><td class="lbl">${k}</td><td class="n">${o.n}</td><td class="n">${fmt(o.valor)}</td>` +
+        `<td class="n">${k === 'Sem indexador' || totIdx <= 0 ? '—' : _rpPct(o.valor / totIdx * 100)}</td>` +
+        `<td class="n">${meses == null ? '—' : _rpDur(meses)}</td></tr>`;
+    }).join(''),
+    `<td>Total</td><td class="n">${its.length}</td><td class="n">${fmt(tot)}</td><td class="n">—</td><td class="n">—</td>`,
+    'rp-t-sm');
+  const dom = linhasIdx.filter(k => k !== 'Sem indexador').map(k => ({ k, v: idx[k].valor }))
+    .sort((a, b) => b.v - a.v)[0];
+  if (dom && totIdx > 0 && dom.v / totIdx >= 0.5) {
+    html += _rpP(`<b>${_rpPct(dom.v / totIdx * 100)}</b> da renda fixa está em ${dom.k.toLowerCase()}. ` +
+      (dom.k === 'Pós-fixado' ? 'Protege de alta de juros e não sofre marcação a mercado, mas entrega o retorno ao ciclo: se a Selic cair, a carteira inteira cai junto, sem trava.'
+        : dom.k === 'Prefixado' ? 'Trava a taxa, o que é bom se os juros caírem — e é exatamente o que dói se subirem, porque a marcação a mercado bate antes do vencimento.'
+        : 'Protege o poder de compra, que é o risco que importa num horizonte longo. O preço é a volatilidade de marcação no meio do caminho.'));
+  }
+
+  // ── vencimentos ──
+  const byYear = {};
+  com.forEach(i => { (byYear[i._v.y] = byYear[i._v.y] || []).push(i); });
+  const anos = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+  let acc = 0;
+  html += _rpH3('Calendário de vencimentos');
+  html += _rpTable(
+    `<th>Ano</th><th class="n">Ativos</th><th class="n">Valor</th><th class="n">% do total</th><th class="n">Acumulado</th>`,
+    anos.map(y => {
+      const v = _rpSum(byYear[y].map(i => i.liquido || 0));
+      acc += v;
+      return `<tr><td class="lbl">${y}</td><td class="n">${byYear[y].length}</td><td class="n">${fmt(v)}</td>` +
+        `<td class="n">${_rpPct(tot > 0 ? v / tot * 100 : 0)}</td><td class="n">${fmt(acc)}</td></tr>`;
+    }).join(''),
+    `<td>Sem vencimento</td><td class="n">${sem.length}</td><td class="n">${fmt(totSem)}</td>` +
+    `<td class="n">${_rpPct(tot > 0 ? totSem / tot * 100 : 0)}</td><td class="n">—</td>`,
+    'rp-t-sm');
+  if (pct12 != null && pct12 >= 40) {
+    html += _rpCall('warn', `${_rpPct(pct12)} do patrimônio vence em 12 meses`,
+      `São <b>${fmt(v12)}</b> voltando para o caixa até ${monthLabel(addMonths(POSICAO.key, 12))} e precisando de destino novo. ` +
+      `Isso é risco de reinvestimento: a taxa que você contratou não é a taxa que vai encontrar na hora de recontratar. ` +
+      `Concentração assim costuma ser efeito de comprar sempre o mesmo prazo — escalonar vencimentos dilui o problema sem custar retorno.`);
+  }
+
+  // ── emissores ──
+  const TOP_EM = 15;
+  const mostra = emissores.slice(0, TOP_EM);
+  const resto = emissores.slice(TOP_EM);
+  html += _rpH3('Concentração por emissor');
+  html += _rpTable(
+    `<th>Emissor</th><th class="n">Ativos</th><th class="n">Valor</th><th class="n">% do total</th><th>FGC</th>`,
+    mostra.map(g => `<tr><td class="lbl">${_rpEsc(g.em)}</td><td class="n">${g.n}</td><td class="n">${fmt(g.valor)}</td>` +
+      `<td class="n">${_rpPct(tot > 0 ? g.valor / tot * 100 : 0)}</td>` +
+      `<td class="${g.exced > 0 ? 'rp-neg' : g.fgcVal > 0 ? 'rp-pos' : 'rp-dim'}">` +
+      `${g.exced > 0 ? 'acima em ' + fmt(g.exced) : g.fgcVal > 0 ? 'dentro do teto' : 'fora do FGC'}</td></tr>`).join(''),
+    resto.length ? `<td>+ ${resto.length} ${resto.length === 1 ? 'emissor' : 'emissores'} menores</td><td class="n">${_rpSum(resto.map(g => g.n))}</td>` +
+      `<td class="n">${fmt(_rpSum(resto.map(g => g.valor)))}</td><td class="n">${_rpPct(tot > 0 ? _rpSum(resto.map(g => g.valor)) / tot * 100 : 0)}</td><td></td>` : null,
+    'rp-t-sm');
+  if (totExc > 0) {
+    html += _rpCall('warn', `${fmt(totExc)} acima da cobertura do FGC`,
+      `${nExced === 1 ? 'Um emissor bancário passa' : nExced + ' emissores bancários passam'} de R$ 250 mil — o excedente não tem garantia se a instituição quebrar. ` +
+      `A correção é mecânica: distribuir emissão nova entre emissores, ou aceitar o risco conscientemente em troca da taxa.`);
+  }
+  if (totCredito > 0 && privado / totCredito >= 0.15) {
+    html += _rpP(`<b>${fmt(privado)}</b> (${_rpPct(privado / totCredito * 100)} do crédito) está em CRI, CRA e debêntures — que <b>não têm FGC</b>. ` +
+      `A isenção de IR compensa parte do risco, mas o risco é de crédito corporativo puro: se o emissor não pagar, não existe fundo garantidor atrás.`);
+  }
+
+  // ── maiores posições ──
+  const TOP_AT = 20;
+  const maiores = its.slice().sort((a, b) => (b.liquido || 0) - (a.liquido || 0)).slice(0, TOP_AT);
+  html += _rpH3(`Maiores posições — top ${Math.min(TOP_AT, its.length)}`);
+  html += _rpTable(
+    `<th>Ativo</th><th>Indexador</th><th class="n">Vencimento</th><th class="n">Valor</th><th class="n">% do total</th>`,
+    maiores.map(i => {
+      const v = _posVenc(i.venc);
+      return `<tr><td class="lbl">${_rpEsc(i.nome)}</td><td>${_posIndexador(i)}</td>` +
+        `<td class="n">${v ? String(v.m).padStart(2, '0') + '/' + v.y : '—'}</td>` +
+        `<td class="n">${fmt(i.liquido || 0)}</td><td class="n">${_rpPct(tot > 0 ? (i.liquido || 0) / tot * 100 : 0)}</td></tr>`;
+    }).join(''),
+    null, 'rp-t-sm');
+  html += `<p class="rp-note">Valores líquidos, já descontados IR e IOF provisionados pela corretora — por isso o total aqui fica abaixo do "total investido" que o relatório da XP mostra no topo, que é bruto. ` +
+    `Indexador sai da coluna de rentabilidade do arquivo; no Tesouro Direto, que não traz essa coluna, vale o nome do bloco. ` +
+    `O FGC cobre R$ 250 mil por CPF por instituição e vale só para emissão bancária — não considera o teto global de R$ 1 milhão a cada 4 anos nem co-titularidade.</p>`;
+
+  return { ...META, html };
+}
+
+// ═══════ 11. OBJETIVOS ═══════
 function _rpSec9(c) {
   const gs = S.goals || [];
   if (!gs.length) {
@@ -11486,7 +11942,7 @@ function _rpSec13(c) {
 // array de builders; nenhuma referência na prosa precisa ser recontada à mão.
 const _RP_SECTIONS = [
   'retrato', 'patrimonio', 'resultado', 'aportes', 'fluxo', 'gastos',
-  'gastos-variacao', 'carteira', 'fi', 'objetivos', 'dividas', 'protecao',
+  'gastos-variacao', 'carteira', 'fi', 'ativos', 'objetivos', 'dividas', 'protecao',
   'diagnostico', 'metodologia',
 ];
 function _rpSecNo(id) {
@@ -11498,7 +11954,7 @@ function buildReport() {
   const c = _rpCtx();
   try { c.insights = computeInsights(); } catch (e) { console.warn('[Relatório] insights falharam:', e); c.insights = []; }
 
-  const builders = [_rpSec1, _rpSec2, _rpSec3, _rpSec4, _rpSec5, _rpSec6, _rpSec6b, _rpSec7, _rpSec8, _rpSec9, _rpSec10, _rpSec11, _rpSec12, _rpSec13];
+  const builders = [_rpSec1, _rpSec2, _rpSec3, _rpSec4, _rpSec5, _rpSec6, _rpSec6b, _rpSec7, _rpSec8, _rpSecAtivos, _rpSec9, _rpSec10, _rpSec11, _rpSec12, _rpSec13];
   const secs = [];
   builders.forEach((fn, i) => {
     try {

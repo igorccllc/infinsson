@@ -240,7 +240,7 @@ Não há testes automatizados desses limiares — a validação é o smoke-test 
 
 # Relatório completo (PDF)
 
-A aba Insights tem dois geradores. O de cima são os **cards de insight** (documentados acima). O de baixo é o **Relatório completo**: um documento de 13 seções que abre em tela cheia para leitura e imprime em A4 — no diálogo de impressão, "Salvar como PDF".
+A aba Insights tem dois geradores. O de cima são os **cards de insight** (documentados acima). O de baixo é o **Relatório completo**: um documento de 15 seções que abre em tela cheia para leitura e imprime em A4 — no diálogo de impressão, "Salvar como PDF".
 
 Localização no código: `src/app.js`, seção `── 20c. RELATÓRIO COMPLETO ──`. CSS em `src/style.css`, bloco `RELATÓRIO (.rp-*)` no fim do arquivo.
 
@@ -262,7 +262,7 @@ Daí as três regras do módulo:
 2. **Gráfico é SVG inline**, escrito à mão (`_rpSvgLine`, `_rpSvgBars`, `_rpSvgPair`). Vetor: imprime nítido em qualquer DPI, reflui na largura da folha, cor sob controle, zero dependência. Nenhum Chart.js no relatório.
 3. **A âncora é o último mês COM DADO**, nunca `new Date()`. Relatório de mês fechado não pode falar de um mês que ainda não existe na planilha. (A tela de Gastos ancora no mês do calendário em três lugares — `detectInsights`, `buildGastosTabHtml`, o bloco de pacing — e por isso mistura dois meses quando o sync está atrasado. O relatório não repete isso.)
 
-## R2. As 14 seções
+## R2. As 15 seções
 
 | # | Seção | Responde | Fontes |
 |---|---|---|---|
@@ -275,13 +275,16 @@ Daí as três regras do módulo:
 | 7 | **Gastos — o que cresceu e o que caiu** | de onde o gasto cresceu, por categoria, e o que isso custa no plano | Mobills |
 | 8 | **Carteira — balanceamento** | quem está fora do alvo e como voltar (por trade ou por aporte) | `S.portfolio`, `S.targetAllocation`, `S.rebalanceBand` |
 | 9 | Independência financeira | quando, com que probabilidade, o dinheiro dura, e o Coast FI em anos **e em reais** | `buildScenarioPaths`, `findFIDate`, `monteCarloFI`, `monteCarloDecum`, `coastFIYears`, `riskProfile` |
-| 10 | Objetivos | quanto as metas custam em tempo de liberdade | `goalValorNaData`, `goalsFIImpact` |
-| 11 | Dívidas e financiamento | saldo, juros, e amortizar vs. investir | `debtNow`/`_rpDebtNowReal`, `financiamentoReal`, `_debtsYearlyRows`, `S.amort` |
-| 12 | Proteção | os dois gaps, com memória de cálculo linha a linha | `protectionGaps` |
-| 13 | Diagnóstico automático | os insights da parte de cima, agrupados por severidade | `computeInsights` |
-| 14 | Metodologia | de onde vem cada número, com que premissa, e o que não confiar | — |
+| 10 | **Ativos — posição detalhada** | o que exatamente está custodiado: vencimento, indexador, emissor e FGC | `POSICAO` (Posição Detalhada da XP via Carteira XP), `_posIndexador`, `_posVenc` |
+| 11 | Objetivos | quanto as metas custam em tempo de liberdade | `goalValorNaData`, `goalsFIImpact` |
+| 12 | Dívidas e financiamento | saldo, juros, e amortizar vs. investir | `debtNow`/`_rpDebtNowReal`, `financiamentoReal`, `_debtsYearlyRows`, `S.amort` |
+| 13 | Proteção | os dois gaps, com memória de cálculo linha a linha | `protectionGaps` |
+| 14 | Diagnóstico automático | os insights da parte de cima, agrupados por severidade | `computeInsights` |
+| 15 | Metodologia | de onde vem cada número, com que premissa, e o que não confiar | — |
 
-Cada seção é uma função `_rpSecN(c)` que devolve `{id, title, src, html}`. `buildReport()` chama as 14 dentro de `try/catch` individual: **uma seção que explode não derruba o relatório** — ela vira um bloco de erro nomeado e as outras 13 saem normais.
+A 8 e a 10 falam de patrimônio e **não são redundantes**: a 8 é a carteira *cadastrada* (agrupada por classe, é a premissa que alimenta as projeções); a 10 é a posição *custodiada* na corretora, ativo a ativo. É a única seção que enxerga vencimento, indexador e emissor — nada disso existe no cadastro manual. Ela é também a única que depende de um arquivo carregado à mão: sem a Posição Detalhada no Carteira XP, sai como seção vazia com instrução de como preencher.
+
+Cada seção é uma função `_rpSecN(c)` que devolve `{id, title, src, html}`. `buildReport()` chama as 15 dentro de `try/catch` individual: **uma seção que explode não derruba o relatório** — ela vira um bloco de erro nomeado e as outras 14 saem normais.
 
 A numeração vem da posição no array `builders`, e a lista `_RP_SECTIONS` declara a ordem canônica por id. É ela que `_rpSecNo('diagnostico')` consulta para escrever "ver seção N" na prosa, e `buildReport()` compara o que montou contra ela e reclama no console se divergir. **Inserir seção = mexer só no array de builders e em `_RP_SECTIONS`** — nenhuma referência cruzada precisa ser recontada à mão (foi assim que a seção 7 entrou sem transformar "seção 12" numa mentira).
 

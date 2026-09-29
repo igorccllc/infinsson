@@ -436,6 +436,7 @@ function render(data){
   renderAlocacao(data);
   renderConcentracao(data);
   renderHistorico(data);
+  savePosicao(data);          // alimenta a subseção Ativos da aba Patrimônio
   loadBenchmarks(data);
 }
 
@@ -572,6 +573,28 @@ function renderConcentracao(data){
       </div></section>`;
 
   bindRowToggles(cont);
+}
+
+/* ── posição ativo-a-ativo para a aba Patrimônio do app ──
+   O histórico abaixo (HIST_KEY) guarda só totais por categoria, então a lista de
+   ativos morria no reload. Aqui gravamos os itens já enriquecidos — emissor e
+   conglomerado saem das funções desta página, pro app não reimplementar a regra. */
+const POS_KEY = 'finplan_posicao_ativos';
+function savePosicao(data){
+  if (!data.posDate) return;
+  const p = data.posDate;
+  const itens = data.cats.flatMap(c => c.secoes.flatMap(s => s.items.map(i => ({
+    cat: c.nome, sec: s.nome, nome: i.nome, grupo: i.grupo,
+    emissor: conglomerado(parseEmissor(i.nome)),
+    liquido: i.liquido, aplicado: i.aplicado,
+    dataApl: i.dataApl, venc: i.venc, taxa: i.taxa,
+  }))));
+  try {
+    localStorage.setItem(POS_KEY, JSON.stringify({
+      key: p.y + '-' + p.m, dateStr: p.d + '/' + p.m + '/' + p.y,
+      savedAt: Date.now(), itens,
+    }));
+  } catch(_){ /* cota estourada — a página segue funcionando sem exportar pro app */ }
 }
 
 /* ── evolução: histórico mês a mês (localStorage) ── */

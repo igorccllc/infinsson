@@ -12,6 +12,7 @@ $css      = Get-Content (Join-Path $src 'style.css')     -Raw -Encoding UTF8
 $js       = Get-Content (Join-Path $src 'app.js')        -Raw -Encoding UTF8
 $fechHtml  = Get-Content (Join-Path $src 'carteira.html')  -Raw -Encoding UTF8
 $extrHtml  = Get-Content (Join-Path $src 'extrato.html')   -Raw -Encoding UTF8
+$cartHtml  = Get-Content (Join-Path $src 'cartao.html')    -Raw -Encoding UTF8
 
 # ── 2) Baixa / usa cache do Chart.js e plugin annotation ──────────────────
 $chartjsCache = Join-Path $src '_cache_chartjs.js'
@@ -31,6 +32,7 @@ $anno    = Get-Content $annoCache    -Raw -Encoding UTF8
 $enc = New-Object System.Text.UTF8Encoding($false)
 $b64 = [Convert]::ToBase64String($enc.GetBytes($fechHtml))
 $b64Extr = [Convert]::ToBase64String($enc.GetBytes($extrHtml))
+$b64Cart = [Convert]::ToBase64String($enc.GetBytes($cartHtml))
 
 $buildVersion = (Get-Date -Format 'yyyyMMddHHmmss')
 $index = $index.Replace('<meta name="finplan-build" content="dev">', '<meta name="finplan-build" content="' + $buildVersion + '">')
@@ -91,6 +93,30 @@ function loadExtrato(){
 '@
 $loaderExtr = $loaderExtr.Replace('__B64__', $b64Extr)
 $index = $index.Replace('</body>', $loaderExtr + "`n</body>")
+
+# ── 4c) Menu Cartão XP ─────────────────────────────────────────────────────
+$navItemCart = '      <a class="nav-item" data-page="cartao" href="#" onclick="navigate(''cartao'');loadCartao();return false;"><span class="nav-icon">&#9645;</span><span>Cart&atilde;o XP</span></a>'
+$index = $index.Replace('</nav>', $navItemCart + "`n    </nav>")
+
+$pageDivCart = '    <div id="page-cartao" class="page" style="padding:0"><iframe id="cartao-frame" title="Cartao XP" allow="clipboard-write" style="width:100%;height:100vh;border:0;display:block"></iframe></div>'
+$index = $index.Replace('</main>', $pageDivCart + "`n  </main>")
+
+$loaderCart = @'
+<script type="text/plain" id="cartao-b64">__B64__</script>
+<script>
+function loadCartao(){
+  var f = document.getElementById('cartao-frame');
+  if (f.dataset.loaded) return;
+  var b64 = document.getElementById('cartao-b64').textContent.trim();
+  var bin = atob(b64);
+  var bytes = Uint8Array.from(bin, function(c){ return c.charCodeAt(0); });
+  f.srcdoc = new TextDecoder('utf-8').decode(bytes);
+  f.dataset.loaded = '1';
+}
+</script>
+'@
+$loaderCart = $loaderCart.Replace('__B64__', $b64Cart)
+$index = $index.Replace('</body>', $loaderCart + "`n</body>")
 
 # ── 5) Grava index.html ────────────────────────────────────────────────────
 $out = Join-Path $root 'index.html'

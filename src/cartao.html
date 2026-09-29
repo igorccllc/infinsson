@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cartão XP — Fatura</title>
+<!-- pdf.js 3.x é o último com build UMD (global pdfjsLib). O worker entra como script comum:
+     com ele no main thread o pdf.js não tenta criar um Web Worker a partir de outra origem,
+     o que o browser bloqueia dentro de iframe srcdoc. Pra uma fatura de 5 páginas, sobra. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<style>
+  :root {
+    --bg: #101418; --surface: #1a2027; --surface-2: #222a33; --border: #2e3844;
+    --ink: #e8edf2; --ink-2: #9aa7b4; --ink-3: #6b7885;
+    --pos: #3fb46f; --neg: #e05d5d; --warn: #e0a84f; --accent: #4f8fdb; --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--ink); font-family: "Segoe UI", system-ui, -apple-system, sans-serif; min-height: 100vh; padding: 32px 24px 64px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 600; }
+  #meta { color: var(--ink-2); font-size: 13px; }
+
+  .upload { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; margin-bottom: 20px; }
+  .senha { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; min-width: 240px; }
+  .senha label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+  .senha input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--ink); border-radius: 7px; padding: 7px 10px; font-size: 14px; letter-spacing: .15em; }
+  .senha input:focus { outline: none; border-color: var(--accent); }
+  .senha .dica { font-size: 11px; color: var(--ink-3); margin-top: 6px; line-height: 1.4; }
+  #dropzone { flex: 1; min-width: 260px; border: 2px dashed var(--border); border-radius: var(--radius); padding: 26px 20px; text-align: center; color: var(--ink-2); cursor: pointer; transition: border-color .15s, background .15s; display: flex; flex-direction: column; justify-content: center; }
+  #dropzone:hover, #dropzone.drag { border-color: var(--accent); background: var(--surface); }
+  #dropzone strong { color: var(--ink); }
+  #dropzone .sub { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+
+  .msg { display: none; border-radius: var(--radius); padding: 12px 16px; margin-bottom: 18px; font-size: 13.5px; line-height: 1.5; }
+  .msg.erro { background: rgba(224,93,93,.12); border: 1px solid var(--neg); }
+  .msg.ok { background: rgba(63,180,111,.10); border: 1px solid rgba(63,180,111,.5); color: var(--ink-2); }
+  .msg.warn { background: rgba(224,168,79,.12); border: 1px solid var(--warn); }
+  .msg ul { margin: 6px 0 0 18px; }
+
+  #resultado { display: none; }
+  .barra { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .barra select, .barra button, .barra input[type=text] { background: var(--surface); border: 1px solid var(--border); color: var(--ink); border-radius: 7px; padding: 7px 12px; font-size: 13px; }
+  .barra button { cursor: pointer; }
+  .barra button:hover { background: var(--surface-2); border-color: var(--accent); }
+  .barra button.perigo:hover { border-color: var(--neg); color: var(--neg); }
+  .barra .esp { flex: 1; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .card .nome { font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+  .card .valor { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .card .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 4px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 18px 0 14px; }
+  .tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--ink-2); padding: 9px 14px; font-size: 13.5px; cursor: pointer; margin-bottom: -1px; }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button.ativo { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { background: var(--surface); border: 1px solid var(--border); color: var(--ink-2); border-radius: 20px; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+  .chip.ativo { border-color: var(--accent); color: var(--ink); background: var(--surface-2); }
+
+  .tabela-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; padding: 10px 14px; color: var(--ink-3); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+  td { padding: 8px 14px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface); }
+  tfoot td { background: var(--surface); font-weight: 600; border-top: 1px solid var(--border); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pos { color: var(--pos); } .neg { color: var(--neg); } .dim { color: var(--ink-3); }
+  td.data { color: var(--ink-2); white-space: nowrap; }
+  .tag { display: inline-block; font-size: 11px; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--border); border-radius: 20px; padding: 2px 9px; white-space: nowrap; }
+  .bar { display: block; height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; min-width: 80px; }
+  .bar > span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+  h3 { font-size: 13px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin: 22px 0 10px; }
+
+  th.chk, td.chk { width: 34px; padding-right: 0; }
+  td.chk input, th.chk input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); vertical-align: middle; }
+  #corpo tbody tr[data-i] { cursor: pointer; user-select: none; }
+  tbody tr.selec, tbody tr.selec:hover { background: rgba(79,143,219,.14); }
+  .selbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 10px; font-size: 13px; }
+  .selbar .info { flex: 1; color: var(--ink-2); }
+  .selbar .info b { color: var(--ink); }
+  .selbar .cab { color: var(--ink-2); font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .selbar .cab input { accent-color: var(--accent); }
+  .selbar button { border-radius: 7px; padding: 6px 14px; font-size: 13px; cursor: pointer; }
+  .selbar button.primario { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; }
+  .selbar button.primario:disabled { background: var(--surface-2); border-color: var(--border); color: var(--ink-3); cursor: default; }
+  .selbar button.link { background: none; border: none; color: var(--ink-2); padding: 6px 4px; text-decoration: underline; }
+  .nota { color: var(--ink-3); font-size: 12px; margin-top: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Cartão XP — fatura</h1>
+    <div id="meta"></div>
+  </header>
+
+  <div class="upload">
+    <div class="senha">
+      <label for="senha">Senha do PDF</label>
+      <input type="password" id="senha" autocomplete="off" inputmode="numeric" placeholder="•••••">
+      <div class="dica">A mesma do PDF que chega no email. Não fica salva em lugar nenhum.</div>
+    </div>
+    <div id="dropzone">
+      <strong>Arraste a fatura (.pdf) aqui</strong> ou clique para selecionar
+      <div class="sub">Fatura do Cartão XP · lançamentos, parcelas e resumo — CPF, endereço e código de barras são descartados</div>
+      <input type="file" id="arquivo" accept=".pdf,application/pdf" hidden>
+    </div>
+  </div>
+
+  <div id="msg" class="msg"></div>
+
+  <div id="resultado">
+    <div class="barra">
+      <label class="dim" for="sel" style="font-size:12px">Fatura</label>
+      <select id="sel"></select>
+      <span class="esp"></span>
+      <button id="remover" class="perigo">Remover esta fatura</button>
+    </div>
+    <div id="conferencia" class="msg"></div>
+    <div class="cards" id="cards"></div>
+    <div class="tabs" id="tabs"></div>
+    <div id="corpo"></div>
+  </div>
+</div>
+
+<script>
+/* ── PARSER (puro — sem DOM; o teste em Node extrai este bloco) ────────────── */
+const numBR = s => { const v = parseFloat(String(s).replace(/\./g, '').replace(',', '.')); return isNaN(v) ? null : v; };
+
+// Itens de getTextContent() de uma página → linhas de texto em ordem de leitura.
+// O PDF não tem "linhas": cada trecho vem com x/y soltos. Agrupa pela linha de base
+// (com folga de 2,5 pt) e ordena da esquerda pra direita.
+function linhasDaPagina(items) {
+  const pts = items.filter(it => it.str != null && it.str !== '')
+    .map(it => ({ s: it.str, x: it.transform[4], y: it.transform[5], w: it.width || 0 }))
+    .sort((a, b) => b.y - a.y || a.x - b.x);
+  const grupos = [];
+  for (const p of pts) {
+    const g = grupos.find(g => Math.abs(g.y - p.y) <= 2.5);
+    if (g) g.itens.push(p); else grupos.push({ y: p.y, itens: [p] });
+  }
+  grupos.sort((a, b) => b.y - a.y);
+  return grupos.map(g => {
+    g.itens.sort((a, b) => a.x - b.x);
+    let out = '', fim = null;
+    for (const it of g.itens) {
+      if (fim != null && it.x - fim > 1.2 && !/\s$/.test(out) && !/^\s/.test(it.s)) out += ' ';
+      out += it.s; fim = it.x + it.w;
+    }
+    return out.replace(/\s+/g, ' ').trim();
+  }).filter(Boolean);
+}
+
+function parseFatura(linhas) {
+  const txt = linhas.join('\n');
+  const f = { produto: null, venc: null, total: null, minimo: null, anterior: null, pagamentos: null,
+              saldoFin: null, despesas: null, devido: null, fechamento: null, proxFechamento: null,
+              melhorDia: null, cartoes: [], subtotais: {}, lancs: [] };
+  let m;
+  // Topo da 1ª página: "25/09/2026 R$ 1.672,31 R$ 250,85" = vencimento, total, mínimo
+  if ((m = txt.match(/(\d{2}\/\d{2}\/\d{4})\s+R\$\s*([\d.]+,\d{2})\s+R\$\s*([\d.]+,\d{2})/))) {
+    f.venc = m[1]; f.total = numBR(m[2]); f.minimo = numBR(m[3]);
+  }
+  const campo = re => { const r = txt.match(re); return r ? numBR(r[1]) : null; };
+  f.anterior   = campo(/Total da fatura anterior\s+(-?[\d.]+,\d{2})/i);
+  f.pagamentos = campo(/Pagamentos\/cr[ée]ditos at[ée] a emiss[ãa]o da fatura\s+(-?[\d.]+,\d{2})/i);
+  f.saldoFin   = campo(/Saldo financiado ou Saldo credor\s+(-?[\d.]+,\d{2})/i);
+  f.despesas   = campo(/Despesas at[ée] a emiss[ãa]o desta fatura\s+(-?[\d.]+,\d{2})/i);
+  f.devido     = campo(/Valor total devido\s+(-?[\d.]+,\d{2})/i);
+  if ((m = txt.match(/Resumo da sua fatura\s+(.+?)\s+R\$/i))) f.produto = m[1].trim();
+  const reDatas = /(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})/;
+  const iFech = linhas.findIndex(l => /Fatura fechada em/i.test(l));
+  if (iFech >= 0) {
+    const d = linhas[iFech].match(reDatas) || (linhas[iFech + 1] || '').match(reDatas);
+    if (d) { f.fechamento = d[1]; f.proxFechamento = d[2]; f.melhorDia = d[3]; }
+  }
+  // Lançamentos: cada cartão abre com "NOME - 4998********2128"; as linhas seguintes
+  // são dele até o próximo cabeçalho de cartão (a lista continua na página seguinte).
+  let card = null;
+  for (const l of linhas) {
+    if ((m = l.match(/\d{4}\*{4,}(\d{4})\s*$/))) { card = m[1]; if (!f.cartoes.includes(card)) f.cartoes.push(card); continue; }
+    if (!card) continue;
+    // O subtotal final do cartão reaparece no pé da página antes da lista continuar:
+    // guarda só o valor (último visto), nunca soma subtotal com subtotal.
+    if ((m = l.match(/^Subtotal\s+(-?[\d.]+,\d{2})$/i))) { f.subtotais[card] = numBR(m[1]); continue; }
+    m = l.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+(-?[\d.]+,\d{2})(?:\s+(-?[\d.]+,\d{2}))?$/);
+    if (!m) continue;
+    const desc = m[4].trim();
+    const p = desc.match(/\s*-\s*Parcela\s+(\d+)\s*\/\s*(\d+)\s*$/i);
+    const valor = numBR(m[5]);
+    f.lancs.push({
+      card, data: `20${m[3]}-${m[2]}-${m[1]}`, desc,
+      estab: p ? desc.slice(0, p.index).trim() : desc,
+      valor, usd: m[6] ? numBR(m[6]) : 0,
+      px: p ? +p[1] : null, py: p ? +p[2] : null,
+      tipo: valor < 0 ? (/PAGAMENTO/i.test(desc) ? 'pagamento' : 'credito') : (p ? 'parcela' : 'avista'),
+    });
+  }
+  return f;
+}
+
+// Confere o que foi lido contra os totais impressos na própria fatura. Se uma linha
+// escapar do parser (layout novo, quebra estranha), a soma deixa de bater e isso aparece.
+function conferirFatura(f) {
+  const r2 = v => Math.round(v * 100) / 100;
+  const soma = arr => r2(arr.reduce((s, l) => s + l.valor, 0));
+  const compras = f.lancs.filter(l => l.tipo === 'avista' || l.tipo === 'parcela');
+  const creditos = f.lancs.filter(l => l.tipo === 'credito');
+  const somaC = soma(compras), somaCC = r2(somaC + soma(creditos));
+  const alvo = f.despesas != null ? f.despesas : f.total;
+  const problemas = [];
+  if (!f.venc) problemas.push('não encontrei a data de vencimento');
+  if (!f.lancs.length) problemas.push('nenhum lançamento reconhecido');
+  if (alvo == null) problemas.push('não encontrei o total de despesas no resumo');
+  // Estorno pode entrar abatendo as despesas ou em "pagamentos/créditos" — aceita os dois.
+  else if (Math.abs(somaC - alvo) > 0.01 && Math.abs(somaCC - alvo) > 0.01)
+    problemas.push(`os lançamentos somam ${somaCC.toFixed(2)} e o resumo da fatura diz ${alvo.toFixed(2)}`);
+  for (const c of f.cartoes) {
+    if (f.subtotais[c] == null) continue;
+    const s = soma(f.lancs.filter(l => l.card === c && l.tipo !== 'pagamento'));
+    if (Math.abs(s - f.subtotais[c]) > 0.01)
+      problemas.push(`cartão final ${c}: as linhas somam ${s.toFixed(2)}, o subtotal impresso é ${f.subtotais[c].toFixed(2)}`);
+  }
+  return { ok: problemas.length === 0, problemas, somaCompras: somaC, nCompras: compras.length };
+}
+
+// "25/09/2026" → "2026-09"
+const mesDe = d => { const m = String(d || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? m[3] + '-' + m[2] : null; };
+const addMes = (k, n) => { const [y, m] = k.split('-').map(Number); const t = y * 12 + (m - 1) + n; return Math.floor(t / 12) + '-' + String(t % 12 + 1).padStart(2, '0'); };
+
+// Parcelas que ainda vão cair: "Parcela 2/12" nesta fatura = 10 parcelas nas próximas 10.
+// Só enxerga o que já está parcelado nesta fatura; compra feita depois do fechamento
+// entra quando a fatura seguinte for carregada.
+function parcelasFuturas(f) {
+  const base = mesDe(f.venc);
+  const porMes = {}, ativos = [];
+  if (!base) return { porMes, ativos, total: 0 };
+  f.lancs.filter(l => l.tipo === 'parcela' && l.py > l.px).forEach(l => {
+    const rest = l.py - l.px;
+    for (let k = 1; k <= rest; k++) { const mk = addMes(base, k); porMes[mk] = (porMes[mk] || 0) + l.valor; }
+    ativos.push({ ...l, rest, saldo: Math.round(l.valor * rest * 100) / 100, fim: addMes(base, rest) });
+  });
+  const total = Math.round(Object.values(porMes).reduce((s, v) => s + v, 0) * 100) / 100;
+  return { porMes, ativos, total };
+}
+/* ── FIM PARSER ─────────────────────────────────────────────────────────────── */
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const KEY = 'finplan_cartao_faturas';
+const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const brl = v => (v == null ? '—' : v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+const mesLabel = k => { if (!k) return '—'; const [y, m] = k.split('-'); return MESES[+m - 1] + '/' + y.slice(2); };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+const dataBR = iso => { const [y, m, d] = String(iso).split('-'); return `${d}/${m}/${y.slice(2)}`; };
+
+function carregarDB() { try { return JSON.parse(localStorage.getItem(KEY)) || { faturas: {} }; } catch (_) { return { faturas: {} }; } }
+function salvarDB(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); return true; } catch (_) { return false; } }
+
+let db = carregarDB();
+let sel = null, aba = 'lanc', filtroCard = null, busca = '';
+let ultimoArquivo = null;   // guarda o PDF pra re-tentar se a senha estiver errada
+
+function mostrarMsg(tipo, html) {
+  const el = document.getElementById('msg');
+  el.className = 'msg ' + tipo; el.innerHTML = html; el.style.display = html ? 'block' : 'none';
+}
+
+async function lerPdf(buf, senha) {
+  // getDocument transfere (e inutiliza) o buffer — manda cópia pra poder re-tentar com outra senha
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)), password: senha || undefined, isEvalSupported: false }).promise;
+  const linhas = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const tc = await (await doc.getPage(p)).getTextContent();
+    linhas.push(...linhasDaPagina(tc.items));
+  }
+  await doc.destroy();
+  return linhas;
+}
+
+async function processar(buf, senha) {
+  mostrarMsg('', '');
+  let linhas;
+  try { linhas = await lerPdf(buf, senha); }
+  catch (e) {
+    if (e && e.name === 'PasswordException') {
+      mostrarMsg('erro', e.code === 2
+        ? '<b>Senha incorreta.</b> Confira e aperte Enter no campo de senha — não precisa soltar o arquivo de novo.'
+        : '<b>Este PDF tem senha.</b> Digite no campo ao lado e aperte Enter.');
+      document.getElementById('senha').focus();
+      return false;
+    }
+    mostrarMsg('erro', 'Não consegui ler o PDF: ' + esc(e && e.message ? e.message : e));
+    return false;
+  }
+  const f = parseFatura(linhas);
+  const conf = conferirFatura(f);
+  const key = mesDe(f.venc);
+  if (!key || !f.lancs.length) {
+    mostrarMsg('erro', 'Não reconheci este PDF como fatura do Cartão XP: ' + esc(conf.problemas.join('; ')) + '.');
+    return false;
+  }
+  // Só o que interessa ao planejamento — nada de CPF, endereço ou código de barras.
+  db.faturas[key] = {
+    key, venc: f.venc, produto: f.produto, total: f.total, minimo: f.minimo, anterior: f.anterior,
+    pagamentos: f.pagamentos, saldoFin: f.saldoFin, despesas: f.despesas, devido: f.devido,
+    fechamento: f.fechamento, proxFechamento: f.proxFechamento, melhorDia: f.melhorDia,
+    cartoes: f.cartoes, subtotais: f.subtotais, lancs: f.lancs, conferencia: conf, savedAt: Date.now(),
+  };
+  if (!salvarDB(db)) mostrarMsg('warn', 'Fatura lida, mas <b>não coube no armazenamento do navegador</b> — ela some ao recarregar.');
+  sel = key; filtroCard = null; busca = ''; aba = 'lanc';
+  document.getElementById('senha').value = '';
+  ultimoArquivo = null;
+  render();
+  return true;
+}
+
+function faturaSel() { return sel && db.faturas[sel] ? db.faturas[sel] : null; }
+
+function render() {
+  const keys = Object.keys(db.faturas).sort().reverse();
+  const res = document.getElementById('resultado');
+  if (!keys.length) { res.style.display = 'none'; document.getElementById('meta').textContent = ''; return; }
+  if (!sel || !db.faturas[sel]) sel = keys[0];
+  // Seleção vale só pra fatura em que foi feita (os índices são dela). Um ponto só cobre
+  // todos os caminhos de troca: seletor, histórico, upload novo e remoção.
+  if (render._selDe !== sel) { selecao.clear(); ultimoClique = null; render._selDe = sel; }
+  res.style.display = 'block';
+  document.getElementById('sel').innerHTML = keys.map(k =>
+    `<option value="${k}" ${k === sel ? 'selected' : ''}>Vencimento ${esc(db.faturas[k].venc)} · ${brl(db.faturas[k].total)}</option>`).join('');
+
+  const f = faturaSel();
+  document.getElementById('meta').textContent = [f.produto, `${keys.length} fatura${keys.length === 1 ? '' : 's'} carregada${keys.length === 1 ? '' : 's'}`].filter(Boolean).join(' · ');
+
+  const conf = f.conferencia || conferirFatura(f);
+  const cEl = document.getElementById('conferencia');
+  cEl.style.display = 'block';
+  if (conf.ok) {
+    cEl.className = 'msg ok';
+    cEl.innerHTML = `✓ Conferido: os ${conf.nCompras} lançamentos somam ${brl(conf.somaCompras)}, igual ao resumo da fatura` +
+      (f.cartoes.length > 1 ? `, e os subtotais dos ${f.cartoes.length} cartões batem.` : '.');
+  } else {
+    cEl.className = 'msg warn';
+    cEl.innerHTML = '<b>A leitura não fechou com os totais da fatura</b> — algum lançamento pode ter escapado. Confira antes de confiar nos números:<ul>' +
+      conf.problemas.map(p => `<li>${esc(p)}</li>`).join('') + '</ul>';
+  }
+
+  const avista = f.lancs.filter(l => l.tipo === 'avista');
+  const parc = f.lancs.filter(l => l.tipo === 'parcela');
+  const fut = parcelasFuturas(f);
+  const futKeys = Object.keys(fut.porMes).sort();
+  const soma = arr => arr.reduce((s, l) => s + l.valor, 0);
+  document.getElementById('cards').innerHTML = [
+    ['Total da fatura', brl(f.total), `vence ${esc(f.venc)} · mínimo ${brl(f.minimo)}`],
+    ['À vista', brl(soma(avista)), `${avista.length} lançamento${avista.length === 1 ? '' : 's'}`],
+    ['Parcelas deste mês', brl(soma(parc)), `${parc.length} parcela${parc.length === 1 ? '' : 's'}`],
+    ['Já comprometido à frente', brl(fut.total), futKeys.length ? `nas próximas faturas, até ${mesLabel(futKeys[futKeys.length - 1])}` : 'nenhuma parcela em aberto'],
+    ['Fechamento', f.fechamento ? esc(f.fechamento.slice(0, 5)) : '—', f.proxFechamento ? `próximo ${esc(f.proxFechamento.slice(0, 5))} · melhor dia ${esc((f.melhorDia || '').slice(0, 5))}` : ''],
+  ].map(([n, v, s]) => `<div class="card"><div class="nome">${n}</div><div class="valor">${v}</div><div class="sub">${s}</div></div>`).join('');
+
+  const TABS = [['lanc', 'Lançamentos'], ['parc', 'Parcelas futuras'], ['hist', 'Histórico de faturas']];
+  document.getElementById('tabs').innerHTML = TABS.map(([k, l]) =>
+    `<button data-aba="${k}" class="${aba === k ? 'ativo' : ''}">${l}</button>`).join('');
+  document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => { aba = b.dataset.aba; render(); }));
+
+  const corpo = document.getElementById('corpo');
+  corpo.innerHTML = aba === 'parc' ? htmlParcelas(f, fut) : aba === 'hist' ? htmlHistorico(keys) : htmlLancamentos(f);
+  if (aba === 'lanc') ligarFiltrosLanc();
+}
+
+const TIPO = { avista: 'à vista', parcela: 'parcela', pagamento: 'pagamento', credito: 'crédito' };
+
+// Seleção de linhas pra copiar: guarda o índice do lançamento dentro da fatura aberta.
+// Troca de fatura zera a seleção; filtro e busca não (o que foi marcado continua marcado).
+let selecao = new Set(), ultimoClique = null, visiveisIdx = [];
+let comCabecalho = (() => { try { return localStorage.getItem('cartao_copia_cabecalho') !== '0'; } catch (_) { return true; } })();
+
+function htmlLancamentos(f) {
+  const q = busca.trim().toUpperCase();
+  const vis = f.lancs.map((l, i) => ({ l, i }))
+    .filter(({ l }) => (!filtroCard || l.card === filtroCard) && (!q || l.desc.toUpperCase().includes(q)));
+  visiveisIdx = vis.map(x => x.i);
+  const chips = f.cartoes.length > 1
+    ? `<div class="chips"><span class="chip ${!filtroCard ? 'ativo' : ''}" data-card="">Todos</span>` +
+      f.cartoes.map(c => `<span class="chip ${filtroCard === c ? 'ativo' : ''}" data-card="${c}">Final ${c}</span>`).join('') + '</div>'
+    : '';
+  const linhas = vis.map(({ l, i }) => `<tr data-i="${i}" class="${selecao.has(i) ? 'selec' : ''}">
+      <td class="chk"><input type="checkbox" data-i="${i}" ${selecao.has(i) ? 'checked' : ''} aria-label="Selecionar linha"></td>
+      <td class="data">${dataBR(l.data)}</td>
+      <td>${esc(l.estab)}</td>
+      <td>${l.px ? `<span class="tag">${l.px}/${l.py}</span>` : `<span class="dim">${TIPO[l.tipo]}</span>`}</td>
+      <td class="dim">${f.cartoes.length > 1 ? 'final ' + l.card : ''}</td>
+      <td class="num ${l.valor < 0 ? 'pos' : ''}">${brl(l.valor)}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="dim">Nenhum lançamento nesse filtro.</td></tr>';
+  const somaVis = vis.filter(({ l }) => l.tipo !== 'pagamento').reduce((s, { l }) => s + l.valor, 0);
+  return `<div class="barra">${chips}<span class="esp"></span>
+      <input type="text" id="busca" placeholder="Buscar estabelecimento..." value="${esc(busca)}" style="width:230px"></div>
+    <div class="selbar" id="selbar"></div>
+    <div class="tabela-wrap"><table>
+      <thead><tr><th class="chk"><input type="checkbox" id="chkTodos" aria-label="Selecionar todas as linhas visíveis"></th>
+        <th>Data</th><th>Estabelecimento</th><th>Parcela</th><th>Cartão</th><th class="num">Valor</th></tr></thead>
+      <tbody>${linhas}</tbody>
+      <tfoot><tr><td></td><td colspan="4">${vis.length} lançamento${vis.length === 1 ? '' : 's'} · soma sem o pagamento da fatura anterior</td><td class="num">${brl(somaVis)}</td></tr></tfoot>
+    </table></div>
+    <div class="nota">Clique na linha pra marcar; <b>Shift+clique</b> marca o intervalo inteiro. A caixa do cabeçalho marca tudo o que o filtro está mostrando. ` +
+    `A data é a da compra — numa parcela 3/6, é o dia em que a compra original foi feita, não o mês desta fatura.</div>`;
+}
+
+// Atualiza marcações e a barra de seleção sem remontar a tabela (não perde a rolagem).
+function atualizarSelecao() {
+  const f = faturaSel(); if (!f) return;
+  document.querySelectorAll('#corpo tbody tr[data-i]').forEach(tr => {
+    const on = selecao.has(+tr.dataset.i);
+    tr.classList.toggle('selec', on);
+    const cb = tr.querySelector('input[type=checkbox]'); if (cb) cb.checked = on;
+  });
+  const marcadasVis = visiveisIdx.filter(i => selecao.has(i)).length;
+  const todos = document.getElementById('chkTodos');
+  if (todos) {
+    todos.checked = visiveisIdx.length > 0 && marcadasVis === visiveisIdx.length;
+    todos.indeterminate = marcadasVis > 0 && marcadasVis < visiveisIdx.length;
+  }
+  const bar = document.getElementById('selbar'); if (!bar) return;
+  const n = selecao.size;
+  const soma = [...selecao].reduce((s, i) => s + (f.lancs[i] ? f.lancs[i].valor : 0), 0);
+  const fora = n - marcadasVis;
+  bar.innerHTML = `<span class="info">${n ? `<b>${n}</b> selecionada${n === 1 ? '' : 's'} · soma ${brl(soma)}` +
+      (fora > 0 ? ` <span class="dim">(${fora} fora do filtro atual)</span>` : '') : 'Nenhuma linha selecionada'}</span>
+    <label class="cab"><input type="checkbox" id="chkCab" ${comCabecalho ? 'checked' : ''}> incluir cabeçalho</label>
+    ${n ? '<button id="limparSel" class="link">limpar</button>' : ''}
+    <button id="copiarSel" class="primario" ${n ? '' : 'disabled'}>Copiar para planilha</button>`;
+  bar.querySelector('#chkCab').addEventListener('change', e => {
+    comCabecalho = e.target.checked;
+    try { localStorage.setItem('cartao_copia_cabecalho', comCabecalho ? '1' : '0'); } catch (_) {}
+  });
+  const lim = bar.querySelector('#limparSel');
+  if (lim) lim.addEventListener('click', () => { selecao.clear(); ultimoClique = null; atualizarSelecao(); });
+  bar.querySelector('#copiarSel').addEventListener('click', copiarSelecao);
+}
+
+// TSV (tab entre colunas): colado no Sheets/Excel cai uma célula por campo. Formato pt-BR —
+// data dd/mm/aaaa e vírgula decimal sem milhar — pra planilha em português já ler número.
+// Parcela vai em duas colunas numéricas: "2/12" numa célula só vira data (2 de dezembro).
+function tsvDe(f, idxs, cab) {
+  const dec = v => v.toFixed(2).replace('.', ',');
+  const txt = s => {
+    const t = String(s ?? '').replace(/[\t\r\n]+/g, ' ').trim();
+    return /^[=+\-@]/.test(t) ? ' ' + t : t;   // não deixa a planilha interpretar como fórmula
+  };
+  const data4 = iso => { const [y, m, d] = String(iso).split('-'); return `${d}/${m}/${y}`; };
+  const out = [];
+  if (cab) out.push(['Data', 'Estabelecimento', 'Parcela', 'De', 'Tipo', 'Cartão', 'Valor', 'Fatura (vencimento)'].join('\t'));
+  idxs.forEach(i => {
+    const l = f.lancs[i]; if (!l) return;
+    out.push([data4(l.data), txt(l.estab), l.px ?? '', l.py ?? '', TIPO[l.tipo], l.card, dec(l.valor), f.venc].join('\t'));
+  });
+  return out.join('\n');
+}
+
+async function copiarTexto(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (_) { /* cai no execCommand */ }
+  const ta = document.createElement('textarea');
+  ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.appendChild(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch (_) {}
+  ta.remove();
+  return ok;
+}
+
+async function copiarSelecao() {
+  const f = faturaSel(); if (!f || !selecao.size) return;
+  const idxs = [...selecao].sort((a, b) => a - b);     // na ordem da fatura, não na ordem do clique
+  const t = tsvDe(f, idxs, comCabecalho);
+  const btn = document.getElementById('copiarSel');
+  if (await copiarTexto(t)) {
+    mostrarMsg('', '');
+    if (btn) { btn.textContent = `Copiado ✓ (${idxs.length})`; setTimeout(() => { const b = document.getElementById('copiarSel'); if (b) b.textContent = 'Copiar para planilha'; }, 1600); }
+  } else {
+    // Sem acesso à área de transferência: entrega o texto pronto pra Ctrl+C manual.
+    mostrarMsg('warn', 'O navegador bloqueou a área de transferência. O conteúdo está selecionado abaixo — aperte <b>Ctrl+C</b> (ou Cmd+C) e cole na planilha.' +
+      `<textarea id="copiaManual" readonly style="width:100%;height:110px;margin-top:8px;background:var(--bg);color:var(--ink);border:1px solid var(--border);border-radius:6px;font:12px monospace">${esc(t)}</textarea>`);
+    const ta = document.getElementById('copiaManual'); if (ta) { ta.focus(); ta.select(); }
+  }
+}
+
+function ligarFiltrosLanc() {
+  document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => { filtroCard = c.dataset.card || null; render(); }));
+  const b = document.getElementById('busca');
+  if (b) b.addEventListener('input', () => {
+    busca = b.value;
+    const pos = b.selectionStart; render();
+    const nb = document.getElementById('busca'); nb.focus(); nb.setSelectionRange(pos, pos);
+  });
+  document.querySelectorAll('#corpo tbody tr[data-i]').forEach(tr => tr.addEventListener('click', e => {
+    const i = +tr.dataset.i;
+    const cb = e.target.matches('input[type=checkbox]') ? e.target : null;
+    const on = cb ? cb.checked : !selecao.has(i);        // clique no checkbox já trocou o estado dele
+    if (e.shiftKey && ultimoClique != null) {
+      const a = visiveisIdx.indexOf(ultimoClique), z = visiveisIdx.indexOf(i);
+      if (a >= 0 && z >= 0) visiveisIdx.slice(Math.min(a, z), Math.max(a, z) + 1).forEach(k => on ? selecao.add(k) : selecao.delete(k));
+    } else {
+      on ? selecao.add(i) : selecao.delete(i);
+    }
+    ultimoClique = i;
+    if (e.shiftKey) { const s = window.getSelection(); if (s) s.removeAllRanges(); }   // Shift+clique não deve pintar texto
+    atualizarSelecao();
+  }));
+  const todos = document.getElementById('chkTodos');
+  if (todos) todos.addEventListener('change', () => {
+    const tudo = visiveisIdx.every(i => selecao.has(i));
+    visiveisIdx.forEach(i => tudo ? selecao.delete(i) : selecao.add(i));
+    atualizarSelecao();
+  });
+  atualizarSelecao();
+}
+
+function htmlParcelas(f, fut) {
+  const ks = Object.keys(fut.porMes).sort();
+  if (!ks.length) return '<div class="nota">Nenhuma compra parcelada em aberto nesta fatura.</div>';
+  const max = Math.max(...ks.map(k => fut.porMes[k]));
+  let acc = 0;
+  const porMes = ks.map(k => {
+    const v = fut.porMes[k]; acc += v;
+    const n = fut.ativos.filter(a => a.fim >= k).length;
+    return `<tr><td>${mesLabel(k)}</td><td class="num dim">${n}</td>
+      <td style="width:40%"><span class="bar"><span style="width:${(v / max * 100).toFixed(1)}%"></span></span></td>
+      <td class="num">${brl(v)}</td><td class="num dim">${brl(acc)}</td></tr>`;
+  }).join('');
+  const ativos = fut.ativos.slice().sort((a, b) => b.saldo - a.saldo).map(a => `<tr>
+      <td>${esc(a.estab)}</td><td><span class="tag">${a.px}/${a.py}</span></td>
+      <td class="num">${brl(a.valor)}</td><td class="num dim">${a.rest}</td>
+      <td>${mesLabel(a.fim)}</td><td class="num">${brl(a.saldo)}</td></tr>`).join('');
+  return `<h3>Quanto já está comprometido em cada fatura</h3>
+    <div class="tabela-wrap"><table>
+      <thead><tr><th>Fatura</th><th class="num">Parcelas</th><th></th><th class="num">Valor</th><th class="num">Acumulado</th></tr></thead>
+      <tbody>${porMes}</tbody>
+      <tfoot><tr><td colspan="3">Total já contratado</td><td class="num">${brl(fut.total)}</td><td></td></tr></tfoot>
+    </table></div>
+    <h3>Parcelamentos em aberto</h3>
+    <div class="tabela-wrap"><table>
+      <thead><tr><th>Estabelecimento</th><th>Parcela atual</th><th class="num">Valor</th><th class="num">Faltam</th><th>Última em</th><th class="num">A pagar</th></tr></thead>
+      <tbody>${ativos}</tbody>
+    </table></div>
+    <div class="nota">Calculado a partir da fatura com vencimento em ${esc(f.venc)}: cada "Parcela X/Y" deixa Y−X parcelas para as faturas seguintes. ` +
+    `Compras parceladas feitas depois do fechamento (${esc(f.fechamento || '—')}) ainda não aparecem — entram quando a próxima fatura for carregada.</div>`;
+}
+
+function htmlHistorico(keys) {
+  const linhas = keys.map(k => {
+    const f = db.faturas[k];
+    const av = f.lancs.filter(l => l.tipo === 'avista').reduce((s, l) => s + l.valor, 0);
+    const pa = f.lancs.filter(l => l.tipo === 'parcela').reduce((s, l) => s + l.valor, 0);
+    const ok = (f.conferencia || conferirFatura(f)).ok;
+    return `<tr style="cursor:pointer" data-k="${k}"><td>${esc(f.venc)}</td><td class="num">${brl(f.total)}</td>
+      <td class="num">${brl(av)}</td><td class="num">${brl(pa)}</td>
+      <td class="num dim">${f.lancs.filter(l => l.tipo !== 'pagamento').length}</td>
+      <td>${ok ? '<span class="pos">✓</span>' : '<span class="neg">revisar</span>'}</td></tr>`;
+  }).join('');
+  setTimeout(() => document.querySelectorAll('tr[data-k]').forEach(tr =>
+    tr.addEventListener('click', () => { sel = tr.dataset.k; aba = 'lanc'; render(); })), 0);
+  return `<div class="tabela-wrap"><table>
+      <thead><tr><th>Vencimento</th><th class="num">Total</th><th class="num">À vista</th><th class="num">Parcelas</th><th class="num">Lançamentos</th><th>Conferência</th></tr></thead>
+      <tbody>${linhas}</tbody></table></div>
+    <div class="nota">Cada fatura carregada fica guardada aqui. Carregar de novo a de um mesmo vencimento substitui a anterior. Clique numa linha para abrir.</div>`;
+}
+
+// ── upload ──
+const dz = document.getElementById('dropzone');
+const inp = document.getElementById('arquivo');
+function lerArquivo(file) {
+  const r = new FileReader();
+  r.onload = e => { ultimoArquivo = e.target.result; processar(ultimoArquivo, document.getElementById('senha').value); };
+  r.readAsArrayBuffer(file);
+}
+dz.addEventListener('click', () => inp.click());
+inp.addEventListener('change', () => { inp.files[0] && lerArquivo(inp.files[0]); inp.value = ''; });
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); e.dataTransfer.files[0] && lerArquivo(e.dataTransfer.files[0]); });
+document.getElementById('senha').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && ultimoArquivo) processar(ultimoArquivo, e.target.value);
+});
+document.getElementById('sel').addEventListener('change', e => { sel = e.target.value; filtroCard = null; render(); });
+document.getElementById('remover').addEventListener('click', () => {
+  const f = faturaSel(); if (!f) return;
+  if (!confirm(`Remover a fatura com vencimento em ${f.venc}?`)) return;
+  delete db.faturas[sel]; salvarDB(db); sel = null; render();
+});
+
+render();
+window.__processar = processar;   // hook para testes automatizados
+</script>
+</body>
+</html>
