@@ -91,6 +91,44 @@
   .selbar button.primario:disabled { background: var(--surface-2); border-color: var(--border); color: var(--ink-3); cursor: default; }
   .selbar button.link { background: none; border: none; color: var(--ink-2); padding: 6px 4px; text-decoration: underline; }
   .nota { color: var(--ink-3); font-size: 12px; margin-top: 12px; line-height: 1.5; }
+  th.ord { cursor: pointer; user-select: none; white-space: nowrap; }
+  th.ord:hover { color: var(--ink); }
+  th .seta { color: var(--accent); }
+  #busca { width: 230px; }
+  /* Com algo marcado, a barra de cópia gruda no topo: no celular a tabela é longa e o botão sumiria. */
+  .selbar.ativa { position: sticky; top: 0; z-index: 2; border-color: var(--accent); box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+  /* Hover "gruda" depois do toque no iPhone — só em quem tem mouse. */
+  @media (hover: none) { tbody tr:hover { background: none; } tbody tr.selec:hover { background: rgba(79,143,219,.14); } }
+  @media (max-width: 640px) {
+    body { padding: 16px 12px 48px; }
+    h1 { font-size: 18px; }
+    .senha { min-width: 0; flex: 1 1 100%; }
+    #dropzone { min-width: 0; padding: 18px 14px; }
+    /* < 16px o Safari dá zoom ao focar o campo */
+    .senha input, .barra select, .barra input[type=text] { font-size: 16px; }
+    .barra select { flex: 1; min-width: 0; }
+    #busca { width: 100%; }
+    .cards { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .card { padding: 10px 12px; }
+    .card .valor { font-size: 16px; }
+    .tabs { overflow-x: auto; }
+    .tabs button { padding: 9px 10px; white-space: nowrap; }
+    table { font-size: 13px; }
+    .col-card, .tipo-txt { display: none; }
+    #corpo td { word-break: break-word; }
+    td.data { font-size: 12px; }
+    .tag { padding: 2px 6px; }
+    th { font-size: 10.5px; letter-spacing: 0; }
+    th, td { padding: 8px 6px; }
+    th.chk, td.chk { width: 30px; }
+    /* colunas secundárias saem no celular pra tabela caber sem rolar de lado */
+    .m-parcmes tr > :nth-child(3), .m-parcab tr > :nth-child(3), .m-parcab tr > :nth-child(4),
+    .m-rec tr > :nth-child(2), .m-rec tr > :nth-child(6), .m-hist tr > :nth-child(3), .m-hist tr > :nth-child(5) { display: none; }
+    td.chk input, th.chk input { width: 20px; height: 20px; }
+    .selbar { gap: 8px; }
+    .selbar .info { flex: 1 1 100%; }
+    .selbar button.primario { margin-left: auto; }
+  }
 </style>
 </head>
 <body>
@@ -192,17 +230,92 @@ function parseFatura(linhas) {
     m = l.match(/^(\d{2})\/(\d{2})\/(\d{2})\s+(.+?)\s+(-?[\d.]+,\d{2})(?:\s+(-?[\d.]+,\d{2}))?$/);
     if (!m) continue;
     const desc = m[4].trim();
-    const p = desc.match(/\s*-\s*Parcela\s+(\d+)\s*\/\s*(\d+)\s*$/i);
     const valor = numBR(m[5]);
+    const p = valor > 0 ? detectarParcela(desc) : null;
     f.lancs.push({
       card, data: `20${m[3]}-${m[2]}-${m[1]}`, desc,
-      estab: p ? desc.slice(0, p.index).trim() : desc,
+      estab: p ? p.estab : desc,
       valor, usd: m[6] ? numBR(m[6]) : 0,
-      px: p ? +p[1] : null, py: p ? +p[2] : null,
+      px: p ? p.px : null, py: p ? p.py : null, porLoja: p ? p.porLoja : false,
       tipo: valor < 0 ? (/PAGAMENTO/i.test(desc) ? 'pagamento' : 'credito') : (p ? 'parcela' : 'avista'),
     });
   }
   return f;
+}
+
+// Duas origens de parcela. A do cartão vem como "LOJA - Parcela 2/12". A da loja/emissor
+// (o cartão cobra como se fosse à vista, todo mês) vem colada no nome: a seguradora manda
+// "SEGURADORA*AUTO09D12" = parcela 9 de 12; outras mandam "PARC 03/10".
+// Limites (≥2 parcelas, ≤48) evitam pegar código de loja que só parece parcela.
+function detectarParcela(desc) {
+  const ok = (x, y) => x >= 1 && y >= 2 && y <= 48 && x <= y;
+  let p = desc.match(/\s*-\s*Parcela\s+(\d+)\s*\/\s*(\d+)\s*$/i);
+  if (p && ok(+p[1], +p[2])) return { px: +p[1], py: +p[2], estab: desc.slice(0, p.index).trim(), porLoja: false };
+  p = desc.match(/^(.*[A-Z*])(\d{2})D(\d{2})$/i);
+  if (p && ok(+p[2], +p[3])) return { px: +p[2], py: +p[3], estab: p[1].trim(), porLoja: true };
+  p = desc.match(/^(.*?)[\s*-]*\bPARC(?:ELA)?\.?\s*(\d{1,2})\s*(?:\/|DE)\s*(\d{1,2})$/i);
+  if (p && p[1].trim() && ok(+p[2], +p[3])) return { px: +p[2], py: +p[3], estab: p[1].trim(), porLoja: true };
+  return null;
+}
+
+// Faturas salvas antes do detector de parcela da loja: reclassifica no carregamento.
+function reclassificar(f) {
+  let mudou = false;
+  (f.lancs || []).forEach(l => {
+    if (l.tipo !== 'avista') return;
+    const p = detectarParcela(l.desc);
+    if (!p) return;
+    Object.assign(l, { tipo: 'parcela', px: p.px, py: p.py, estab: p.estab, porLoja: p.porLoja });
+    mudou = true;
+  });
+  return mudou;
+}
+
+// Cobranças recorrentes entre faturas. Agrupa pelo nome sem números (o "*1234" de
+// transação muda todo mês) e fica só com o que tem cara de assinatura: no máximo uma
+// cobrança por fatura, valor estável (maior ≤ 1,3× o menor). Uber/iFood, que aparecem
+// várias vezes com valores soltos, é hábito, não assinatura — ficam de fora.
+// Com uma fatura só não há como confirmar repetição: aí vale a lista de serviços
+// conhecidos, marcados como "provável".
+const ASSINATURAS = ['NETFLIX','SPOTIFY','MELIMAIS','MELI+','AMAZONPRIME','PRIMEVIDEO','AMAZON PRIME','APPLE.COM','APPLECOMBILL','ICLOUD',
+  'YOUTUBE','GOOGLE ONE','GOOGLE*GOOGLE','DISNEY','HBO','MAX.COM','GLOBOPLAY','DEEZER','PARAMOUNT','CRUNCHYROLL','CHATGPT','OPENAI',
+  'ANTHROPIC','CLAUDE.AI','MICROSOFT','ADOBE','DROPBOX','NOTION','CANVA','LINKEDIN','SMARTFIT','SMART FIT','GYMPASS','WELLHUB',
+  'TOTALPASS','UBER ONE','IFOOD CLUB','STARLINK','CONECTCAR','SEM PARAR','SEMPARAR','VELOE','TAG ITAU','AUDIBLE','KINDLE'];
+const chaveEstab = s => String(s || '').toUpperCase().replace(/\d+/g, ' ').replace(/[^A-Z*+.]+/g, ' ').replace(/[*.\s]+$/, '').replace(/\s+/g, ' ').trim();
+
+function recorrencias(faturas) {
+  const ks = Object.keys(faturas).sort();
+  if (!ks.length) return { itens: [], nFaturas: 0 };
+  const ult = ks[ks.length - 1];
+  const g = {};
+  ks.forEach(k => faturas[k].lancs.filter(l => l.tipo === 'avista').forEach(l => {
+    const c = chaveEstab(l.estab); if (!c) return;
+    const e = g[c] || (g[c] = { chave: c, estab: l.estab, porMes: {} });
+    (e.porMes[k] = e.porMes[k] || []).push(l.valor);
+    e.estab = l.estab;
+  }));
+  const itens = [];
+  Object.values(g).forEach(e => {
+    const meses = Object.keys(e.porMes).sort();
+    const uma = meses.every(k => e.porMes[k].length === 1);
+    const vals = meses.map(k => e.porMes[k][0]);
+    const estavel = Math.max(...vals) <= Math.min(...vals) * 1.3;
+    const conhecida = ASSINATURAS.some(n => e.chave.replace(/\s/g, '').includes(n.replace(/\s/g, '')));
+    let nivel = null;
+    if (meses.length >= 2 && uma && estavel) nivel = 'confirmada';
+    else if (conhecida && uma) nivel = 'provavel';
+    if (!nivel) return;
+    const ultimo = vals[vals.length - 1], anterior = vals.length > 1 ? vals[vals.length - 2] : null;
+    itens.push({
+      estab: e.estab, nivel, meses, nMeses: meses.length, ultimo,
+      variacao: anterior ? ultimo / anterior - 1 : null,
+      ativa: meses[meses.length - 1] === ult,
+      ultimoMes: meses[meses.length - 1],
+      anual: Math.round(ultimo * 12 * 100) / 100,
+    });
+  });
+  itens.sort((a, b) => (b.ativa - a.ativa) || (b.anual - a.anual));
+  return { itens, nFaturas: ks.length, ultimaFatura: ult };
 }
 
 // Confere o que foi lido contra os totais impressos na própria fatura. Se uma linha
@@ -264,7 +377,9 @@ function carregarDB() { try { return JSON.parse(localStorage.getItem(KEY)) || { 
 function salvarDB(db) { try { localStorage.setItem(KEY, JSON.stringify(db)); return true; } catch (_) { return false; } }
 
 let db = carregarDB();
+if (Object.values(db.faturas).map(reclassificar).some(Boolean)) salvarDB(db);
 let sel = null, aba = 'lanc', filtroCard = null, busca = '';
+let ordem = { col: null, dir: 1 };   // null = ordem em que aparece na fatura
 let ultimoArquivo = null;   // guarda o PDF pra re-tentar se a senha estiver errada
 
 function mostrarMsg(tipo, html) {
@@ -330,7 +445,7 @@ function render() {
   if (!sel || !db.faturas[sel]) sel = keys[0];
   // Seleção vale só pra fatura em que foi feita (os índices são dela). Um ponto só cobre
   // todos os caminhos de troca: seletor, histórico, upload novo e remoção.
-  if (render._selDe !== sel) { selecao.clear(); ultimoClique = null; render._selDe = sel; }
+  if (render._selDe !== sel) { selecao.clear(); ultimoClique = null; modoIntervalo = false; render._selDe = sel; }
   res.style.display = 'block';
   document.getElementById('sel').innerHTML = keys.map(k =>
     `<option value="${k}" ${k === sel ? 'selected' : ''}>Vencimento ${esc(db.faturas[k].venc)} · ${brl(db.faturas[k].total)}</option>`).join('');
@@ -364,13 +479,14 @@ function render() {
     ['Fechamento', f.fechamento ? esc(f.fechamento.slice(0, 5)) : '—', f.proxFechamento ? `próximo ${esc(f.proxFechamento.slice(0, 5))} · melhor dia ${esc((f.melhorDia || '').slice(0, 5))}` : ''],
   ].map(([n, v, s]) => `<div class="card"><div class="nome">${n}</div><div class="valor">${v}</div><div class="sub">${s}</div></div>`).join('');
 
-  const TABS = [['lanc', 'Lançamentos'], ['parc', 'Parcelas futuras'], ['hist', 'Histórico de faturas']];
+  const TABS = [['lanc', 'Lançamentos'], ['parc', 'Parcelas futuras'], ['rec', 'Recorrentes'], ['hist', 'Histórico de faturas']];
   document.getElementById('tabs').innerHTML = TABS.map(([k, l]) =>
     `<button data-aba="${k}" class="${aba === k ? 'ativo' : ''}">${l}</button>`).join('');
   document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => { aba = b.dataset.aba; render(); }));
 
   const corpo = document.getElementById('corpo');
-  corpo.innerHTML = aba === 'parc' ? htmlParcelas(f, fut) : aba === 'hist' ? htmlHistorico(keys) : htmlLancamentos(f);
+  corpo.innerHTML = aba === 'parc' ? htmlParcelas(f, fut) : aba === 'hist' ? htmlHistorico(keys)
+    : aba === 'rec' ? htmlRecorrentes() : htmlLancamentos(f);
   if (aba === 'lanc') ligarFiltrosLanc();
 }
 
@@ -379,13 +495,26 @@ const TIPO = { avista: 'à vista', parcela: 'parcela', pagamento: 'pagamento', c
 // Seleção de linhas pra copiar: guarda o índice do lançamento dentro da fatura aberta.
 // Troca de fatura zera a seleção; filtro e busca não (o que foi marcado continua marcado).
 let selecao = new Set(), ultimoClique = null, visiveisIdx = [];
+let modoIntervalo = false;   // substituto do Shift no toque: o próximo toque fecha o intervalo
 let comCabecalho = (() => { try { return localStorage.getItem('cartao_copia_cabecalho') !== '0'; } catch (_) { return true; } })();
 
 function htmlLancamentos(f) {
   const q = busca.trim().toUpperCase();
   const vis = f.lancs.map((l, i) => ({ l, i }))
     .filter(({ l }) => (!filtroCard || l.card === filtroCard) && (!q || l.desc.toUpperCase().includes(q)));
+  const CHAVE = {
+    data: x => x.l.data, estab: x => x.l.estab.toUpperCase(), valor: x => x.l.valor,
+    parc: x => x.l.px ? x.l.py - x.l.px : -1,                   // parcela: quantas ainda faltam
+  };
+  if (ordem.col && CHAVE[ordem.col]) {
+    const k = CHAVE[ordem.col];
+    vis.sort((a, b) => { const va = k(a), vb = k(b); return (va < vb ? -1 : va > vb ? 1 : 0) * ordem.dir || a.i - b.i; });
+  }
   visiveisIdx = vis.map(x => x.i);
+  const th = (col, rot, cls = '') => {
+    const seta = ordem.col === col ? (ordem.dir > 0 ? ' ▲' : ' ▼') : '';
+    return `<th class="ord ${cls}" data-ord="${col}" title="Ordenar">${rot}<span class="seta">${seta}</span></th>`;
+  };
   const chips = f.cartoes.length > 1
     ? `<div class="chips"><span class="chip ${!filtroCard ? 'ativo' : ''}" data-card="">Todos</span>` +
       f.cartoes.map(c => `<span class="chip ${filtroCard === c ? 'ativo' : ''}" data-card="${c}">Final ${c}</span>`).join('') + '</div>'
@@ -394,21 +523,22 @@ function htmlLancamentos(f) {
       <td class="chk"><input type="checkbox" data-i="${i}" ${selecao.has(i) ? 'checked' : ''} aria-label="Selecionar linha"></td>
       <td class="data">${dataBR(l.data)}</td>
       <td>${esc(l.estab)}</td>
-      <td>${l.px ? `<span class="tag">${l.px}/${l.py}</span>` : `<span class="dim">${TIPO[l.tipo]}</span>`}</td>
-      <td class="dim">${f.cartoes.length > 1 ? 'final ' + l.card : ''}</td>
+      <td>${l.px ? `<span class="tag" ${l.porLoja ? 'title="Parcelado pela loja — o cartão cobra como à vista"' : ''}>${l.px}/${l.py}${l.porLoja ? ' · loja' : ''}</span>` : `<span class="dim tipo-txt">${TIPO[l.tipo]}</span>`}</td>
+      <td class="dim col-card">${f.cartoes.length > 1 ? 'final ' + l.card : ''}</td>
       <td class="num ${l.valor < 0 ? 'pos' : ''}">${brl(l.valor)}</td>
     </tr>`).join('') || '<tr><td colspan="6" class="dim">Nenhum lançamento nesse filtro.</td></tr>';
   const somaVis = vis.filter(({ l }) => l.tipo !== 'pagamento').reduce((s, { l }) => s + l.valor, 0);
   return `<div class="barra">${chips}<span class="esp"></span>
-      <input type="text" id="busca" placeholder="Buscar estabelecimento..." value="${esc(busca)}" style="width:230px"></div>
+      <input type="text" id="busca" placeholder="Buscar estabelecimento..." value="${esc(busca)}"></div>
     <div class="selbar" id="selbar"></div>
     <div class="tabela-wrap"><table>
       <thead><tr><th class="chk"><input type="checkbox" id="chkTodos" aria-label="Selecionar todas as linhas visíveis"></th>
-        <th>Data</th><th>Estabelecimento</th><th>Parcela</th><th>Cartão</th><th class="num">Valor</th></tr></thead>
+        ${th('data', 'Data')}${th('estab', 'Estabelecimento')}${th('parc', 'Parcela')}<th class="col-card">Cartão</th>${th('valor', 'Valor', 'num')}</tr></thead>
       <tbody>${linhas}</tbody>
-      <tfoot><tr><td></td><td colspan="4">${vis.length} lançamento${vis.length === 1 ? '' : 's'} · soma sem o pagamento da fatura anterior</td><td class="num">${brl(somaVis)}</td></tr></tfoot>
+      <tfoot><tr><td></td><td colspan="3">${vis.length} lançamento${vis.length === 1 ? '' : 's'} · soma sem o pagamento da fatura anterior</td><td class="col-card"></td><td class="num">${brl(somaVis)}</td></tr></tfoot>
     </table></div>
-    <div class="nota">Clique na linha pra marcar; <b>Shift+clique</b> marca o intervalo inteiro. A caixa do cabeçalho marca tudo o que o filtro está mostrando. ` +
+    <div class="nota">Toque/clique na linha pra marcar. Pra marcar um intervalo: <b>Shift+clique</b> no computador, ou <b>marcar intervalo</b> na barra acima e toque na última linha (no celular). ` +
+    `A caixa do cabeçalho marca tudo o que o filtro está mostrando. Clique no título da coluna pra ordenar; o terceiro clique volta à ordem da fatura. ` +
     `A data é a da compra — numa parcela 3/6, é o dia em que a compra original foi feita, não o mês desta fatura.</div>`;
 }
 
@@ -430,17 +560,21 @@ function atualizarSelecao() {
   const n = selecao.size;
   const soma = [...selecao].reduce((s, i) => s + (f.lancs[i] ? f.lancs[i].valor : 0), 0);
   const fora = n - marcadasVis;
-  bar.innerHTML = `<span class="info">${n ? `<b>${n}</b> selecionada${n === 1 ? '' : 's'} · soma ${brl(soma)}` +
+  bar.classList.toggle('ativa', n > 0);
+  bar.innerHTML = `<span class="info">${modoIntervalo ? '<b>Toque na última linha do intervalo</b>' : n ? `<b>${n}</b> selecionada${n === 1 ? '' : 's'} · soma ${brl(soma)}` +
       (fora > 0 ? ` <span class="dim">(${fora} fora do filtro atual)</span>` : '') : 'Nenhuma linha selecionada'}</span>
-    <label class="cab"><input type="checkbox" id="chkCab" ${comCabecalho ? 'checked' : ''}> incluir cabeçalho</label>
+    <label class="cab"><input type="checkbox" id="chkCab" ${comCabecalho ? 'checked' : ''}> cabeçalho</label>
+    ${ultimoClique != null ? `<button id="modoInt" class="link">${modoIntervalo ? 'cancelar' : 'marcar intervalo'}</button>` : ''}
     ${n ? '<button id="limparSel" class="link">limpar</button>' : ''}
     <button id="copiarSel" class="primario" ${n ? '' : 'disabled'}>Copiar para planilha</button>`;
+  const mi = bar.querySelector('#modoInt');
+  if (mi) mi.addEventListener('click', () => { modoIntervalo = !modoIntervalo; atualizarSelecao(); });
   bar.querySelector('#chkCab').addEventListener('change', e => {
     comCabecalho = e.target.checked;
     try { localStorage.setItem('cartao_copia_cabecalho', comCabecalho ? '1' : '0'); } catch (_) {}
   });
   const lim = bar.querySelector('#limparSel');
-  if (lim) lim.addEventListener('click', () => { selecao.clear(); ultimoClique = null; atualizarSelecao(); });
+  if (lim) lim.addEventListener('click', () => { selecao.clear(); ultimoClique = null; modoIntervalo = false; atualizarSelecao(); });
   bar.querySelector('#copiarSel').addEventListener('click', copiarSelecao);
 }
 
@@ -466,8 +600,10 @@ function tsvDe(f, idxs, cab) {
 async function copiarTexto(t) {
   try { await navigator.clipboard.writeText(t); return true; } catch (_) { /* cai no execCommand */ }
   const ta = document.createElement('textarea');
-  ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
-  document.body.appendChild(ta); ta.select();
+  // font-size 16px: abaixo disso o Safari do iPhone dá zoom ao focar; setSelectionRange
+  // porque no iOS select() sozinho não seleciona o conteúdo de um textarea.
+  ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
   let ok = false; try { ok = document.execCommand('copy'); } catch (_) {}
   ta.remove();
   return ok;
@@ -475,7 +611,10 @@ async function copiarTexto(t) {
 
 async function copiarSelecao() {
   const f = faturaSel(); if (!f || !selecao.size) return;
-  const idxs = [...selecao].sort((a, b) => a - b);     // na ordem da fatura, não na ordem do clique
+  // Na ordem em que a tabela está mostrando (ordenação incluída); o que está marcado
+  // mas escondido pelo filtro vai no fim, na ordem da fatura.
+  const idxs = visiveisIdx.filter(i => selecao.has(i))
+    .concat([...selecao].filter(i => !visiveisIdx.includes(i)).sort((a, b) => a - b));
   const t = tsvDe(f, idxs, comCabecalho);
   const btn = document.getElementById('copiarSel');
   if (await copiarTexto(t)) {
@@ -483,9 +622,12 @@ async function copiarSelecao() {
     if (btn) { btn.textContent = `Copiado ✓ (${idxs.length})`; setTimeout(() => { const b = document.getElementById('copiarSel'); if (b) b.textContent = 'Copiar para planilha'; }, 1600); }
   } else {
     // Sem acesso à área de transferência: entrega o texto pronto pra Ctrl+C manual.
-    mostrarMsg('warn', 'O navegador bloqueou a área de transferência. O conteúdo está selecionado abaixo — aperte <b>Ctrl+C</b> (ou Cmd+C) e cole na planilha.' +
+    const toque = matchMedia('(pointer: coarse)').matches;
+    mostrarMsg('warn', 'O navegador bloqueou a área de transferência. O conteúdo está abaixo — ' +
+      (toque ? 'toque e segure no texto, <b>Selecionar tudo</b> e <b>Copiar</b>.' : 'já selecionado: aperte <b>Ctrl+C</b> (ou Cmd+C) e cole na planilha.') +
       `<textarea id="copiaManual" readonly style="width:100%;height:110px;margin-top:8px;background:var(--bg);color:var(--ink);border:1px solid var(--border);border-radius:6px;font:12px monospace">${esc(t)}</textarea>`);
-    const ta = document.getElementById('copiaManual'); if (ta) { ta.focus(); ta.select(); }
+    const ta = document.getElementById('copiaManual');
+    if (ta) { ta.focus(); ta.select(); ta.setSelectionRange(0, t.length); ta.scrollIntoView({ block: 'center' }); }
   }
 }
 
@@ -500,16 +642,28 @@ function ligarFiltrosLanc() {
   document.querySelectorAll('#corpo tbody tr[data-i]').forEach(tr => tr.addEventListener('click', e => {
     const i = +tr.dataset.i;
     const cb = e.target.matches('input[type=checkbox]') ? e.target : null;
-    const on = cb ? cb.checked : !selecao.has(i);        // clique no checkbox já trocou o estado dele
-    if (e.shiftKey && ultimoClique != null) {
+    const intervalo = (e.shiftKey || modoIntervalo) && ultimoClique != null;
+    // No intervalo, marca (ou desmarca) conforme o estado da linha onde ele começou.
+    const on = intervalo && modoIntervalo ? selecao.has(ultimoClique)
+      : cb ? cb.checked : !selecao.has(i);                  // clique no checkbox já trocou o estado dele
+    if (intervalo) {
       const a = visiveisIdx.indexOf(ultimoClique), z = visiveisIdx.indexOf(i);
       if (a >= 0 && z >= 0) visiveisIdx.slice(Math.min(a, z), Math.max(a, z) + 1).forEach(k => on ? selecao.add(k) : selecao.delete(k));
+      else on ? selecao.add(i) : selecao.delete(i);
     } else {
       on ? selecao.add(i) : selecao.delete(i);
     }
-    ultimoClique = i;
+    ultimoClique = i; modoIntervalo = false;
     if (e.shiftKey) { const s = window.getSelection(); if (s) s.removeAllRanges(); }   // Shift+clique não deve pintar texto
     atualizarSelecao();
+  }));
+  // Ordenação: asc → desc → ordem da fatura. Valor e parcela começam do maior.
+  document.querySelectorAll('#corpo th[data-ord]').forEach(th => th.addEventListener('click', () => {
+    const col = th.dataset.ord, ini = (col === 'valor' || col === 'parc') ? -1 : 1;
+    if (ordem.col !== col) ordem = { col, dir: ini };
+    else if (ordem.dir === ini) ordem.dir = -ini;
+    else ordem = { col: null, dir: 1 };
+    render();
   }));
   const todos = document.getElementById('chkTodos');
   if (todos) todos.addEventListener('change', () => {
@@ -533,22 +687,53 @@ function htmlParcelas(f, fut) {
       <td class="num">${brl(v)}</td><td class="num dim">${brl(acc)}</td></tr>`;
   }).join('');
   const ativos = fut.ativos.slice().sort((a, b) => b.saldo - a.saldo).map(a => `<tr>
-      <td>${esc(a.estab)}</td><td><span class="tag">${a.px}/${a.py}</span></td>
+      <td>${esc(a.estab)}</td><td><span class="tag">${a.px}/${a.py}${a.porLoja ? ' · loja' : ''}</span></td>
       <td class="num">${brl(a.valor)}</td><td class="num dim">${a.rest}</td>
       <td>${mesLabel(a.fim)}</td><td class="num">${brl(a.saldo)}</td></tr>`).join('');
   return `<h3>Quanto já está comprometido em cada fatura</h3>
-    <div class="tabela-wrap"><table>
+    <div class="tabela-wrap"><table class="m-parcmes">
       <thead><tr><th>Fatura</th><th class="num">Parcelas</th><th></th><th class="num">Valor</th><th class="num">Acumulado</th></tr></thead>
       <tbody>${porMes}</tbody>
       <tfoot><tr><td colspan="3">Total já contratado</td><td class="num">${brl(fut.total)}</td><td></td></tr></tfoot>
     </table></div>
     <h3>Parcelamentos em aberto</h3>
-    <div class="tabela-wrap"><table>
+    <div class="tabela-wrap"><table class="m-parcab">
       <thead><tr><th>Estabelecimento</th><th>Parcela atual</th><th class="num">Valor</th><th class="num">Faltam</th><th>Última em</th><th class="num">A pagar</th></tr></thead>
       <tbody>${ativos}</tbody>
     </table></div>
-    <div class="nota">Calculado a partir da fatura com vencimento em ${esc(f.venc)}: cada "Parcela X/Y" deixa Y−X parcelas para as faturas seguintes. ` +
+    <div class="nota">Calculado a partir da fatura com vencimento em ${esc(f.venc)}: cada parcela X/Y deixa Y−X parcelas para as faturas seguintes. ` +
+    `Inclui as parceladas pela loja (marcadas "loja", como "SEGURADORA*AUTO09D12" = 9 de 12), que o cartão cobra como à vista. ` +
     `Compras parceladas feitas depois do fechamento (${esc(f.fechamento || '—')}) ainda não aparecem — entram quando a próxima fatura for carregada.</div>`;
+}
+
+function htmlRecorrentes() {
+  const r = recorrencias(db.faturas);
+  const aviso1 = r.nFaturas < 2
+    ? `<div class="msg warn" style="display:block">Com <b>uma fatura só</b> não dá pra confirmar o que se repete. Abaixo, só serviços de assinatura conhecidos, marcados como <i>provável</i>. ` +
+      `Carregue as faturas dos meses anteriores (uma por vez, cada uma fica guardada) e a lista passa a confirmar a repetição e pegar o que não está na lista — academia, seguro, mensalidades.</div>`
+    : '';
+  if (!r.itens.length) return aviso1 + '<div class="nota">Nenhuma cobrança recorrente encontrada até aqui.</div>';
+  const ativas = r.itens.filter(x => x.ativa);
+  const mensal = ativas.reduce((s, x) => s + x.ultimo, 0);
+  const linhas = r.itens.map(x => {
+    const vari = x.variacao == null || Math.abs(x.variacao) < 0.005 ? '<span class="dim">—</span>'
+      : `<span class="${x.variacao > 0 ? 'neg' : 'pos'}">${x.variacao > 0 ? '+' : ''}${(x.variacao * 100).toFixed(1).replace('.', ',')}%</span>`;
+    const visto = x.nivel === 'provavel' ? '<span class="tag" title="Serviço de assinatura conhecido; ainda não visto em duas faturas">provável</span>'
+      : `${x.nMeses} de ${r.nFaturas} faturas`;
+    return `<tr class="${x.ativa ? '' : 'dim'}"><td>${esc(x.estab)}</td><td>${visto}</td>
+      <td class="num">${brl(x.ultimo)}</td><td class="num">${vari}</td><td class="num">${brl(x.anual)}</td>
+      <td>${x.ativa ? 'na última fatura' : `sumiu depois de ${mesLabel(x.ultimoMes)}`}</td></tr>`;
+  }).join('');
+  return aviso1 + `<div class="cards">
+      <div class="card"><div class="nome">Recorrente por mês</div><div class="valor">${brl(mensal)}</div><div class="sub">${ativas.length} cobrança${ativas.length === 1 ? '' : 's'} na última fatura</div></div>
+      <div class="card"><div class="nome">Por ano, no ritmo atual</div><div class="valor">${brl(mensal * 12)}</div><div class="sub">último valor × 12</div></div>
+    </div>
+    <div class="tabela-wrap"><table class="m-rec">
+      <thead><tr><th>Estabelecimento</th><th>Visto em</th><th class="num">Último valor</th><th class="num">vs. anterior</th><th class="num">Por ano</th><th>Situação</th></tr></thead>
+      <tbody>${linhas}</tbody></table></div>
+    <div class="nota">Recorrente = uma cobrança por fatura, com valor estável (variação de até 30%). Compras frequentes de valor solto (Uber, iFood, mercado) ficam de fora, porque são hábito e não assinatura. ` +
+    `Só entra o que é à vista; parcelas estão em <i>Parcelas futuras</i>. Cobrança anual não aparece enquanto não houver 13 meses carregados. ` +
+    `"vs. anterior" em vermelho é aumento de preço desde a fatura anterior em que apareceu.</div>`;
 }
 
 function htmlHistorico(keys) {
@@ -564,7 +749,7 @@ function htmlHistorico(keys) {
   }).join('');
   setTimeout(() => document.querySelectorAll('tr[data-k]').forEach(tr =>
     tr.addEventListener('click', () => { sel = tr.dataset.k; aba = 'lanc'; render(); })), 0);
-  return `<div class="tabela-wrap"><table>
+  return `<div class="tabela-wrap"><table class="m-hist">
       <thead><tr><th>Vencimento</th><th class="num">Total</th><th class="num">À vista</th><th class="num">Parcelas</th><th class="num">Lançamentos</th><th>Conferência</th></tr></thead>
       <tbody>${linhas}</tbody></table></div>
     <div class="nota">Cada fatura carregada fica guardada aqui. Carregar de novo a de um mesmo vencimento substitui a anterior. Clique numa linha para abrir.</div>`;
