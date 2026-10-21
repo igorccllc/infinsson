@@ -266,7 +266,7 @@ Daí as três regras do módulo:
 
 | # | Seção | Responde | Fontes |
 |---|---|---|---|
-| 1 | Retrato de hoje | onde eu estou, em oito números e dois parágrafos | histórico + cadastro |
+| 1 | Retrato de hoje | onde eu estou (nove números — inclui runway com valorização e Coast FI; o contador do diagnóstico saiu, a seção dele já está no índice) e o **fechamento do último mês**: quanto o patrimônio variou e por quê, receita, gasto, poupança, taxa de aporte, para onde foi o gasto e o acumulado do ano, cada tema apontando para a seção que aprofunda | histórico + cadastro + Mobills |
 | 2 | Patrimônio — trajetória | como cheguei aqui, nominal e em poder de compra | `patrimonioRealSeries`, `aporteRendimentoSeries`, `maxDrawdownHist` |
 | 3 | Resultado — rentabilidade | a carteira está trabalhando ou só recebendo depósito? | `twr`, `cdiAnnualized`, `returnsMatrix`, `monthsSummary`, `portfolioVol` |
 | 4 | Aportes | quanto entra, com que regularidade, e o modelo bate com a realidade | histórico + `_monthsToTarget` |
@@ -329,6 +329,7 @@ Os do app não bastam:
 Quase tudo reusa função existente. As exceções, todas dentro do módulo:
 
 - **`_rpYearRows(c)`** — agregação por ano civil (patrimônio no fim, Δ investível, aporte total exibido, resultado de mercado = Δpl − apoPLOf, receita/gasto médios, taxa de poupança, retorno composto do ano). A coluna "Aporte" da tabela continua o total; só o "Mercado" usa o aporte-PL. Não existia: `lifestyleCreepData()` só dá receita/gasto.
+- **`_rpMonthClose(c)`** (+ `_rpMonthStats`, `_rpMonthBase`) — fechamento do último mês da seção 1. Tabela mês × mês anterior × média dos até 12 meses **anteriores** (o mês julgado fica fora da própria base, como na seção 6) × mesmo mês do ano passado; depois quatro parágrafos: patrimônio (Δ total, Δ líquido = aporte-PL + mercado, imóvel, rentabilidade vs. CDI do mês), caixa (receita, gasto, sobra, taxa de poupança, taxa de aporte = aporte ÷ receita, aporte vs. sobra), gastos no Mobills (top seções, maior categoria, a seção que mais subiu e a que mais caiu vs. 6 meses anteriores, com a mesma régua da tabela "Por seção") e acumulado do ano. Receita e taxa de poupança na prosa comparam contra a média **sem meses atípicos** (`c.isOutlier`); taxa de aporte compara contra a **mediana** — aporte gordo em mês de receita normal escapa do filtro de atípico e empurraria a média para mais de 100%.
 - **`_rpDrawdownNow(c)`** — drawdown corrente (pico histórico de `pl` vs. hoje). O app só tinha o máximo histórico.
 - **`_rpMilestones(c)`** — marcos de 100k em 100k. Os dados do card do Dashboard são locais lá.
 - **Rota B do rebalanceamento** — distribuição déficit-proporcional só-compra, replicando `renderAporteSimulation()` (que lê o DOM e não devolve dado). Extraída em `_rpRotaBHtml(ap, rows, target, total, tgtTotal)`.

@@ -788,9 +788,12 @@ function projectPath(months, startWealth, annualReturn, incDelta, expDelta, extr
 function buildScenarioPaths(months) {
   const base = weightedReturnReal();   // projeção em valores de hoje (real)
   const w0   = investableWealth();     // FI parte do patrimônio investível (exclui imóvel)
+  // Objetivos entram em todos os cenários: o plano real é COM eles. Quanto eles
+  // custam em tempo continua visível no goalsFIImpact() (sem × com).
+  const flows = goalFlows();
   return S.scenarios.map(sc => ({
     ...sc,
-    path: projectPath(months, w0, base + sc.retDelta, sc.incDelta, sc.expDelta),
+    path: projectPath(months, w0, base + sc.retDelta, sc.incDelta, sc.expDelta, flows),
   }));
 }
 
@@ -976,6 +979,120 @@ function cdiAnnualized(monthsWindow) {
   return (Math.pow(acc, 12 / slice.length) - 1) * 100;
 }
 
+// ── 5b2. ACOMPANHAMENTO FIRE — o plano está se confirmando? ──
+// A projeção roda sobre premissas digitadas (retorno esperado, poupança do Fluxo de
+// Caixa). Aqui elas são confrontadas com o Histórico, e a data da FI é refeita em cada
+// fechamento para mostrar se o plano está ganhando ou perdendo terreno.
+
+const _ipcaM = y => Math.pow(1 + (IPCA_YEARLY[y] ?? S.assumptions.ipca ?? 4.5) / 100, 1/12);
+
+// Inflação acumulada entre dois meses 'YYYY-MM' (de → até), mês a mês pela tabela anual.
+function ipcaFactor(from, to) {
+  let f = 1;
+  for (let d = from; d < to; ) { d = addMonths(d, 1); f *= _ipcaM(+d.slice(0, 4)); }
+  return f;
+}
+
+// Retorno REAL anualizado da carteira na janela: TWR composto ÷ IPCA do mesmo período.
+// null com menos de 12 meses — um ano é o mínimo para não confundir sorte com premissa.
+function realizedRealReturn(n = 36) {
+  const rs = realizedReturns().slice(-n);
+  if (rs.length < 12) return null;
+  const nom = rs.reduce((p, x) => p * (1 + x.r), 1);
+  const inf = rs.reduce((p, x) => p * _ipcaM(+x.d.slice(0, 4)), 1);
+  // Meses sem a Rentabilidade da planilha caem no recálculo Δpl − aporte. Se naquele
+  // mês havia imóvel (pat ≠ pl) e não há o split do aporte (apoPL), o aporte em imóvel
+  // vira "prejuízo de mercado" — o número sai viesado para baixo. Conta para avisar.
+  const byD = Object.fromEntries(HISTORICAL.map(h => [h.d, h]));
+  const suspect = rs.filter(x => { const h = byD[x.d]; return h && (h.rent == null || h.rent === '') && h.apoPL == null && h.pat !== h.pl; }).length;
+  return { pct: (Math.pow(Math.max(nom / inf, 0.01), 12 / rs.length) - 1) * 100, n: rs.length, suspect };
+}
+
+// Poupança mensal que a projeção assume hoje (aba Fluxo de Caixa).
+function plannedSavings() {
+  const inc = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0);
+  const exp = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+  return inc - exp;
+}
+
+// Aporte médio que de fato entrou no investível (apoPL — imóvel fora) nos últimos
+// N meses do calendário, em R$ do último fechamento. Bônus entram: é o que aconteceu.
+function realizedSaving(nMonths = 12) {
+  const H = HISTORICAL, last = H[H.length - 1].d, from = addMonths(last, -nMonths);
+  const rows = H.filter(h => h.d > from);
+  if (rows.length < 6) return null;
+  const tot = rows.reduce((s, h) => s + apoPLOf(h) * ipcaFactor(h.d, last), 0);
+  // sem apoPL e com imóvel: o aporte total inclui o que foi pro imóvel (superestima)
+  const mixed = rows.filter(h => h.apoPL == null && h.pat !== h.pl).length;
+  return { avg: tot / rows.length, n: rows.length, mixed };
+}
+
+// Gasto anualizado dos 12 meses do calendário que terminam em H[i], em R$ daquele mês.
+function _gas12At(i) {
+  const H = HISTORICAL, d = H[i].d, from = addMonths(d, -12);
+  const rows = H.filter(h => h.d > from && h.d <= d);
+  if (rows.length < 10) return null;
+  return rows.reduce((s, h) => s + (h.gas || 0) * ipcaFactor(h.d, d), 0) / rows.length * 12;
+}
+
+// Taxa de saque implícita mês a mês: gasto real de 12 meses ÷ patrimônio investível.
+// "Se eu parasse naquele mês, estaria sacando X% ao ano." Caiu até a taxa da meta = FI
+// do padrão de vida real, independente da renda-alvo cadastrada.
+function impliedWithdrawalSeries(n = 48) {
+  const H = HISTORICAL, out = [];
+  for (let i = Math.max(0, H.length - n); i < H.length; i++) {
+    const g = _gas12At(i);
+    if (g == null || !(H[i].pl > 0)) continue;
+    out.push({ d: H[i].d, pct: g / H[i].pl * 100 });
+  }
+  return out;
+}
+
+// FI do padrão de vida ATUAL: a meta que o gasto real pede, e quando ela chega.
+function fiCurrentLifestyle() {
+  const g = _gas12At(HISTORICAL.length - 1);
+  if (g == null) return null;
+  const w = investableWealth(), fin = g / (fiRate() / 100);
+  const horizon = (S.assumptions.projectionYears || 30) * 12;
+  const hit = w >= fin ? { m: 0 } : projectPath(horizon, w, weightedReturnReal(), 0, 0, goalFlows()).find(p => p.w >= fin);
+  return { gasMes: g / 12, fin, pct: w / fin * 100, rate: g / w * 100, m: hit ? hit.m : null };
+}
+
+// Data da FI refeita em cada fechamento: o patrimônio daquele mês (em R$ de hoje)
+// projetado com as premissas de HOJE. Fixar as premissas isola o que o patrimônio
+// realizado fez com a data — senão a curva mistura "o mercado andou" com "mexi no slider".
+// m = meses a partir do início da projeção oficial (mesma régua do findFIDate).
+function fiDateHistory(n = 48) {
+  const H = HISTORICAL, last = H[H.length - 1].d;
+  const horizon = (S.assumptions.projectionYears || 30) * 12;
+  const r = weightedReturnReal(), fin = fiNumber(), gf = goalFlows();
+  const out = [];
+  for (let i = Math.max(0, H.length - n); i < H.length; i++) {
+    const h = H[i];
+    if (!(h.pl > 0)) continue;
+    const k = monthsBetween(h.d, last);            // projeção daquele mês começa k meses antes
+    const flows = {};
+    for (const m in gf) flows[+m + k] = gf[m];     // objetivos na mesma data do calendário
+    const hit = projectPath(horizon + k, h.pl * ipcaFactor(h.d, last), r, 0, 0, flows).find(p => p.w >= fin);
+    out.push({ d: h.d, m: hit ? hit.m - k : null });
+  }
+  return out;
+}
+
+// "Se o futuro repetir o passado": a data da FI com o retorno real de 36 meses e o
+// aporte médio de 12 meses no lugar das premissas digitadas.
+function fiIfRealized() {
+  const rr = realizedRealReturn(36), sv = realizedSaving(12);
+  if (!rr || !sv) return null;
+  const plan = plannedSavings(), delta = sv.avg - plan;
+  const A = S.assumptions, horizon = (A.projectionYears || 30) * 12;
+  const retM = A.retirementAge > 0 ? Math.max(0, Math.round((A.retirementAge - currentAge()) * 12)) : horizon;
+  const flows = { ...goalFlows() };
+  for (let m = 0; m < Math.min(horizon, retM); m++) flows[m] = (flows[m] || 0) + delta;   // só enquanto trabalha
+  const fi = findFIDate(projectPath(horizon, investableWealth(), rr.pct, 0, 0, flows));
+  return { fi, rr, sv, plan, delta };
+}
+
 // ── 5c. SIMULADOR DE INVESTIMENTOS ───────────────────────
 
 // Alíquota IR regressiva (sobre o ganho de renda fixa tributável).
@@ -1036,103 +1153,235 @@ function portfolioVol() {
   return S.portfolio.reduce((s, a) => s + (VOL_BY_CAT[a.cat] ?? 10) * (a.value / total), 0);
 }
 
-function randn() {
-  let u = 0, v = 0;
-  while (!u) u = Math.random();
-  while (!v) v = Math.random();
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-}
+// ── Motor único de ciclo de vida (Monte Carlo) ────────────
+// Uma simulação só responde todas as perguntas da aba FI: quando chego, o dinheiro
+// dura, quanto dá pra sacar, o que mexe o ponteiro. Antes eram quatro loops
+// parecidos e diferentes entre si — cada card contava uma história.
+//
+// Regras (iguais ao projectPath até a FI, para o caminho sem volatilidade cair
+// exatamente na data determinística):
+//   · Trabalhando: renda (crescimento com teto) − gastos + objetivos + eventos.
+//   · Aposenta no mês seguinte ao que o patrimônio bate o Número FI, ou na idade
+//     de aposentadoria — o que vier antes. Daí em diante: renda passiva
+//     (work:false) − saque da renda-alvo + objetivos + eventos. Os gastos
+//     cadastrados saem de cena: aposentado vive da renda-alvo.
+//   · Ruína = patrimônio ≤ 0 depois de aposentar.
+//
+// Sorteios com semente fixa, reaproveitados entre variações (números aleatórios
+// comuns): o resultado não pisca a cada render, e a diferença entre duas
+// variações é efeito da alavanca, não ruído de sorteio.
+const MC_SIMS = 500, MC_SEED = 20261007;
 
-// Monte Carlo: distribuição da data de FI com retornos estocásticos
-function monteCarloFI(nSims = 500, maxYears = 40) {
-  const months = maxYears * 12;
-  const fiNum = fiNumber();
-  const w0 = investableWealth();
-  const muM = Math.pow(1 + weightedReturnReal() / 100, 1/12) - 1;
-  const volM = (portfolioVol() / 100) / Math.sqrt(12);
-
-  // Pré-computa poupança mensal projetada (igual ao projectPath determinístico)
-  const A = S.assumptions, age0 = currentAge();
-  const retAge = A.retirementAge > 0 ? A.retirementAge : Infinity;
-  const capY   = A.incomeGrowthCapYears > 0 ? A.incomeGrowthCapYears : Infinity;
-  const sav = [];
-  for (let m = 0; m < months; m++) {
-    const y = m / 12;
-    const retired = (age0 + y) >= retAge;
-    const gY = Math.min(y, capY);
-    const inc = S.incomes.filter(i => i.active).reduce((s, i) => (retired && i.work !== false) ? s : s + i.amount * Math.pow(1 + i.growthRate/100, gY), 0);
-    const exp = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount * Math.pow(1 + e.growthRate/100, y), 0);
-    sav.push(inc - exp);
-  }
-
-  const hits = [];
-  for (let s = 0; s < nSims; s++) {
-    let w = w0;
-    for (let m = 0; m < months; m++) {
-      w = Math.max(0, w * (1 + muM + volM * randn()) + sav[m]);
-      if (w >= fiNum) { hits.push(m); break; }
-    }
-  }
-
-  if (!hits.length) return null;
-  hits.sort((a, b) => a - b);
-  const pct = q => hits[Math.min(hits.length - 1, Math.floor(q * hits.length))];
-  const horizon = S.assumptions.projectionYears * 12;
-  return {
-    p10: pct(0.10), p50: pct(0.50), p90: pct(0.90),
-    probInHorizon: hits.filter(m => m <= horizon).length / nSims * 100,
-    sims: nSims,
+function _mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-// Monte Carlo de DECUMULAÇÃO: o dinheiro dura depois da FI?
-// Cada simulação: acumula (poupança projetada) até atingir a FI ou a idade de
-// aposentadoria (o que vier primeiro); daí em diante saca a renda-alvo mensal
-// (real) até a idade-horizonte. Sucesso = patrimônio nunca zera.
-function monteCarloDecum(nSims = 500, horizonAge = 90) {
-  const fiNum = fiNumber();
-  const w0    = investableWealth();
-  const muM   = Math.pow(1 + weightedReturnReal() / 100, 1/12) - 1;
-  const volM  = (portfolioVol() / 100) / Math.sqrt(12);
-  const A     = S.assumptions, age0 = currentAge();
-  const retAge = A.retirementAge > 0 ? A.retirementAge : Infinity;
-  const capY   = A.incomeGrowthCapYears > 0 ? A.incomeGrowthCapYears : Infinity;
-  const saque  = S.fi.targetMonthlyIncome;
-  const months = Math.max(12, Math.round((horizonAge - age0) * 12));
+// Choques N(0,1) por [simulação × mês]. Cacheados: toda variação usa os mesmos.
+let _mcShockCache = null;
+function _mcShocks(nSims, months) {
+  const c = _mcShockCache;
+  if (c && c.nSims === nSims && c.stride >= months) return c;
+  const rnd = _mulberry32(MC_SEED);
+  const z = new Float64Array(nSims * months);
+  for (let i = 0; i < z.length; i += 2) {           // Box-Muller: dois normais por par
+    const u = 1 - rnd(), v = rnd();
+    const r = Math.sqrt(-2 * Math.log(u));
+    z[i] = r * Math.cos(2 * Math.PI * v);
+    if (i + 1 < z.length) z[i + 1] = r * Math.sin(2 * Math.PI * v);
+  }
+  return (_mcShockCache = { nSims, stride: months, z });
+}
 
-  // Poupança mensal na fase de acumulação (mesma lógica do monteCarloFI)
-  const sav = [];
+// Fluxos determinísticos mês a mês (em R$ de hoje). Objetivos e eventos entram aqui.
+function _lifeFlows(months, o) {
+  const A = S.assumptions;
+  const capY = A.incomeGrowthCapYears > 0 ? A.incomeGrowthCapYears : Infinity;
+  const incD = o.incDelta || 0, expD = o.expDelta || 0;
+  const goals = o.goals === false ? {} : goalFlows();
+  const work = new Float64Array(months), passive = new Float64Array(months);
+  const exp = new Float64Array(months), extra = new Float64Array(months);
+  const incs = S.incomes.filter(i => i.active), exps = S.expenses.filter(e => e.active);
   for (let m = 0; m < months; m++) {
-    const y = m / 12;
-    const gY = Math.min(y, capY);
-    const inc = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount * Math.pow(1 + i.growthRate/100, gY), 0);
-    const exp = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount * Math.pow(1 + e.growthRate/100, y), 0);
-    sav.push(inc - exp);
-  }
-
-  let ok = 0;
-  const finals = [], ruinAges = [];
-  for (let s = 0; s < nSims; s++) {
-    let w = w0, retired = false, ruined = false;
-    for (let m = 0; m < months; m++) {
-      const age = age0 + m / 12;
-      if (!retired && (w >= fiNum || age >= retAge)) retired = true;
-      const flow = retired ? -saque : sav[m];
-      w = w * (1 + muM + volM * randn()) + flow;
-      if (w <= 0) { ruined = true; ruinAges.push(age); break; }
+    const y = m / 12, gY = Math.min(y, capY);
+    for (const i of incs) {
+      const v = i.amount * Math.pow(1 + (i.growthRate + incD) / 100, gY);
+      if (i.work !== false) work[m] += v; else passive[m] += v;
     }
-    if (!ruined) { ok++; finals.push(w); }
+    for (const e of exps) exp[m] += e.amount * Math.pow(1 + (e.growthRate + expD) / 100, y);
+    extra[m] = (goals[m] || 0);
+  }
+  for (const ev of (S.events || [])) if (ev.monthOffset >= 0 && ev.monthOffset < months) extra[ev.monthOffset] += ev.impact;
+  return { work, passive, exp, extra };
+}
+
+// Quantil de um array JÁ ORDENADO (Infinity = "não aconteceu" fica na cauda).
+function _q(sorted, p) {
+  if (!sorted.length) return null;
+  return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+}
+
+// o: { nSims, horizonAge, rReal, vol, fiNum, saque, retAge, savMult, incDelta,
+//      expDelta, aporteDelta, goals:false, fan:false, flex:{floor,cut} } — tudo opcional.
+//   aporteDelta: R$/mês somados à poupança enquanto trabalha (o Simulador da aba usa).
+function simulateLife(o = {}) {
+  const A = S.assumptions, age0 = currentAge();
+  const horizonAge = o.horizonAge ?? 90;
+  const months = Math.max(12, Math.round((horizonAge - age0) * 12));
+  const nSims  = o.nSims ?? MC_SIMS;
+  const rReal  = o.rReal ?? weightedReturnReal();
+  const vol    = o.vol ?? portfolioVol();
+  const fiNum  = o.fiNum ?? fiNumber();
+  const saque  = o.saque ?? S.fi.targetMonthlyIncome;
+  const retAgeRaw = o.retAge ?? A.retirementAge;
+  const retAge = retAgeRaw > 0 ? retAgeRaw : Infinity;
+  const savMult = o.savMult ?? 1;
+  const aporteDelta = o.aporteDelta || 0;
+  const flex   = o.flex ?? { floor: 0.8, cut: 0.10 };
+  const w0     = investableWealth();
+  const F      = _lifeFlows(months, o);
+  const muM    = Math.pow(1 + rReal / 100, 1/12) - 1;
+  const volM   = (vol / 100) / Math.sqrt(12);
+  const { z, stride } = _mcShocks(nSims, months);
+  const wantFan = o.fan !== false;
+  const nPts   = Math.floor(months / 12) + 1;       // um ponto por ano, começando hoje
+  const fan    = wantFan ? new Float64Array(nSims * nPts) : null;
+
+  // Fluxo líquido de cada fase, pré-somado fora do loop quente
+  const accFlow = new Float64Array(months), decFlow = new Float64Array(months);
+  for (let m = 0; m < months; m++) {
+    const sav = F.work[m] + F.passive[m] - F.exp[m];
+    accFlow[m] = sav + (savMult - 1) * Math.max(0, sav) + aporteDelta + F.extra[m];
+    decFlow[m] = F.passive[m] + F.extra[m];
+  }
+  // 1º mês com idade ≥ aposentadoria (mesma regra do projectPath: age0 + m/12 ≥ retAge)
+  const retAgeM = retAge === Infinity ? Infinity : Math.max(0, Math.ceil((retAge - age0) * 12 - 1e-9));
+
+  const fiM = new Int32Array(nSims).fill(-1);       // mês em que bateu a meta (−1 = nunca)
+  const retM = new Int32Array(nSims).fill(-1);      // mês em que começou a sacar
+  const ruinM = new Int32Array(nSims).fill(-1);     // mês da ruína com saque fixo
+  const sStar = new Float64Array(nSims);            // maior saque que esta trajetória aguenta
+  const finals = new Float64Array(nSims);
+  let flexOk = 0, cutShareSum = 0, cutShareN = 0;
+
+  for (let s = 0; s < nSims; s++) {
+    const zo = s * stride;
+    let w = w0, retired = false, ruined = false;
+    // Depois de aposentar, patrimônio = a − saque·b, linear no saque:
+    //   a = carteira sem saques; b = valor acumulado de sacar R$ 1/mês.
+    // Ruína ⇔ saque ≥ a/b em algum mês → o saque máximo que a trajetória
+    // aguenta é min(a/b). Um passe só dá a curva de sucesso para QUALQUER saque.
+    let a = 0, b = 0, minRatio = Infinity;
+    let wf = 0, wRet = 0, fRuined = false, cutM = 0, retMonths = 0;
+    if (fan) fan[s * nPts] = w0;
+
+    for (let m = 0; m < months; m++) {
+      const r = muM + volM * z[zo + m];
+      if (!retired && m >= retAgeM) { retired = true; retM[s] = m; a = w; wf = w; wRet = w; }
+      if (!retired) {
+        w = Math.max(0, w * (1 + r) + accFlow[m]);
+        if (w >= fiNum) { fiM[s] = m; retired = true; retM[s] = m + 1; a = w; wf = w; wRet = w; }
+      } else {
+        const other = decFlow[m];
+        a = a * (1 + r) + other;
+        b = b * (1 + r) + 1;
+        const ratio = a / b;
+        if (ratio < minRatio) minRatio = ratio;
+        if (!ruined && a - saque * b <= 0) { ruined = true; ruinM[s] = m; }
+        if (!fRuined) {
+          const cut = wf < flex.floor * wRet;      // abaixo do piso → aperta o cinto
+          wf = wf * (1 + r) + other - saque * (cut ? 1 - flex.cut : 1);
+          retMonths++; if (cut) cutM++;
+          if (wf <= 0) fRuined = true;
+        }
+      }
+      if (fan && (m + 1) % 12 === 0) {
+        const k = (m + 1) / 12;
+        if (k < nPts) fan[s * nPts + k] = !retired ? w : ruined ? 0 : Math.max(0, a - saque * b);
+      }
+    }
+    sStar[s] = retired ? Math.max(0, minRatio) : Infinity;
+    finals[s] = !retired ? w : ruined ? 0 : Math.max(0, a - saque * b);
+    if (!fRuined) flexOk++;
+    if (retMonths > 0) { cutShareSum += cutM / retMonths; cutShareN++; }
   }
 
-  finals.sort((a, b) => a - b);
-  ruinAges.sort((a, b) => a - b);
-  const q = (arr, p) => arr.length ? arr[Math.min(arr.length - 1, Math.floor(p * arr.length))] : null;
+  // ── Resumo — percentis sobre TODAS as simulações, nunca só as sobreviventes
+  const fiSorted = Array.from(fiM, m => m < 0 ? Infinity : m).sort((x, y) => x - y);
+  const fin = v => (v === Infinity ? null : v);
+  const ruinAges = [];
+  ruinM.forEach(m => { if (m >= 0) ruinAges.push(age0 + m / 12); });
+  ruinAges.sort((x, y) => x - y);
+  const finalsSorted = Array.from(finals).sort((x, y) => x - y);
+  const sSorted = Array.from(sStar).sort((x, y) => x - y);
+  const nRuined = ruinAges.length;
+
+  let fanQ = null;
+  if (fan) {
+    fanQ = { p10: [], p25: [], p50: [], p75: [], p90: [] };
+    const col = new Float64Array(nSims);
+    for (let k = 0; k < nPts; k++) {
+      for (let s = 0; s < nSims; s++) col[s] = fan[s * nPts + k];
+      col.sort();
+      fanQ.p10.push(_q(col, .10)); fanQ.p25.push(_q(col, .25)); fanQ.p50.push(_q(col, .50));
+      fanQ.p75.push(_q(col, .75)); fanQ.p90.push(_q(col, .90));
+    }
+  }
+
   return {
-    successRate:   ok / nSims * 100,
-    medianFinal:   q(finals, 0.5),
-    p10Final:      q(finals, 0.10),
-    medianRuinAge: q(ruinAges, 0.5),
-    horizonAge, sims: nSims, saque,
+    sims: nSims, months, horizonAge, age0, fiNum, saque, retAge, rReal, vol,
+    reachPct: fiSorted.filter(m => m !== Infinity).length / nSims * 100,
+    fiP10: fin(_q(fiSorted, .10)), fiP50: fin(_q(fiSorted, .50)), fiP90: fin(_q(fiSorted, .90)),
+    fiMonths: fiSorted,
+    successRate: (nSims - nRuined) / nSims * 100,
+    medianRuinAge: _q(ruinAges, .5),
+    medianFinal: _q(finalsSorted, .5), p10Final: _q(finalsSorted, .10),
+    safe90: fin(_q(sSorted, .10)), safe95: fin(_q(sSorted, .05)),
+    successAt: x => sSorted.filter(v => v > x).length / nSims * 100,
+    flexSuccess: flexOk / nSims * 100,
+    flexCutShare: cutShareN ? cutShareSum / cutShareN * 100 : 0,
+    flex, fan: fanQ,
+  };
+}
+
+// Memo: a aba FI, os ⓘ e o relatório pedem as mesmas simulações — roda uma vez por estado.
+const _lifeMemo = new Map();
+function lifeSim(o = {}) {
+  const key = JSON.stringify([o, S.fi, S.assumptions, S.incomes, S.expenses, S.goals, S.events,
+    S.profile.birthYear, investableWealth(), weightedReturnReal(), portfolioVol()]);
+  let r = _lifeMemo.get(key);
+  if (!r) {
+    if (_lifeMemo.size > 60) _lifeMemo.clear();
+    r = simulateLife(o);
+    _lifeMemo.set(key, r);
+  }
+  return r;
+}
+
+// Compat (relatório PDF): chegada à FI. Percentis sobre todas as simulações —
+// p90 = null quando nem 90% chegam até o horizonte (antes: percentil só de quem chegou).
+function monteCarloFI() {
+  const r = lifeSim({ fan: false });
+  if (r.fiP10 == null) return null;
+  const horizon = S.assumptions.projectionYears * 12;
+  return {
+    p10: r.fiP10, p50: r.fiP50, p90: r.fiP90,
+    probInHorizon: r.fiMonths.filter(m => m <= horizon).length / r.sims * 100,
+    sims: r.sims,
+  };
+}
+
+// Compat: sobrevivência pós-FI. Patrimônio final conta quem quebrou como R$ 0.
+function monteCarloDecum(nSims = MC_SIMS, horizonAge = 90) {
+  const r = lifeSim({ fan: false, horizonAge });
+  return {
+    successRate: r.successRate, medianFinal: r.medianFinal, p10Final: r.p10Final,
+    medianRuinAge: r.medianRuinAge, horizonAge, sims: r.sims, saque: r.saque,
   };
 }
 
@@ -1595,7 +1844,7 @@ const METRIC_DOCS = {
       ignores: 'IR sobre os saques — a renda-alvo é tratada como líquida.',
       assumes: isPerp
         ? 'Você vive só do juro real: o principal se preserva para sempre em valor de hoje. Juro maior assumido → precisa de MENOS principal (por isso a meta cai quando a taxa sobe).'
-        : 'A taxa é a premissa de quanto dá pra sacar por ano sem quebrar — taxa maior exige MENOS patrimônio (meta cai), mas aumenta o risco de ruína. O contrapeso está no card Sobrevivência pós-FI.',
+        : 'A taxa é a premissa de quanto dá pra sacar por ano sem quebrar — taxa maior exige MENOS patrimônio (meta cai), mas aumenta o risco de ruína. O contrapeso está na Fronteira da taxa de retirada.',
     };
   },
   fidate: () => {
@@ -1608,9 +1857,12 @@ const METRIC_DOCS = {
         ['Ponto de partida (patrimônio investível)', fmt(investableWealth())],
         ['Retorno real (premissa carteira − IPCA)', fmtPct(weightedReturnReal()) + ' a.a.'],
         ['+ Poupança mensal (aba Fluxo de Caixa)', fmt(inc - exp) + '/mês (' + fmt(inc) + ' − ' + fmt(exp) + ')'],
+        ['− Objetivos da Linha da Vida (na data-alvo)', (S.goals || []).length
+          ? fmt((S.goals || []).reduce((s, g) => s + goalValorNaData(g), 0)) + ' em ' + S.goals.length + ' meta(s)'
+          : 'nenhum'],
         ['Meta: Número FI', fmt(fiNumber())],
       ],
-      ignores: 'Volatilidade (é o caminho médio — veja o Monte Carlo para a dispersão) e os aportes reais do Histórico (usa o fluxo de caixa manual).',
+      ignores: 'Volatilidade (é o caminho médio — a Jornada abaixo mostra a dispersão) e os aportes reais do Histórico (usa o fluxo de caixa manual).',
       assumes: 'Poupança constante em termos reais e retorno igual à premissa todos os meses.',
     };
   },
@@ -1625,46 +1877,121 @@ const METRIC_DOCS = {
     ignores: 'O poder de compra: R$ 7,5M em 2034 nominais compram menos que R$ 7,5M de hoje.',
     assumes: 'Existe só como contraste — a data oficial é a REAL, que já desconta a inflação.',
   }),
-  montecarlo: () => ({
-    title: 'Monte Carlo — chegada à FI',
-    what: '500 simulações do caminho até a FI, cada mês sorteando um retorno em torno da média.',
-    calc: [
-      ['Retorno real médio (μ)', fmtPct(weightedReturnReal()) + ' a.a.'],
-      ['Volatilidade da carteira (σ, por classe)', fmtPct(portfolioVol()) + ' a.a.'],
-      ['P10/P50/P90', 'os meses em que 10%/50%/90% das simulações atingiram a meta'],
-    ],
-    ignores: 'Correlações entre classes (superestima um pouco o risco) e caudas gordas (usa distribuição normal — crashes reais são piores).',
-    assumes: 'Poupança mensal igual à do cenário determinístico.',
-  }),
+  acomp: () => {
+    const rr = realizedRealReturn(36), sv = realizedSaving(12), pad = fiCurrentLifestyle();
+    return {
+      title: 'Acompanhamento do plano',
+      what: 'A projeção roda sobre duas premissas que você digitou — retorno esperado e poupança mensal. Este card as confronta com o Histórico e refaz a data da FI em cada fechamento, para mostrar se o plano está ganhando ou perdendo terreno.',
+      calc: [
+        ['Data da FI por fechamento', 'patrimônio investível do mês (em R$ de hoje) projetado com as premissas ATUAIS — isola o efeito do que aconteceu, não de mudança de premissa'],
+        ['Retorno real realizado', rr ? `TWR de ${rr.n} meses ÷ IPCA = ${fmtPct(rr.pct)} a.a. (premissa ${fmtPct(weightedReturnReal())})` : 'sem 12 meses de rentabilidade'],
+        ['Aporte médio realizado', sv ? `${fmt(sv.avg)}/mês em ${sv.n} meses, só o que entrou no investível (imóvel fora), corrigido pelo IPCA` : 'sem 6 meses de aporte'],
+        ['Aporte da projeção', fmt(plannedSavings()) + '/mês (receitas − despesas do Fluxo de Caixa)'],
+        ['Taxa de saque implícita', pad ? `gasto de 12 meses ${fmt(pad.gasMes * 12)} ÷ ${fmt(investableWealth())} = ${fmtPct(pad.rate)}` : 'sem 10 meses de gasto'],
+      ],
+      ignores: 'A data por fechamento usa a idade e os eventos de hoje para todos os meses — aproximação que só pesa perto da idade de aposentadoria.',
+      assumes: '"Se o futuro repetir o passado" troca as duas premissas pelo realizado (36 meses de retorno, 12 de aporte) e mantém o resto, objetivos inclusive.',
+    };
+  },
+  jornada: () => {
+    const r = window._lastLife || lifeSim();
+    return {
+      title: 'A jornada inteira',
+      what: `${r.sims} trajetórias do patrimônio, de hoje até os ${r.horizonAge}. Cada mês sorteia um retorno em torno da média; a faixa clara cobre 80% das trajetórias, a escura 50%, a linha é a mediana.`,
+      calc: [
+        ['Retorno real médio (μ)', fmtPct(r.rReal) + ' a.a.'],
+        ['Volatilidade da carteira (σ, por classe)', fmtPct(r.vol) + ' a.a.'],
+        ['Até a FI', 'renda − gastos + objetivos + eventos (igual à data do card)'],
+        ['Aposenta', 'ao bater ' + fmtK(r.fiNum) + (r.retAge !== Infinity ? ' ou aos ' + r.retAge + ' anos, o que vier antes' : '')],
+        ['Depois da FI', 'saca ' + fmt(r.saque) + '/mês + objetivos; renda passiva (aluguel etc.) continua'],
+      ],
+      ignores: 'IR sobre saques, correlações entre classes (superestima um pouco o risco) e caudas gordas (distribuição normal — crashes reais são piores).',
+      assumes: 'Sorteios com semente fixa: o mesmo estado sempre dá o mesmo número, e todos os cards da aba usam as mesmas trajetórias.',
+    };
+  },
+  montecarlo: () => {
+    const r = window._lastLife || lifeSim();
+    const ag = m => m == null ? 'não chega' : 'aos ' + Math.floor(r.age0 + m / 12);
+    return {
+      title: 'Chegada à FI — distribuição',
+      what: 'Em que mês cada trajetória bateu o Número FI. Os percentis contam TODAS as simulações: quem nunca chega fica na cauda, em vez de sumir da conta.',
+      calc: [
+        ['P10 — cenário bom', ag(r.fiP10)],
+        ['P50 — mediana', ag(r.fiP50)],
+        ['P90 — cenário ruim', ag(r.fiP90)],
+        ['Bate a meta em algum momento', fmtPct(r.reachPct) + ' das trajetórias'],
+      ],
+      ignores: 'Correlações entre classes e caudas gordas.',
+      assumes: 'Mesma poupança, objetivos e eventos da data determinística — só o retorno oscila. Por isso a mediana costuma chegar depois: volatilidade custa composição.',
+    };
+  },
   mcdecum: () => {
-    const r = window._lastMcDecum;
+    const r = window._lastLife || lifeSim();
     return {
       title: 'Sobrevivência pós-FI',
-      what: 'A pergunta que importa: depois de parar de trabalhar, o dinheiro DURA? Cada simulação acumula até a FI (ou até a idade de aposentadoria) e depois saca a renda-alvo todo mês.',
+      what: 'A pergunta que importa: depois de parar de trabalhar, o dinheiro DURA? Cada trajetória acumula até a FI (ou até a idade de aposentadoria) e depois saca a renda-alvo todo mês.',
       calc: [
-        ['Saque mensal na aposentadoria (renda-alvo, real)', fmt(S.fi.targetMonthlyIncome)],
-        ['Horizonte', 'até os ' + (r ? r.horizonAge : 90) + ' anos'],
-        ['Retorno real μ ± σ', fmtPct(weightedReturnReal()) + ' ± ' + fmtPct(portfolioVol()) + ' a.a.'],
-        ['= Taxa de sucesso', r ? fmtPct(r.successRate) + ' das ' + r.sims + ' simulações' : '—'],
+        ['Saque mensal na aposentadoria (renda-alvo, real)', fmt(r.saque)],
+        ['Horizonte', 'até os ' + r.horizonAge + ' anos'],
+        ['Retorno real μ ± σ', fmtPct(r.rReal) + ' ± ' + fmtPct(r.vol) + ' a.a.'],
+        ['= Taxa de sucesso', fmtPct(r.successRate) + ' das ' + r.sims + ' simulações'],
+        ['Patrimônio aos ' + r.horizonAge + ' (mediana · P10)', fmtK(r.medianFinal) + ' · ' + fmtK(r.p10Final) + ' — quem quebrou conta como zero'],
       ],
-      ignores: 'IR sobre saques, mudanças de gasto na velhice e flexibilidade (cortar gasto em ano ruim melhora muito o resultado real).',
+      ignores: 'IR sobre saques e mudanças de gasto na velhice. A flexibilidade está medida à parte, no card Quanto dá pra sacar.',
       assumes: 'Saque fixo em valor de hoje, sem ajuste de comportamento — é o teste mais duro.',
       sim: {
         inputs: [
-          { key: 'saque', label: 'Simular saque mensal', value: S.fi.targetMonthlyIncome, step: 500, min: 0, unit: 'R$/mês' },
-          { key: 'horizonte', label: 'Simular até a idade', value: r ? r.horizonAge : 90, step: 1, min: currentAge() + 1, unit: 'anos' },
+          { key: 'saque', label: 'Simular saque mensal', value: Math.round(r.saque), step: 500, min: 0, unit: 'R$/mês' },
+          { key: 'horizonte', label: 'Simular até a idade', value: r.horizonAge, step: 1, min: currentAge() + 1, unit: 'anos' },
         ],
         recompute: v => {
-          const saveInc = S.fi.targetMonthlyIncome;
-          S.fi.targetMonthlyIncome = v.saque;
-          const rr = monteCarloDecum(250, Math.round(v.horizonte));
-          S.fi.targetMonthlyIncome = saveInc;   // nunca persiste — só simula
+          // A meta (quando aposenta) fica; só o saque e o horizonte mudam. Nunca persiste.
+          const rr = lifeSim({ fan: false, saque: v.saque, horizonAge: Math.round(v.horizonte) });
           const col = rr.successRate >= 90 ? 'var(--green)' : rr.successRate >= 75 ? 'var(--yellow)' : 'var(--red)';
           return `Sacando ${fmt(v.saque)}/mês até os ${Math.round(v.horizonte)} anos: <b style="color:${col};font-size:15px">${fmtPct(rr.successRate)}</b> de sucesso`;
         },
       },
     };
   },
+  saqueseguro: () => {
+    const r = window._lastLife || lifeSim();
+    return {
+      title: 'Quanto dá pra sacar',
+      what: 'O maior saque mensal que a carteira aguenta com 90% (ou 95%) de confiança, aposentando quando bater a meta atual. É a renda-alvo vista do outro lado: não "quanto preciso juntar", mas "quanto o que vou juntar paga".',
+      calc: [
+        ['Para cada trajetória', 'o maior saque que nunca zera o patrimônio até os ' + r.horizonAge],
+        ['90% de confiança = P10 desses saques', r.safe90 != null ? fmt(r.safe90) + '/mês' : '—'],
+        ['95% de confiança = P5', r.safe95 != null ? fmt(r.safe95) + '/mês' : '—'],
+        ['Flexível: piso / corte', fmtPct(r.flex.floor * 100) + ' do valor na aposentadoria / −' + fmtPct(r.flex.cut * 100) + ' no saque'],
+      ],
+      ignores: 'IR sobre os saques. A regra flexível é uma só — cortes maiores ou pisos mais altos dão resultados diferentes.',
+      assumes: 'A data de aposentadoria não muda: quem aposenta é a meta atual, o saque é que varia.',
+    };
+  },
+  fronteira: () => ({
+    title: 'Fronteira da taxa de retirada',
+    what: 'Cada ponto é uma taxa de retirada: ela define a meta (renda × 12 ÷ taxa), que define quando você aposenta e com quanto. Taxa alta = FI mais cedo com pote menor; taxa baixa = FI mais tarde com pote que aguenta mais.',
+    calc: [
+      ['Eixo X', 'idade mediana em que a trajetória bate a meta daquela taxa'],
+      ['Eixo Y', 'chance de o dinheiro durar até os 90 sacando a renda-alvo'],
+      ['Taxa atual', fmtPct(fiRate())],
+    ],
+    ignores: 'Taxas que não chegam à FI na mediana ficam fora do gráfico (listadas embaixo).',
+    assumes: 'Mesmas trajetórias para todas as taxas — a diferença entre pontos é efeito da taxa, não do sorteio.',
+  }),
+  tornado: () => ({
+    title: 'O que mexe o ponteiro',
+    what: 'Cada alavanca muda uma premissa para cima e para baixo e mede o efeito em duas moedas: anos até a FI (mediana) e chance de o dinheiro durar. Uma alavanca pode adiantar a FI e piorar a sobrevivência — é o caso da taxa de retirada.',
+    calc: [
+      ['Retorno real', '±1 pp sobre ' + fmtPct(weightedReturnReal())],
+      ['Aporte mensal', '±20% da poupança enquanto trabalha'],
+      ['Renda-alvo', '±10% — muda a meta E o saque'],
+      [S.fi.mode === 'swr' ? 'Taxa de retirada' : 'Juro real assumido', '±0,5 pp — muda só a meta'],
+      ['Idade de aposentadoria', S.assumptions.retirementAge > 0 ? '±3 anos sobre ' + S.assumptions.retirementAge : 'não cadastrada'],
+    ],
+    ignores: 'Interações: cada linha mexe uma premissa por vez.',
+    assumes: 'Mesmas trajetórias da base (números aleatórios comuns).',
+  }),
   twr: () => ({
     title: 'Retorno Realizado (TWR)',
     what: 'O retorno REAL que sua carteira entregou, isolando o efeito dos aportes.',
@@ -1813,6 +2140,7 @@ function renderPage(p) {
   const map = {
     dashboard:   renderDashboard,
     timeline:    renderTimeline,
+    timeline2:   renderTimeline2,
     portfolio:   renderPortfolio,
     assumptions: renderAssumptions,
     expenses:    renderExpenses,
@@ -4454,6 +4782,555 @@ function switchScenarioTab(scId) {
   _renderScDetailTable(scId, scPaths);
 }
 
+// ── 8b. LINHA DA VIDA 2 — o plano no tempo ────────────────
+// Versão nova da Linha da Vida, ao lado da antiga para comparação. Duas abas:
+//   Trajetória — um gráfico só (histórico + plano + faixa de incerteza), os marcos em
+//                ordem cronológica e uma tabela ano a ano com o calendário certo.
+//   Plano      — todas as premissas num lugar: renda e gastos item a item, objetivos e
+//                eventos com o efeito de cada um na FI, perfil/macro/retorno e cenários.
+// Regra de ciclo de vida igual à da aba FI (simulateLife): aposenta ao bater a meta, ou
+// na idade-limite, e daí em diante saca a renda-alvo.
+let tl2Tab = 'trajetoria';
+const tl2St = { horizon: 'vida', band: true };
+let _tl2Cache = null;   // dados da Trajetória para o gráfico (montado depois do innerHTML)
+function setTl2Tab(t) { tl2Tab = t; destroyCharts(); renderTimeline2(); }
+function tl2Set(k, v) { tl2St[k] = v; destroyCharts(); renderTimeline2(); }
+
+// Caminho DETERMINÍSTICO do ciclo de vida, mês a mês, com cada fluxo separado.
+// Mesmas regras e mesmos fluxos do simulateLife (sem volatilidade): até a FI bate com
+// findFIDate; depois da FI sai a renda-alvo e entra a renda passiva.
+function lifePath(horizonAge = 90) {
+  const A = S.assumptions, age0 = currentAge();
+  const months = Math.max(12, Math.round((horizonAge - age0) * 12));
+  const fiNum = fiNumber(), saque = S.fi.targetMonthlyIncome;
+  const retAge = A.retirementAge > 0 ? A.retirementAge : Infinity;
+  const retAgeM = retAge === Infinity ? Infinity : Math.max(0, Math.ceil((retAge - age0) * 12 - 1e-9));
+  const F = _lifeFlows(months, {});
+  const r = Math.pow(1 + weightedReturnReal() / 100, 1/12) - 1;
+  let w = investableWealth(), retired = false, fiM = null, retM = null, ruinM = null, porIdade = false;
+  const rows = [];
+  for (let m = 0; m < months; m++) {
+    if (!retired && m >= retAgeM) { retired = true; retM = m; porIdade = true; }
+    const ret = w * r, extra = F.extra[m];
+    let aporte = 0, saq = 0, passivo = 0;
+    if (!retired) {
+      aporte = F.work[m] + F.passive[m] - F.exp[m];
+      w = Math.max(0, w + ret + aporte + extra);
+    } else if (ruinM == null) {
+      passivo = F.passive[m]; saq = saque;
+      w = w + ret + passivo - saq + extra;
+      if (w <= 0) { w = 0; ruinM = m; }
+    } else { w = 0; }
+    const phase = ruinM != null ? 'ruina' : !retired ? 'trab' : porIdade ? 'apos' : 'fi';
+    rows.push({ m, w, ret: ruinM != null && m > ruinM ? 0 : ret, aporte, saque: saq, passivo, extra, phase });
+    if (!retired && w >= fiNum) { fiM = m; retired = true; retM = m + 1; }
+  }
+  return { rows, fiM, retM, ruinM, porIdade, age0, months, fiNum, saque };
+}
+
+// 'YYYY-MM' → ano decimal no FIM do mês (o saldo do histórico é de fechamento).
+const _tl2X = d => +d.slice(0, 4) + (+d.slice(5, 7)) / 12;
+
+// Marcos datados: objetivos, eventos, FI, aposentadoria por idade, fim do dinheiro.
+function _tl2Marcos(lp) {
+  const start = projectionStart().str, out = [];
+  const n = lp.rows.length;
+  const antes = m => m <= 0 ? investableWealth() : lp.rows[Math.min(m, n) - 1].w;
+  (S.goals || []).forEach(g => {
+    const m = monthsBetween(start, g.dataAlvo);
+    if (m < 0 || m >= n) return;
+    out.push({ tipo: 'objetivo', m, id: g.id, nome: g.name, valor: -goalValorNaData(g), antes: antes(m), depois: lp.rows[m].w });
+  });
+  (S.events || []).forEach(ev => {
+    const m = ev.monthOffset;
+    if (m < 0 || m >= n) return;
+    out.push({ tipo: 'evento', m, id: ev.id, nome: ev.name, valor: ev.impact, antes: antes(m), depois: lp.rows[m].w });
+  });
+  if (lp.fiM != null) out.push({ tipo: 'fi', m: lp.fiM, nome: 'Independência financeira', depois: lp.rows[lp.fiM].w });
+  if (lp.porIdade && lp.retM != null) out.push({ tipo: 'apos', m: lp.retM, nome: 'Aposentadoria pela idade' });
+  if (lp.ruinM != null) out.push({ tipo: 'ruina', m: lp.ruinM, nome: 'O dinheiro acaba' });
+  out.sort((a, b) => a.m - b.m || (a.tipo === 'fi') - (b.tipo === 'fi'));
+  let k = 0;
+  out.forEach(x => { if (x.tipo === 'objetivo' || x.tipo === 'evento') x.num = ++k; });
+  return out;
+}
+
+const TL2_COR = { objetivo: '#a78bfa', evento: '#22d3ee', fi: '#34d399', apos: '#8b94a7', ruina: '#f87171' };
+
+function renderTimeline2() {
+  const el = document.getElementById('page-timeline2');
+  if (!el) return;
+  const head = `<div class="page-header"><div>
+      <div class="page-title">Linha da Vida 2</div>
+      <div class="page-subtitle">O plano no tempo — versão nova, para comparar com a Linha da Vida</div>
+    </div></div>
+    <div class="tabs" style="margin-bottom:16px">
+      <button class="tab-btn ${tl2Tab === 'trajetoria' ? 'active' : ''}" onclick="setTl2Tab('trajetoria')">Trajetória</button>
+      <button class="tab-btn ${tl2Tab === 'plano' ? 'active' : ''}" onclick="setTl2Tab('plano')">Plano</button>
+    </div>`;
+  el.innerHTML = head + (tl2Tab === 'plano' ? _tl2PlanoHtml() : _tl2TrajHtml());
+  if (tl2Tab === 'trajetoria') requestAnimationFrame(_tl2TrajChart);
+}
+
+// ── Trajetória ──
+function _tl2TrajHtml() {
+  const lp = lifePath(90), life = lifeSim();
+  const H = HISTORICAL, lastD = H[H.length - 1].d, lastX = _tl2X(lastD);
+  const start = projectionStart().str, by = S.profile.birthYear;
+  const marcos = _tl2Marcos(lp);
+  const anosFut = tl2St.horizon === 'vida' ? lp.months / 12 : +tl2St.horizon;
+  const mMax = Math.min(lp.rows.length, Math.round(anosFut * 12));
+  const dataDe = m => addMonths(start, m);
+  const quando = m => monthLabel(dataDe(m));
+  const idadeEm = m => +dataDe(m).slice(0, 4) - by;
+
+  _tl2Cache = { lp, life, lastD, lastX, marcos, mMax, anosFut };
+
+  // Números do topo
+  const w0 = investableWealth();
+  const fiTxt = lp.fiM != null ? `${quando(lp.fiM)} <small>aos ${idadeEm(lp.fiM)}</small>` : '<span style="color:var(--red)">fora do alcance</span>';
+  const mRet = lp.retM != null ? lp.retM : null;
+  const retAge = S.assumptions.retirementAge;
+  const kpi = (lbl, val, sub) => `<div class="fi-stat"><div class="fi-stat-lbl">${lbl}</div><div class="fi-stat-val">${val}</div><div class="fi-stat-sub">${sub}</div></div>`;
+  const strip = `<div class="fi-strip">
+    ${kpi('Patrimônio investível hoje', fmtK(w0), `${fmtPct(Math.min(100, w0 / lp.fiNum * 100))} da meta de ${fmtK(lp.fiNum)}`)}
+    ${kpi('Independência financeira', fiTxt, lp.fiM != null ? `a partir daí, ${fmt(lp.saque)}/mês saindo da carteira` : 'a meta não é batida antes da aposentadoria')}
+    ${kpi('Patrimônio no fim', fmtK(lp.rows[mMax - 1].w), `em ${quando(mMax - 1)}, aos ${idadeEm(mMax - 1)} — caminho médio`)}
+    ${kpi(`Dinheiro dura até os ${life.horizonAge}`, `<span style="color:${life.successRate >= 90 ? 'var(--green)' : life.successRate >= 75 ? 'var(--yellow)' : 'var(--red)'}">${fmtPct(life.successRate)}</span>`, `dos ${life.sims} cenários com oscilação de mercado`)}
+  </div>`;
+
+  const ctrl = `<div class="tl2-ctrl">
+    <div class="fi-mode-toggle tl2-seg">
+      ${[['10', '10 anos'], ['20', '20 anos'], ['30', '30 anos'], ['vida', `até os ${life.horizonAge}`]].map(([v, t]) =>
+        `<button class="fi-mode-btn ${tl2St.horizon === v ? 'active' : ''}" onclick="tl2Set('horizon','${v}')">${t}</button>`).join('')}
+    </div>
+    <label class="fisim-link" style="margin:0"><input type="checkbox" ${tl2St.band ? 'checked' : ''} onchange="tl2Set('band', this.checked)"><span>Faixa de incerteza</span></label>
+  </div>`;
+
+  const leg = `<div class="fisim-leg" style="margin:4px 0 8px">
+    <span><i style="background:#ecf0f6"></i>Realizado</span>
+    <span><i style="background:#6395ff"></i>Plano (caminho médio)</span>
+    ${tl2St.band ? '<span><i style="background:#6395ff55;height:8px"></i>80% dos cenários</span>' : ''}
+    <span><i style="background:#fbbf24"></i>Meta FI</span>
+    <span class="fisim-leg-k">R$ de hoje · histórico corrigido pelo IPCA · investível (sem imóvel) · escala log</span>
+  </div>`;
+
+  // Marcos em ordem cronológica
+  const visiveis = marcos.filter(x => x.m < mMax);
+  const marcoHtml = x => {
+    const cor = TL2_COR[x.tipo];
+    const tag = x.num ? `<span class="tl2-num" style="background:${cor}">${x.num}</span>` : `<span class="tl2-dot" style="background:${cor}"></span>`;
+    let det = '';
+    if (x.tipo === 'objetivo' || x.tipo === 'evento') {
+      det = `<b style="color:${x.valor < 0 ? 'var(--red)' : 'var(--green)'}">${x.valor < 0 ? '−' : '+'}${fmtK(Math.abs(x.valor))}</b> · patrimônio ${fmtK(x.antes)} → ${fmtK(x.depois)}`;
+    } else if (x.tipo === 'fi') {
+      det = `patrimônio bate ${fmtK(lp.fiNum)}: o trabalho vira opcional e a carteira passa a pagar ${fmt(lp.saque)}/mês`;
+    } else if (x.tipo === 'apos') {
+      det = `a renda do trabalho para aos ${retAge} sem a meta batida — o saque começa com ${fmtK(lp.rows[x.m].w)}`;
+    } else if (x.tipo === 'ruina') {
+      det = `no caminho médio, o patrimônio zera — o saque de ${fmt(lp.saque)}/mês não se sustenta`;
+    }
+    return `<div class="tl2-marco">
+      <div class="tl2-marco-q">${quando(x.m)}<small>aos ${idadeEm(x.m)}</small></div>
+      <div class="tl2-marco-l">${tag}</div>
+      <div class="tl2-marco-t"><div class="tl2-marco-n">${_rpEsc(x.nome)}</div><div class="tl2-marco-d">${det}</div></div>
+    </div>`;
+  };
+
+  return `
+    <div class="card mb-16">
+      ${strip}
+      ${ctrl}
+      ${leg}
+      <div class="chart-wrap" style="height:420px"><canvas id="ch-tl2"></canvas></div>
+      <div class="fi-read"><p>A linha azul é o caminho médio do plano: renda e gastos da aba Plano, objetivos e eventos nas datas, retorno real de ${fmtPct(weightedReturnReal())} a.a. Ao bater a meta você para de trabalhar e passa a sacar ${fmt(lp.saque)}/mês${retAge > 0 ? ` (se não bater, a renda do trabalho para aos ${retAge} do mesmo jeito)` : ''}. A faixa mostra onde caem 80% dos cenários com a oscilação real da carteira — mesma conta da aba Independência FI.</p></div>
+    </div>
+
+    <div class="card mb-16">
+      <div class="card-title">Marcos <span class="tl2-sub">· em ordem, até ${quando(mMax - 1)}</span>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openGoalModal()">+ Objetivo</button>
+          <button class="btn btn-secondary btn-sm" onclick="tl2EventModal()">+ Evento</button>
+        </span></div>
+      ${visiveis.length ? `<div class="tl2-marcos">${visiveis.map(marcoHtml).join('')}</div>`
+        : '<div class="text-muted text-sm">Nenhum marco no período. Cadastre objetivos (faculdade, imóvel, sabático) e eventos (herança, venda de empresa) na aba Plano.</div>'}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Ano a ano <span class="tl2-sub">· caminho médio, R$ de hoje</span></div>
+      <div class="table-wrap tl2-anos-wrap">${_tl2AnosHtml(lp, marcos, mMax)}</div>
+    </div>`;
+}
+
+function _tl2AnosHtml(lp, marcos, mMax) {
+  const start = projectionStart().str, by = S.profile.birthYear;
+  const MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const anos = [];
+  lp.rows.slice(0, mMax).forEach((r, m) => {
+    const d = addMonths(start, m), y = +d.slice(0, 4);
+    let b = anos[anos.length - 1];
+    if (!b || b.y !== y) anos.push(b = { y, mIni: +d.slice(5, 7), mFim: 0, m0: m, aporte: 0, rend: 0, saque: 0, extra: 0 });
+    b.mFim = +d.slice(5, 7); b.m1 = m;
+    b.aporte += r.aporte; b.rend += r.ret; b.saque += r.passivo - r.saque; b.extra += r.extra;
+    b.w = r.w; b.phase = r.phase;
+  });
+  const FASE = { trab: ['Trabalhando', 'var(--text-muted)'], fi: ['Vivendo da carteira', 'var(--green)'], apos: ['Aposentado', 'var(--text-muted)'], ruina: ['Sem patrimônio', 'var(--red)'] };
+  const v = (x, cls) => Math.abs(x) < 1 ? '<span class="tl2-z">–</span>' : `<span class="${cls || ''}">${x < 0 ? '−' : ''}${fmtK(Math.abs(x))}</span>`;
+  const rows = anos.map(b => {
+    const ms = marcos.filter(x => x.m >= b.m0 && x.m <= b.m1);
+    const fiAno = ms.some(x => x.tipo === 'fi');
+    const parcial = b.mIni !== 1 || b.mFim !== 12;
+    const [fase, faseCor] = FASE[b.phase];
+    return `<tr${fiAno ? ' class="fi-row"' : ''}>
+      <td class="bold">${b.y}${parcial ? ` <small class="tl2-z">${MES[b.mIni - 1]}–${MES[b.mFim - 1]}</small>` : ''}</td>
+      <td class="muted">${b.y - by}</td>
+      <td style="color:${faseCor};font-size:12px">${fase}</td>
+      <td class="r">${v(b.aporte, b.aporte < 0 ? 'red' : '')}</td>
+      <td class="r">${v(b.saque, 'red')}</td>
+      <td class="r">${v(b.rend, 'tl2-rend')}</td>
+      <td class="r">${v(b.extra, b.extra < 0 ? 'red' : 'green')}</td>
+      <td class="r accent">${fmtK(b.w)}</td>
+      <td class="r muted">${fmtPct(Math.min(999, b.w / lp.fiNum * 100))}</td>
+      <td class="tl2-mk">${ms.map(x => `<span style="color:${TL2_COR[x.tipo]}">${x.num ? x.num + ' · ' : ''}${_rpEsc(x.nome)}</span>`).join('<br>')}</td>
+    </tr>`;
+  }).join('');
+  return `<table class="tl2-anos">
+    <thead><tr><th>Ano</th><th>Idade</th><th>Fase</th><th class="r">Aporte</th><th class="r">Saque</th><th class="r">Rendimento</th><th class="r">Objetivos e eventos</th><th class="r">Patrimônio</th><th class="r">% da meta</th><th>Marcos</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+function _tl2TrajChart() {
+  const d = _tl2Cache, cv = document.getElementById('ch-tl2');
+  if (!d || !cv) return;
+  const { lp, life, lastD, lastX, marcos, mMax, anosFut } = d;
+  const by = S.profile.birthYear, w0 = investableWealth();
+  const hist = HISTORICAL.filter(h => h.pl > 0).map(h => ({ x: _tl2X(h.d), y: h.pl * ipcaFactor(h.d, lastD) }));
+  const det = [{ x: lastX, y: w0 }].concat(lp.rows.slice(0, mMax).map((r, m) => ({ x: lastX + (m + 1) / 12, y: r.w })));
+  const kMax = Math.min(life.fan.p10.length - 1, Math.floor(anosFut));
+  const lo = [], hi = [];
+  for (let k = 0; k <= kMax; k++) { lo.push({ x: lastX + k, y: life.fan.p10[k] }); hi.push({ x: lastX + k, y: life.fan.p90[k] }); }
+  const xMin = hist.length ? hist[0].x : lastX, xMax = lastX + anosFut;
+  // Escala log: a vida inteira cabe — os R$ 80 mil do começo e as dezenas de milhões do
+  // fim — e a fase de acumulação não some espremida no rodapé. Piso 1-2-5 abaixo do menor valor.
+  const nice = (v, up) => { const e = Math.pow(10, Math.floor(Math.log10(v))), m = v / e;
+    return (up ? [1, 2, 5, 10].find(x => x >= m - 1e-9) : [5, 2, 1].find(x => x <= m + 1e-9)) * e; };
+  const positivos = [...hist, ...det].map(p => p.y).filter(v => v > 0);
+  const yLo = nice(Math.max(1000, Math.min(...positivos) * 0.8), false);
+  const yHi = nice(Math.max(lp.fiNum, ...positivos) * 1.25, true);
+  const piso = arr => arr.map(p => ({ x: p.x, y: Math.max(yLo, p.y) }));
+  const keep = v => { const m = v / Math.pow(10, Math.floor(Math.log10(v) + 1e-9)); return [1, 2, 5].some(k => Math.abs(m - k) < 1e-6); };
+
+  const ds = [];
+  if (tl2St.band) {
+    ds.push({ label: '_p10', data: piso(lo), borderWidth: 0, pointRadius: 0, fill: false });
+    ds.push({ label: '80% dos cenários', data: piso(hi), borderWidth: 0, pointRadius: 0, fill: '-1', backgroundColor: '#6395ff26' });
+  }
+  ds.push({ label: 'Realizado', data: hist, borderColor: '#ecf0f6', borderWidth: 2, pointRadius: 0, tension: .2 });
+  ds.push({ label: 'Plano', data: piso(det), borderColor: '#6395ff', borderWidth: 2.5, pointRadius: 0, tension: .2 });
+
+  const ann = {
+    meta: { type: 'line', yMin: lp.fiNum, yMax: lp.fiNum, borderColor: '#fbbf2488', borderWidth: 1.2, borderDash: [7, 5],
+      label: { display: true, content: 'meta ' + fmtK(lp.fiNum), position: 'start', color: '#fbbf24', backgroundColor: '#0a0c12d9', font: { size: 10 }, padding: 3, yAdjust: -9 } },
+    hoje: { type: 'line', xMin: lastX, xMax: lastX, borderColor: '#ffffff30', borderWidth: 1,
+      label: { display: true, content: 'hoje', position: 'start', color: '#8b94a7', backgroundColor: 'transparent', font: { size: 10 } } },
+  };
+  marcos.filter(x => x.m < mMax).forEach((x, i) => {
+    const px = lastX + (x.m + 1) / 12, cor = TL2_COR[x.tipo];
+    if (x.num) {
+      ann['mk' + i] = { type: 'point', xValue: px, yValue: x.depois, radius: 8, backgroundColor: cor, borderColor: '#0a0c12', borderWidth: 2 };
+      ann['mkl' + i] = { type: 'label', xValue: px, yValue: x.depois, content: String(x.num), color: '#0a0c12', font: { size: 9.5, weight: 'bold' } };
+    } else if (x.tipo === 'fi') {
+      ann.fi = { type: 'point', xValue: px, yValue: lp.fiNum, radius: 6, backgroundColor: cor, borderColor: '#0a0c12', borderWidth: 2 };
+      ann.fil = { type: 'label', xValue: px, yValue: lp.fiNum, yAdjust: -18, content: `FI aos ${+addMonths(projectionStart().str, x.m).slice(0, 4) - by}`,
+        color: cor, font: { size: 11, weight: 'bold' }, backgroundColor: '#0a0c12d9', padding: 3 };
+    } else {
+      ann['v' + i] = { type: 'line', xMin: px, xMax: px, borderColor: cor + '99', borderWidth: 1, borderDash: [3, 4],
+        label: { display: true, content: x.nome.toLowerCase(), position: 'end', color: cor, backgroundColor: '#0a0c12d9', font: { size: 10 } } };
+    }
+  });
+
+  const span = xMax - xMin;
+  destroyChart('tl2');
+  activeCharts.tl2 = new Chart(cv, {
+    type: 'line',
+    data: { datasets: ds },
+    options: {
+      responsive: true, maintainAspectRatio: false, parsing: true,
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: {
+        legend: { display: false },
+        annotation: { annotations: ann },
+        tooltip: {
+          filter: it => !it.dataset.label.startsWith('_'),
+          callbacks: {
+            title: it => { const x = it[0].parsed.x, y = Math.floor(x - 1e-9); return `${y} · ${y - by} anos`; },
+            label: c => ` ${c.dataset.label}: ${fmtK(c.parsed.y)}`,
+          },
+        },
+      },
+      scales: {
+        x: { type: 'linear', min: xMin, max: xMax, grid: { color: '#1e2d4230' },
+             ticks: { color: '#8ca3c1', font: { size: 10 }, stepSize: span > 45 ? 5 : span > 20 ? 2 : 1, callback: v => Math.round(v) } },
+        y: { type: 'logarithmic', min: yLo, max: yHi, grid: { color: c => keep(c.tick.value) ? '#1e2d4270' : 'transparent' },
+             ticks: { color: '#8ca3c1', font: { size: 10 }, autoSkip: false, callback: v => keep(v) ? fmtK(v) : '' } },
+      },
+    },
+  });
+}
+
+// ── Plano ──
+// Data da FI (meses, régua do findFIDate) no cenário base, opcionalmente sem um objetivo,
+// sem um evento ou sem nenhum marco — é o "quanto este item custa em tempo".
+function _tl2FiMeses({ semGoal = null, semEvent = null, semMarcos = false } = {}) {
+  const months = (S.assumptions.projectionYears || 30) * 12;
+  const start = projectionStart().str;
+  const flows = {};
+  if (!semMarcos) (S.goals || []).forEach(g => {
+    if (g.id === semGoal) return;
+    const off = monthsBetween(start, g.dataAlvo);
+    if (off >= 0) flows[off] = (flows[off] || 0) - goalValorNaData(g);
+  });
+  const sc = S.scenarios.find(s => s.id === 'base') || { retDelta: 0, incDelta: 0, expDelta: 0 };
+  const evSave = S.events;
+  if (semMarcos) S.events = [];
+  else if (semEvent) S.events = S.events.filter(e => e.id !== semEvent);
+  try {
+    const fi = findFIDate(projectPath(months, investableWealth(), weightedReturnReal() + sc.retDelta, sc.incDelta, sc.expDelta, flows));
+    return fi ? fi.months : null;
+  } finally { S.events = evSave; }
+}
+
+const _tl2Dur = n => { const a = Math.floor(n / 12), m = n % 12; return [a ? a + (a > 1 ? ' anos' : ' ano') : '', m ? m + (m > 1 ? ' meses' : ' mês') : ''].filter(Boolean).join(' e '); };
+// Efeito de um item na data da FI: com ele (base) × sem ele.
+function _tl2Efeito(base, sem) {
+  if (base == null && sem == null) return '<span class="tl2-z">FI fora do horizonte</span>';
+  if (base == null) return '<span style="color:var(--red)">tira a FI do horizonte</span>';
+  if (sem == null) return '<span style="color:var(--green)">traz a FI para o horizonte</span>';
+  const d = base - sem;
+  if (d === 0) return '<span class="tl2-z">não muda</span>';
+  return `<span style="color:${d > 0 ? 'var(--red)' : 'var(--green)'}">${d > 0 ? 'atrasa' : 'adianta'} ${_tl2Dur(Math.abs(d))}</span>`;
+}
+
+function _tl2PlanoHtml() {
+  const H = HISTORICAL, lastD = H[H.length - 1].d, from = addMonths(lastD, -12);
+  const ult = H.filter(h => h.d > from);
+  const recReal = ult.length ? ult.reduce((s, h) => s + (h.rec || 0) * ipcaFactor(h.d, lastD), 0) / ult.length : null;
+  const pad = fiCurrentLifestyle(), sv = realizedSaving(12);
+  const totInc = S.incomes.filter(i => i.active).reduce((s, i) => s + i.amount, 0);
+  const totExp = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+  const esc = _rpEsc;
+
+  // ── Renda e gastos, item a item (o editor existia no código, mas nenhuma tela o chamava)
+  const itemRows = (list, type) => list.map(x => `
+    <tr class="${x.active ? '' : 'tl2-off'}">
+      <td style="width:44px"><label class="toggle"><input type="checkbox" ${x.active ? 'checked' : ''} onchange="toggleCF('${type}','${x.id}',this.checked)"><span class="toggle-slider"></span></label></td>
+      <td><span class="bold">${esc(x.name)}</span>${type === 'inc' && x.work === false ? ' <span class="sim-badge" style="background:var(--green-dim);color:var(--green)">passiva</span>' : ''}</td>
+      <td class="r">${fmt(x.amount)}</td>
+      <td class="r tl2-z">${x.growthRate ? (x.growthRate > 0 ? '+' : '') + fmtPct(x.growthRate) + ' real' : 'só inflação'}</td>
+      <td class="r" style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="openEditCF('${type}','${x.id}')" title="Editar">✎</button>
+        <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--red)" onclick="tl2RemoveCF('${type}','${x.id}')" title="Excluir">✕</button>
+      </td>
+    </tr>`).join('');
+  const cmp = (lbl, modelo, real, bomSeMaior, nota) => {
+    if (real == null) return `<div class="tl2-cmp"><span>${lbl}</span><b>${fmt(modelo)}</b><small>sem histórico suficiente</small></div>`;
+    const d = modelo ? real / modelo - 1 : 0;
+    const ok = Math.abs(d) < 0.1;
+    const cor = ok ? 'var(--text-muted)' : (d > 0) === bomSeMaior ? 'var(--green)' : 'var(--yellow)';
+    return `<div class="tl2-cmp"><span>${lbl}</span><b>${fmt(modelo)}</b>
+      <small>realizado (12 meses): <span style="color:${cor}">${fmt(real)}</span>${ok ? '' : ` · ${d > 0 ? '+' : '−'}${fmtPct(Math.abs(d) * 100)}`}${nota || ''}</small></div>`;
+  };
+  const caixa = `
+    <div class="card mb-16">
+      <div class="card-title">Renda e gastos <span class="tl2-sub">· valores mensais de hoje · crescimento acima da inflação</span></div>
+      <div class="grid-2 tl2-cf">
+        <div>
+          <div class="tl2-cf-h"><span style="color:var(--green)">Renda</span><button class="btn btn-secondary btn-sm" onclick="openAddCF('inc')">+ Receita</button></div>
+          <table class="tl2-items"><tbody>${itemRows(S.incomes, 'inc') || '<tr><td class="tl2-z">Nenhuma receita cadastrada.</td></tr>'}</tbody></table>
+        </div>
+        <div>
+          <div class="tl2-cf-h"><span style="color:var(--red)">Gastos</span><button class="btn btn-secondary btn-sm" onclick="openAddCF('exp')">+ Despesa</button></div>
+          <table class="tl2-items"><tbody>${itemRows(S.expenses, 'exp') || '<tr><td class="tl2-z">Nenhuma despesa cadastrada.</td></tr>'}</tbody></table>
+        </div>
+      </div>
+      <div class="tl2-cmps">
+        ${cmp('Renda no plano', totInc, recReal, true)}
+        ${cmp('Gastos no plano', totExp, pad ? pad.gasMes : null, false)}
+        ${cmp('Aporte no plano', totInc - totExp, sv ? sv.avg : null, true, sv && sv.mixed ? ` <span style="color:var(--yellow)" title="meses sem o aporte separado do imóvel na planilha">⚠ inclui imóvel</span>` : '')}
+      </div>
+      <div class="fi-read"><p>Renda <span class="sim-badge" style="background:var(--green-dim);color:var(--green)">passiva</span> (aluguel, pensão) continua depois da aposentadoria; a do trabalho para. Os gastos daqui valem até a FI — depois dela, quem manda é a renda-alvo da aba Independência FI.</p></div>
+    </div>`;
+
+  // ── Objetivos e eventos: tudo que acontece numa data, com o custo em tempo de cada um
+  const start = projectionStart().str;
+  const base = _tl2FiMeses();
+  const semNada = _tl2FiMeses({ semMarcos: true });
+  const itens = [
+    ...(S.goals || []).map(g => ({ tipo: 'objetivo', id: g.id, nome: g.name, data: g.dataAlvo, hoje: -g.valor, naData: -goalValorNaData(g),
+      extra: g.prioridade ? `prioridade ${g.prioridade}` : '', infl: g.inflacaoReal || 0, sem: _tl2FiMeses({ semGoal: g.id }) })),
+    ...(S.events || []).map(e => ({ tipo: 'evento', id: e.id, nome: e.name, data: addMonths(start, e.monthOffset), hoje: e.impact, naData: e.impact,
+      extra: '', infl: 0, sem: _tl2FiMeses({ semEvent: e.id }) })),
+  ].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  const valor = v => `<span style="color:${v < 0 ? 'var(--red)' : 'var(--green)'}">${v < 0 ? '−' : '+'}${fmt(Math.abs(v))}</span>`;
+  const itemTr = x => {
+    const off = monthsBetween(start, x.data);
+    const edit = x.tipo === 'objetivo' ? `openGoalModal('${x.id}')` : `tl2EventModal('${x.id}')`;
+    const del  = x.tipo === 'objetivo' ? `deleteGoal('${x.id}')` : `tl2DeleteEvent('${x.id}')`;
+    return `<tr>
+      <td><span class="tl2-tag" style="color:${TL2_COR[x.tipo]};border-color:${TL2_COR[x.tipo]}55">${x.tipo}</span></td>
+      <td><span class="bold">${esc(x.nome)}</span>${x.extra ? ` <span class="tl2-z" style="font-size:11px">· ${esc(x.extra)}</span>` : ''}</td>
+      <td>${monthLabel(x.data)}<span class="tl2-z" style="font-size:11px"> · ${off < 0 ? 'já passou' : off < 12 ? `em ${off} ${off === 1 ? 'mês' : 'meses'}` : `em ${_tl2Dur(off)}`}</span></td>
+      <td class="r">${valor(x.hoje)}</td>
+      <td class="r">${x.naData !== x.hoje ? valor(x.naData) + `<span class="tl2-z" style="font-size:11px"> (+${x.infl}% a.a. real)</span>` : '<span class="tl2-z">igual</span>'}</td>
+      <td class="r">${base != null && off > base && x.sem === base
+        ? '<span class="tl2-z" title="Acontece depois da FI: não muda a data, mas sai da carteira que paga o saque">depois da FI · pesa no saque</span>'
+        : _tl2Efeito(base, x.sem)}</td>
+      <td class="r" style="white-space:nowrap">
+        <button class="btn btn-ghost btn-sm btn-icon" onclick="${edit}" title="Editar">✎</button>
+        <button class="btn btn-ghost btn-sm btn-icon" style="color:var(--red)" onclick="${del}" title="Excluir">✕</button>
+      </td></tr>`;
+  };
+  const totalTxt = !itens.length ? '' : (() => {
+    const f = m => m == null ? 'fora do horizonte' : monthLabel(addMonths(start, m)) + ` (aos ${+addMonths(start, m).slice(0, 4) - S.profile.birthYear})`;
+    return `<div class="fi-read"><p>Sem nenhum objetivo ou evento, a FI chegaria em <b>${f(semNada)}</b>; com todos, em <b>${f(base)}</b> — ${_tl2Efeito(base, semNada)}. Esse é o preço, em tempo, de tudo que está nesta lista.</p></div>`;
+  })();
+  const marcos = `
+    <div class="card mb-16">
+      <div class="card-title">Objetivos e eventos <span class="tl2-sub">· o que acontece numa data · efeito medido na data da FI</span>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openGoalModal()">+ Objetivo</button>
+          <button class="btn btn-secondary btn-sm" onclick="tl2EventModal()">+ Evento</button>
+        </span></div>
+      ${itens.length ? `<div class="table-wrap"><table class="tl2-items">
+        <thead><tr><th>Tipo</th><th>Nome</th><th>Quando</th><th class="r">Valor hoje</th><th class="r">Na data</th><th class="r">Efeito na FI</th><th></th></tr></thead>
+        <tbody>${itens.map(itemTr).join('')}</tbody></table></div>` :
+        '<div class="text-muted text-sm" style="padding:6px 0">Nada cadastrado. <b>Objetivo</b> é um gasto planejado (faculdade, imóvel, sabático) — pode ter inflação própria acima do IPCA. <b>Evento</b> é qualquer entrada ou saída pontual (herança, venda de empresa, bônus).</div>'}
+      ${totalTxt}
+    </div>`;
+
+  // ── Perfil, macro e retorno — os mesmos controles da aba Cenários antiga, num lugar só
+  const A = S.assumptions;
+  const sl = (key, label, val, min, max, step, txt) => `
+    <div class="slider-group">
+      <div class="slider-label-row"><span class="slider-lbl">${label}</span><span class="slider-val" id="pv-${key}">${txt(val)}</span></div>
+      <input type="range" class="sc-slider" min="${min}" max="${max}" step="${step}" value="${val}" data-key="${key}"
+        oninput="assSliderInput(this)" onchange="tl2ParamCommit()">
+    </div>`;
+  const pct = v => v.toFixed(1) + '% a.a.';
+  const classes = [['rf', 'Renda Fixa / CDI', 5, 25], ['rv', 'Ações / RV', 5, 30], ['fii', 'FIIs', 5, 20], ['intl', 'Internacional', 5, 30],
+    ['cash', 'Caixa / RF Curto', 5, 20], ['prev', 'Previdência', 5, 20], ['outro', 'Outro', 0, 30]];
+  const presentes = new Set(S.portfolio.map(a => a.cat));
+  const retSl = classes.filter(([cat]) => presentes.has(cat)).map(([cat, nome, min, max]) => {
+    const val = S.portfolio.find(a => a.cat === cat)?.ret ?? getDefaultReturn(cat);
+    return `<div class="slider-group">
+      <div class="slider-label-row"><span class="slider-lbl">${nome}</span><span class="slider-val" id="rv-${cat}">${val.toFixed(1)}% a.a.</span></div>
+      <input type="range" class="sc-slider" min="${min}" max="${max}" step="0.5" value="${val}" data-cat="${cat}"
+        oninput="assClassSliderInput(this)" onchange="tl2ParamCommit()">
+    </div>`;
+  }).join('');
+  const premissas = `
+    <div class="card mb-16">
+      <div class="card-title">Perfil e premissas</div>
+      <div class="tl2-params">
+        <div>
+          <div class="param-section-title">PERFIL</div>
+          ${sl('birthYear', 'Ano de nascimento', S.profile.birthYear, 1960, 2005, 1, v => String(v))}
+          ${sl('retirementAge', 'Idade-limite de trabalho', A.retirementAge, 40, 80, 1, v => 'aos ' + v + ' anos')}
+          ${sl('incomeGrowthCapYears', 'Renda para de crescer em', A.incomeGrowthCapYears, 0, 40, 1, v => v > 0 ? v + ' anos' : 'nunca')}
+          ${sl('projectionYears', 'Horizonte do Dashboard', A.projectionYears, 5, 40, 1, v => v + ' anos')}
+        </div>
+        <div>
+          <div class="param-section-title">MACRO</div>
+          ${sl('ipca', 'IPCA', A.ipca, 2, 20, 0.5, pct)}
+          ${sl('selic', 'SELIC', A.selic, 5, 25, 0.5, pct)}
+          ${sl('cdi', 'CDI', A.cdi, 5, 25, 0.5, pct)}
+          <div class="tl2-meta">Meta FI: <b>${fmtK(fiNumber())}</b> — renda-alvo de ${fmt(S.fi.targetMonthlyIncome)}/mês a ${fmtPct(fiRate())}. <a href="#" onclick="navigate('fi');return false;">Ajustar na Independência FI →</a></div>
+        </div>
+        <div>
+          <div class="param-section-title">RETORNO ESPERADO (NOMINAL)</div>
+          ${retSl || '<div class="tl2-z text-sm">Cadastre a carteira na aba Patrimônio.</div>'}
+          <div class="tl2-meta">Carteira: <b>${fmtPct(weightedReturn())}</b> nominal · <b>${fmtPct(weightedReturnReal())}</b> real</div>
+        </div>
+      </div>
+    </div>`;
+
+  // ── Cenários: tabelinha. Os deltas continuam alimentando Dashboard e relatório.
+  const months = (A.projectionYears || 30) * 12;
+  const paths = buildScenarioPaths(months);
+  const scRow = sc => {
+    const p = paths.find(x => x.id === sc.id), fi = p ? findFIDate(p.path) : null;
+    const inp = (field, step) => `<input type="number" class="tl2-num-in" step="${step}" value="${sc[field]}" onchange="tl2ScSet('${sc.id}','${field}',this.value)">`;
+    return `<tr>
+      <td><span class="sc-dot" style="background:${sc.color};display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px"></span><b>${esc(sc.name)}</b></td>
+      <td class="r">${inp('retDelta', 0.5)} pp</td>
+      <td class="r">${inp('incDelta', 0.5)} pp</td>
+      <td class="r">${inp('expDelta', 0.5)} pp</td>
+      <td class="r ${sc.id === 'base' ? 'accent' : ''}">${fi ? monthLabel(addMonths(start, fi.months)) : '> horizonte'}</td>
+      <td class="r muted">${fi ? 'aos ' + (fi.date.getFullYear() - S.profile.birthYear) : '—'}</td>
+    </tr>`;
+  };
+  const cenarios = `
+    <div class="card">
+      <div class="card-title">Cenários <span class="tl2-sub">· deltas sobre o plano · alimentam o Dashboard e o relatório</span></div>
+      <div class="table-wrap"><table class="tl2-items">
+        <thead><tr><th>Cenário</th><th class="r">Retorno real</th><th class="r">Crescimento da renda</th><th class="r">Crescimento dos gastos</th><th class="r">FI em</th><th class="r">Idade</th></tr></thead>
+        <tbody>${S.scenarios.map(scRow).join('')}</tbody></table></div>
+      <div class="fi-read"><p>Cada delta soma ao plano: "+1 pp" de retorno real sobre os ${fmtPct(weightedReturnReal())} da carteira, e assim por diante. Para incerteza de mercado, a faixa da Trajetória é mais honesta que um cenário escolhido à mão.</p></div>
+    </div>`;
+
+  return caixa + marcos + premissas + cenarios;
+}
+
+function tl2ParamCommit() { saveState(); renderTimeline2(); }
+function tl2ScSet(id, field, val) {
+  const sc = S.scenarios.find(s => s.id === id);
+  const v = parseFloat(String(val).replace(',', '.'));
+  if (!sc || isNaN(v)) return;
+  sc[field] = v; saveState(); renderTimeline2();
+}
+function tl2RemoveCF(type, id) {
+  const it = (type === 'inc' ? S.incomes : S.expenses).find(x => x.id === id);
+  if (!it || !confirm(`Excluir "${it.name}" do plano?`)) return;
+  removeCF(type, id);
+}
+
+// Evento de vida com data no calendário (o formulário antigo pedia "meses a partir de hoje").
+function tl2EventModal(id) {
+  const ev = id ? S.events.find(e => e.id === id) : null;
+  const start = projectionStart().str;
+  const data = ev ? addMonths(start, ev.monthOffset) : addMonths(start, 12);
+  openModal(ev ? 'Editar evento' : 'Novo evento', `
+    <div class="form-group"><label class="form-label">Nome</label>
+      <input class="form-input" id="tl2-ev-name" value="${ev ? _rpEsc(ev.name) : ''}" placeholder="Ex: Herança, venda da empresa, bônus"></div>
+    <div class="grid-2" style="gap:12px">
+      <div class="form-group"><label class="form-label">Quando</label>
+        <input class="form-input" id="tl2-ev-data" type="month" min="${start}" value="${data}"></div>
+      <div class="form-group"><label class="form-label">Valor (R$ de hoje)</label>
+        <input class="form-input" id="tl2-ev-valor" type="number" step="1000" value="${ev ? ev.impact : 0}">
+        <div class="form-hint">positivo = entra no patrimônio · negativo = sai</div></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="tl2SaveEvent('${ev ? ev.id : ''}')">Salvar</button>
+    </div>`);
+}
+function tl2SaveEvent(id) {
+  const name = document.getElementById('tl2-ev-name').value.trim();
+  const data = document.getElementById('tl2-ev-data').value;
+  const impact = parseFloat(document.getElementById('tl2-ev-valor').value) || 0;
+  if (!name || !data) { showToast('Informe nome e data.'); return; }
+  const obj = { name, monthOffset: Math.max(0, monthsBetween(projectionStart().str, data)), impact };
+  if (id) Object.assign(S.events.find(e => e.id === id) || {}, obj);
+  else S.events.push({ id: uid(), ...obj });
+  saveState(); closeModal(); renderPage(activePage);
+}
+function tl2DeleteEvent(id) {
+  const ev = S.events.find(e => e.id === id);
+  if (!ev || !confirm(`Excluir o evento "${ev.name}"?`)) return;
+  S.events = S.events.filter(e => e.id !== id);
+  saveState(); renderPage(activePage);
+}
+
 // ── 9b. ATIVOS — POSIÇÃO DETALHADA ───────────────────────
 // Lê o que o Carteira XP gravou em finplan_posicao_ativos ao processar a Posição
 // Detalhada da XP. Emissor e conglomerado já vêm resolvidos de lá — a regra do FGC
@@ -4685,6 +5562,70 @@ function _ativosIndexHtml(its, tot) {
     <div style="font-size:11px;color:var(--text-dim);margin-top:10px">Classificação pela coluna de rentabilidade do relatório (<i>105% CDI</i>, <i>CDI +2%</i>, <i>+17%</i>, <i>IPC-A +10%</i>). O Tesouro Direto não traz essa coluna: nele vale o nome do bloco. Prazo médio é ponderado pelo valor líquido.</div>`;
 }
 
+// Emissores abertos na aba Emissor / FGC. Por nome, não por posição: sobrevive a re-render
+// e a um upload novo da posição (se o emissor continuar lá, continua aberto).
+const emissorAberto = new Set();
+// Abre/fecha no DOM, sem remontar a página — não perde a rolagem da tabela.
+function toggleEmissor(tr) {
+  const det = tr.nextElementSibling;
+  if (!det || !det.classList.contains('em-det')) return;
+  const abrir = det.hidden;
+  det.hidden = !abrir;
+  const em = det.getAttribute('data-em');
+  abrir ? emissorAberto.add(em) : emissorAberto.delete(em);
+  const seta = tr.querySelector('.em-seta');
+  if (seta) seta.style.transform = `rotate(${abrir ? 90 : 0}deg)`;
+}
+
+// Os títulos de um emissor, do vencimento mais próximo ao mais distante. A coluna
+// "Fica no emissor" é a exposição que sobra depois que aquele título vence — mostra
+// quando a concentração (e o excesso sobre o FGC) se desfaz sozinha, sem vender nada.
+function _ativosEmissorDetHtml(g, tot, FGC_LIMITE) {
+  const base = _posBaseMes();
+  const li = g.li.map(i => ({ ...i, _v: _posVenc(i.venc) }))
+    .sort((a, b) => (a._v ? a._v.y * 372 + a._v.m * 31 + a._v.d : Infinity) - (b._v ? b._v.y * 372 + b._v.m * 31 + b._v.d : Infinity));
+  const fgc = g.fgcVal > 0;
+  let resta = g.valor, restaFgc = g.fgcVal;
+  const linhas = li.map(i => {
+    const v = i._v, val = i.liquido || 0;
+    const meses = v && base != null ? v.y * 12 + v.m - base : null;
+    const quando = meses == null ? '' : meses <= 0 ? 'vencido / este mês' : meses < 12 ? `em ${meses} ${meses === 1 ? 'mês' : 'meses'}` : `em ${(meses / 12).toFixed(1).replace('.', ',')} anos`;
+    // Sem data (fundo, liquidez diária) não "vence": não abate a exposição.
+    if (v) { resta -= val; if (i.grupo === 'Bancário') restaFgc -= val; }
+    const sobra = v ? `<span class="${fgc && restaFgc > FGC_LIMITE ? 'red' : 'muted'}">${fmt(Math.max(0, resta))}</span>` : '<span class="muted">—</span>';
+    const idx = _posIndexador(i);
+    return `<tr>
+      <td title="${_rpEsc(i.nome)}">${_rpEsc(i.nome)}${i.grupo === 'Privado' && fgc ? ' <span class="text-dim" style="font-size:10px">(sem FGC)</span>' : ''}</td>
+      <td><span class="color-dot" style="background:${INDEX_COR[idx]}"></span>${_rpEsc(i.taxa || idx)}</td>
+      <td class="r">${v ? String(v.d).padStart(2, '0') + '/' + String(v.m).padStart(2, '0') + '/' + v.y : '<span class="muted">sem vencimento</span>'}
+        ${quando ? `<div class="text-dim" style="font-size:10.5px">${quando}</div>` : ''}</td>
+      <td class="r accent">${fmt(val)}</td>
+      <td class="r muted">${fmtPct(g.valor > 0 ? val / g.valor * 100 : 0)}</td>
+      <td class="r muted">${fmtPct(tot > 0 ? val / tot * 100 : 0)}</td>
+      <td class="r">${sobra}</td>
+    </tr>`;
+  }).join('');
+
+  // Resumo em uma linha: próximo vencimento, prazo médio e quando sai do excesso de FGC.
+  const comV = li.filter(i => i._v);
+  const prox = comV[0];
+  const peso = comV.reduce((s, i) => s + (i.liquido || 0), 0);
+  const prazo = base != null && peso > 0 ? comV.reduce((s, i) => s + Math.max(0, i._v.y * 12 + i._v.m - base) * (i.liquido || 0), 0) / peso : null;
+  const fmtV = v => String(v.d).padStart(2, '0') + '/' + String(v.m).padStart(2, '0') + '/' + v.y;
+  const partes = [];
+  if (prox) partes.push(`próximo vencimento <b>${fmtV(prox._v)}</b> (${fmt(prox.liquido || 0)})`);
+  if (prazo != null) partes.push(`prazo médio ponderado <b>${Math.round(prazo)} meses</b>`);
+  if (g.exced > 0) {
+    let r = g.fgcVal, sai = null;
+    for (const i of comV) { if (i.grupo === 'Bancário') r -= (i.liquido || 0); if (r <= FGC_LIMITE) { sai = i; break; } }
+    partes.push(sai ? `volta para dentro do FGC em <b>${fmtV(sai._v)}</b>, sem precisar vender nada`
+      : `<span class="red">não volta para dentro do FGC só com vencimentos</span>`);
+  }
+  return `${partes.length ? `<div style="font-size:12px;color:var(--text-muted);margin:6px 0 8px">${partes.join(' · ')}</div>` : ''}
+    <table style="font-size:12px"><thead><tr><th>Título</th><th>Taxa</th><th class="r">Vencimento</th><th class="r">Líquido</th><th class="r">% do emissor</th><th class="r">% do total</th><th class="r" title="Exposição que resta no emissor depois que este título vence">Fica no emissor</th></tr></thead>
+    <tbody>${linhas}</tbody></table>`;
+}
+
 function _ativosEmissorHtml(its, tot) {
   const FGC_LIMITE = 250000;
   // FGC cobre só emissão bancária (CDB/LCI/LCA) — 'Bancário' vem classificado do Carteira XP.
@@ -4703,16 +5644,18 @@ function _ativosEmissorHtml(its, tot) {
   const nExced = grupos.filter(g => g.exced > 0).length;
   const maior = grupos.length && tot > 0 ? grupos[0].valor / tot * 100 : 0;
 
-  const rows = grupos.map(g => {
+  const rows = grupos.map((g, gi) => {
     const fgcCell = g.fgcVal > 0
       ? (g.exced > 0 ? `<td class="r red">acima em ${fmt(g.exced)}</td>` : `<td class="r green">dentro</td>`)
       : `<td class="r muted">fora do FGC</td>`;
-    return `<tr>
-      <td>${_rpEsc(g.em)} <span class="text-dim" style="font-size:11px">· ${g.li.length}</span></td>
+    const aberto = emissorAberto.has(g.em);
+    return `<tr class="em-row" data-gi="${gi}" onclick="toggleEmissor(this)" style="cursor:pointer" title="Ver os títulos deste emissor">
+      <td><span class="em-seta" style="display:inline-block;width:12px;color:var(--text-dim);transition:transform .15s;transform:rotate(${aberto ? 90 : 0}deg)">▸</span>${_rpEsc(g.em)} <span class="text-dim" style="font-size:11px">· ${g.li.length}</span></td>
       <td style="width:30%"><span style="display:block;height:8px;background:var(--surface-3);border-radius:4px;overflow:hidden"><span style="display:block;height:100%;width:${(g.valor / maxV * 100).toFixed(1)}%;background:${g.exced > 0 ? 'var(--red)' : 'var(--accent)'};border-radius:4px"></span></span></td>
       <td class="r accent">${fmt(g.valor)}</td>
       <td class="r muted">${fmtPct(tot > 0 ? g.valor / tot * 100 : 0)}</td>
-      ${fgcCell}</tr>`;
+      ${fgcCell}</tr>
+      <tr class="em-det" data-gi="${gi}" data-em="${_rpEsc(g.em)}" ${aberto ? '' : 'hidden'}><td colspan="5" style="padding:4px 10px 14px 22px;background:var(--surface-2)">${_ativosEmissorDetHtml(g, tot, FGC_LIMITE)}</td></tr>`;
   }).join('');
 
   return `<div class="kpi-grid kpi-grid-3 mb-16">
@@ -4725,7 +5668,8 @@ function _ativosEmissorHtml(its, tot) {
         <div class="kpi-value" style="color:var(--yellow)">${fmt(rf.filter(i => i.grupo === 'Privado').reduce((s, i) => s + (i.liquido || 0), 0))}</div>
         <div class="kpi-sub">CRI, CRA e debêntures — sem cobertura do FGC</div></div>
     </div>
-    <div class="table-wrap" style="max-height:420px;overflow:auto">
+    <div style="font-size:11.5px;color:var(--text-dim);margin-bottom:6px">Clique num emissor para ver os títulos, valores e vencimentos.</div>
+    <div class="table-wrap" style="max-height:640px;overflow:auto">
       <table><thead><tr><th>Emissor</th><th>Concentração</th><th class="r">Valor</th><th class="r">% do total</th><th class="r">FGC</th></tr></thead><tbody>${rows}</tbody></table>
     </div>
     <div style="font-size:11px;color:var(--text-dim);margin-top:10px">O FGC cobre R$ 250 mil por CPF por instituição, contando principal + juros, e vale só para emissão bancária (CDB/LCI/LCA). Não considera o teto global de R$ 1 milhão a cada 4 anos nem co-titularidade. Emissores do mesmo conglomerado já entram somados.</div>`;
@@ -5321,7 +6265,7 @@ function _fluxoCaixaBody() {
 function toggleCF(type, id, val) {
   const arr = type==='inc' ? S.incomes : S.expenses;
   const item = arr.find(x=>x.id===id);
-  if (item) { item.active = val; saveState(); renderTimeline(); }
+  if (item) { item.active = val; saveState(); renderPage(activePage); }
 }
 function openAddCF(type) { openModal(type==='inc'?'Adicionar Receita':'Adicionar Despesa', cfForm(type)); }
 function openEditCF(type, id) {
@@ -5371,12 +6315,12 @@ function saveCF(type, id) {
   const arr = type==='inc' ? S.incomes : S.expenses;
   if (id) { Object.assign(arr.find(x=>x.id===id), obj); }
   else { arr.push({ id:uid(), ...obj }); }
-  saveState(); closeModal(); renderTimeline();
+  saveState(); closeModal(); renderPage(activePage);
 }
 function removeCF(type, id) {
   if (type==='inc') S.incomes  = S.incomes.filter(x=>x.id!==id);
   else              S.expenses = S.expenses.filter(x=>x.id!==id);
-  saveState(); renderTimeline();
+  saveState(); renderPage(activePage);
 }
 
 // ── 12. PREMISSAS ─────────────────────────────────────────
@@ -7263,10 +8207,11 @@ function renderFI() {
 
   // Indicadores avançados
   // A projeção principal já é REAL (valores de hoje). Aqui calculamos a versão NOMINAL só p/ contraste.
-  const fiNominal = findFIDate(projectPath(40 * 12, investableWealth(), weightedReturn(), S.assumptions.ipca, S.assumptions.ipca));
-  const mc      = monteCarloFI(500, 40);                     // distribuição estocástica
-  const mcd     = monteCarloDecum(500, 90);                  // sobrevivência pós-FI
-  window._lastMcDecum = mcd;                                 // usado pelo explicador ⓘ
+  // Objetivos também em R$ nominais: o custo de hoje corrigido pelo IPCA até a data-alvo.
+  const ipcaF   = 1 + (S.assumptions.ipca || 5.5) / 100;
+  const goalNom = {};
+  Object.entries(goalFlows()).forEach(([m, v]) => { goalNom[m] = v * Math.pow(ipcaF, m / 12); });
+  const fiNominal = findFIDate(projectPath(40 * 12, investableWealth(), weightedReturn(), S.assumptions.ipca, S.assumptions.ipca, goalNom));
   const rwM     = runwayMonths();
   const rwG     = runwayMonthsGrowth();
   const coastY  = coastFIYears();
@@ -7274,52 +8219,71 @@ function renderFI() {
   const projStart = projectionStart().date;
   const mToDate = m => { const d = new Date(projStart); d.setMonth(d.getMonth() + m); return d; };
   const fmtMC   = m => { const d = mToDate(m); return d.toLocaleDateString('pt-BR', { month:'short', year:'numeric' }); };
+  const fmtAnos = v => v.toFixed(1).replace('.', ',');
 
-  // Sensitivity table: FI date varying return
-  const sensi = [-4,-2,0,2,4].map(d => {
-    const baseRet = weightedReturnReal();
-    const path = projectPath(S.assumptions.projectionYears*12, w, baseRet+d, 0, 0);
-    const fi = findFIDate(path);
-    return { delta:d, ret:baseRet+d, fi };
+  // Motor único (simulateLife): jornada, sobrevivência, saque seguro, fronteira e
+  // alavancas saem das MESMAS 500 trajetórias — nenhum card contradiz o outro.
+  const life   = lifeSim();
+  window._lastLife = life;                                   // usado pelos explicadores ⓘ
+  const age0   = life.age0;
+  const ageAt  = m => Math.floor(age0 + m / 12);
+  const tgt    = S.fi.targetMonthlyIncome;
+  const curRate = fiRate();
+  const goals  = S.goals || [];
+  const goalsTot = goals.reduce((s, g) => s + goalValorNaData(g), 0);
+  const succCol = v => v >= 90 ? 'var(--green)' : v >= 75 ? 'var(--yellow)' : 'var(--red)';
+
+  // Fronteira da taxa de retirada: cada taxa muda a meta (e a data), o saque fica.
+  const rates = [3, 3.5, 4, 4.5, 5, 6].filter(r => Math.abs(r - curRate) > 0.05).concat(curRate).sort((a, b) => a - b);
+  const frontier = rates.map(rt => {
+    const atual = rt === curRate;
+    const r = atual ? life : lifeSim({ fan: false, fiNum: tgt * 12 / (rt / 100) });
+    return { rt, atual, fiP50: r.fiP50, succ: r.successRate };
   });
 
-  // Monthly savings sensitivity
-  const sensiSavings = [-5000,-2500,0,2500,5000].map(d => {
-    const incsCopy = S.incomes.map(i=>({...i, amount: i.amount + (i.id===S.incomes[0]?.id ? d : 0)}));
-    const monthlyRate = Math.pow(1 + weightedReturnReal()/100, 1/12) - 1;
-    const projMonths  = S.assumptions.projectionYears * 12;
-    let wd = w;
-    let fiM = null;
-    for (let m = 0; m < projMonths; m++) {
-      const y = m/12;
-      const inc = incsCopy.filter(i=>i.active).reduce((s,i)=>s+i.amount*Math.pow(1+i.growthRate/100,y),0);
-      const exp = S.expenses.filter(e=>e.active).reduce((s,e)=>s+e.amount*Math.pow(1+e.growthRate/100,y),0);
-      wd = Math.max(0, wd + wd*monthlyRate + (inc-exp));
-      if (!fiM && wd >= fin) { fiM = m; break; }
-    }
-    return { delta:d, months:fiM };
-  });
-
-  // Sensibilidade da TAXA DE RETIRADA: o trade-off central do FIRE.
-  // Taxa maior → meta menor e FI mais cedo, porém menor sobrevivência pós-FI.
-  let sensiRate = null;
-  if (S.fi.mode === 'swr') {
-    const saveRate = S.fi.withdrawalRate;
-    sensiRate = [3, 3.5, 4, 4.5, 5, 6].map(rt => {
-      S.fi.withdrawalRate = rt;                     // fiNumber()/findFIDate leem daqui
-      const path = projectPath(S.assumptions.projectionYears * 12, investableWealth(), weightedReturnReal(), 0, 0);
-      const fiR  = findFIDate(path);
-      const mcdR = monteCarloDecum(300, 90);
-      return {
-        rt,
-        meta: (S.fi.targetMonthlyIncome * 12) / (rt / 100),
-        anos: fiR ? fiR.months / 12 : null,
-        succ: mcdR.successRate,
-        atual: Math.abs(rt - saveRate) < 0.01,
-      };
-    });
-    S.fi.withdrawalRate = saveRate;                 // restaura sem salvar
+  // Alavancas: cada variação roda nas mesmas trajetórias da base (sorteios comuns).
+  const leverDefs = [
+    { label: 'Retorno real', vars: [['−1 pp', { rReal: life.rReal - 1 }], ['+1 pp', { rReal: life.rReal + 1 }]] },
+    { label: 'Aporte mensal', vars: [['−20%', { savMult: 0.8 }], ['+20%', { savMult: 1.2 }]] },
+    { label: 'Renda-alvo', vars: [['−10%', { fiNum: fin * 0.9, saque: tgt * 0.9 }], ['+10%', { fiNum: fin * 1.1, saque: tgt * 1.1 }]] },
+    { label: S.fi.mode === 'swr' ? 'Taxa de retirada' : 'Juro real assumido',
+      vars: [['−0,5 pp', { fiNum: tgt * 12 / (Math.max(0.5, curRate - 0.5) / 100) }], ['+0,5 pp', { fiNum: tgt * 12 / ((curRate + 0.5) / 100) }]] },
+  ];
+  if (S.assumptions.retirementAge > 0) {
+    const ra = S.assumptions.retirementAge;
+    leverDefs.push({ label: 'Aposentadoria', vars: [['−3 anos', { retAge: ra - 3 }], ['+3 anos', { retAge: ra + 3 }]] });
   }
+  const levers = leverDefs.map(L => {
+    const vars = L.vars.map(([txt, o]) => {
+      const r = lifeSim({ fan: false, ...o });
+      const dFi = (r.fiP50 == null || life.fiP50 == null) ? null : (r.fiP50 - life.fiP50) / 12;
+      return { txt, dFi, naoChega: r.fiP50 == null && life.fiP50 != null, succ: r.successRate, dSucc: r.successRate - life.successRate };
+    });
+    const peso = Math.max(...vars.map(v => v.naoChega ? 99 : Math.abs(v.dFi || 0)));
+    return { label: L.label, vars, peso, pesoSucc: Math.max(...vars.map(v => Math.abs(v.dSucc))) };
+  }).sort((a, b) => (b.peso - a.peso) || (b.pesoSucc - a.pesoSucc));
+  const torMax = Math.max(1, ...levers.flatMap(l => l.vars.map(v => v.naoChega ? 0 : Math.abs(v.dFi || 0))));
+
+  // Acompanhamento: premissa × realizado e como a data da FI andou
+  const lastD  = HISTORICAL[HISTORICAL.length - 1].d;
+  const hist   = fiDateHistory(48);
+  if (hist.length && fiRes) hist[hist.length - 1].m = fiRes.months;   // último ponto = a data oficial do card
+  const hNow   = hist[hist.length - 1] || null;
+  const h12    = hist.find(x => x.d === addMonths(lastD, -12)) || null;
+  const dFi12  = h12 && hNow && h12.m != null && hNow.m != null ? hNow.m - h12.m : null;
+  const rr36   = realizedRealReturn(36);
+  const sv12   = realizedSaving(12);
+  const plan   = plannedSavings();
+  const real   = fiIfRealized();
+  const pad    = fiCurrentLifestyle();
+  const swr    = impliedWithdrawalSeries(48);
+  if (pad && swr.length) swr[swr.length - 1].pct = pad.rate;          // idem: hoje = carteira investível atual
+  const prem   = weightedReturnReal();
+  // Dado confiável = no máximo 1/4 da janela estimada (sem Rentabilidade/apoPL da planilha com imóvel)
+  const rrOk   = rr36 && rr36.suspect <= rr36.n / 4;
+  const svOk   = sv12 && sv12.mixed <= sv12.n / 4;
+  const avisoDado = (n, tot, o) => `<br><span style="color:var(--yellow)">⚠ ${n} de ${tot} meses sem ${o} na planilha — estimado</span>`;
+  const fmtMeses = n => { const a = Math.floor(n / 12), m = n % 12; return [a ? a + (a > 1 ? ' anos' : ' ano') : '', m ? m + (m > 1 ? ' meses' : ' mês') : ''].filter(Boolean).join(' e '); };
 
   el.innerHTML = `
     <div class="page-header">
@@ -7356,7 +8320,7 @@ function renderFI() {
           <input type="range" class="sc-slider" min="1" max="8" step="0.1"
             value="${S.fi.withdrawalRate}"
             oninput="fiSliderInput(this,'rate')" onchange="fiSliderCommit()">
-          <div class="fi-mode-note">Quanto você assume que pode sacar do patrimônio por ano. <b>Taxa maior → meta MENOR e FI mais cedo, porém mais risco de o dinheiro acabar</b> — veja a tabela de trade-off e a Sobrevivência pós-FI abaixo.</div>
+          <div class="fi-mode-note">Quanto você assume que pode sacar do patrimônio por ano. <b>Taxa maior → meta MENOR e FI mais cedo, porém mais risco de o dinheiro acabar</b> — veja a Fronteira da taxa de retirada abaixo.</div>
         </div>
         ` : `
         <div class="slider-group">
@@ -7403,6 +8367,9 @@ function renderFI() {
             <div><div class="text-sm text-muted mb-4">Renda passiva mensal</div><div style="font-size:22px;font-weight:700;color:var(--green)">${fmt(fiRes.wealth * fiRate()/100/12)}</div></div>
           </div>
         ` : `<div style="color:var(--text-muted);padding:20px 0">FI não atingida no horizonte de ${S.assumptions.projectionYears} anos. Aumente a poupança ou o horizonte.</div>`}
+        <div class="text-sm text-muted mt-12">${goals.length
+          ? `Já desconta ${goals.length} objetivo(s) da Linha da Vida — ${fmtK(goalsTot)} em valores de hoje.`
+          : 'Nenhum objetivo cadastrado na Linha da Vida.'}</div>
       </div>
     </div>
 
@@ -7419,7 +8386,7 @@ function renderFI() {
         ${S.fi.mode === 'swr' ? `
         <div class="concept-block">
           <div class="cb-title" style="color:var(--accent)">Taxa de retirada — "quão duro o pote trabalha"</div>
-          <div class="cb-text">A fração do patrimônio que você assume poder sacar por ano sem quebrar. Taxa maior → o mesmo saque cabe num pote <b>menor</b> (meta cai), mas o risco de o dinheiro acabar <b style="color:var(--red)">sobe</b> — veja o Trade-off e a Sobrevivência pós-FI abaixo.</div>
+          <div class="cb-text">A fração do patrimônio que você assume poder sacar por ano sem quebrar. Taxa maior → o mesmo saque cabe num pote <b>menor</b> (meta cai), mas o risco de o dinheiro acabar <b style="color:var(--red)">sobe</b> — veja a Fronteira da taxa de retirada abaixo.</div>
         </div>` : `
         <div class="concept-block">
           <div class="cb-title" style="color:var(--accent)">Juro real esperado — "o pote nunca encolhe"</div>
@@ -7466,148 +8433,335 @@ function renderFI() {
       </div>
     </div>
 
-    ${mcd ? `
-    <div class="card mb-16">
-      <div class="card-title">Sobrevivência pós-FI — o dinheiro dura? ${infoBtn('mcdecum')}</div>
-      <div class="grid-3" style="gap:14px;align-items:center">
-        <div style="text-align:center;padding:14px;border-radius:var(--r-sm);background:${mcd.successRate >= 90 ? 'var(--green-dim)' : mcd.successRate >= 75 ? 'var(--accent-dim)' : 'var(--red-dim)'}">
-          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Taxa de Sucesso</div>
-          <div style="font-size:30px;font-weight:800;color:${mcd.successRate >= 90 ? 'var(--green)' : mcd.successRate >= 75 ? 'var(--yellow)' : 'var(--red)'}">${fmtPct(mcd.successRate)}</div>
-          <div style="font-size:11px;color:var(--text-muted)">dos cenários, o dinheiro dura até os ${mcd.horizonAge}</div>
-        </div>
-        <div style="text-align:center;padding:14px">
-          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Patrimônio aos ${mcd.horizonAge} (mediana)</div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent)">${mcd.medianFinal != null ? fmtK(mcd.medianFinal) : '—'}</div>
-          <div style="font-size:11px;color:var(--text-muted)">P10: ${mcd.p10Final != null ? fmtK(mcd.p10Final) : '—'}</div>
-        </div>
-        <div style="text-align:center;padding:14px">
-          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Quando falha, falha aos</div>
-          <div style="font-size:22px;font-weight:700;color:var(--red)">${mcd.medianRuinAge != null ? Math.round(mcd.medianRuinAge) + ' anos' : 'nunca'}</div>
-          <div style="font-size:11px;color:var(--text-muted)">idade mediana da ruína (${(100 - mcd.successRate).toFixed(0)}% dos casos)</div>
-        </div>
-      </div>
-      <div class="mt-12 text-sm text-muted" style="text-align:center">
-        Aposenta ao atingir a FI (ou aos ${S.assumptions.retirementAge}) e saca ${fmt(mcd.saque)}/mês em valores de hoje, sem cortar gasto em ano ruim — o teste mais duro.
-      </div>
-    </div>` : ''}
+    <div class="card mb-16" id="fi-sim">${_fiSimCardInner()}</div>
 
-    ${mc ? `
     <div class="card mb-16">
-      <div class="card-title">Monte Carlo — chegada à FI (${mc.sims} simulações, vol. ${fmtPct(portfolioVol())} a.a.) ${infoBtn('montecarlo')}</div>
-      <div class="grid-3" style="gap:14px">
-        <div style="text-align:center;padding:14px;border-radius:var(--r-sm);background:var(--green-dim)">
-          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Otimista (P10)</div>
-          <div style="font-size:22px;font-weight:700;color:var(--green)">${fmtMC(mc.p10)}</div>
-          <div style="font-size:12px;color:var(--text-muted)">${(mc.p10/12).toFixed(1)} anos</div>
+      <div class="card-title">Acompanhamento — o plano está se confirmando? ${infoBtn('acomp')}</div>
+      <div class="fi-strip">
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Data da FI · últimos 12 meses</div>
+          ${dFi12 == null ? `<div class="fi-stat-val" style="color:var(--text-muted)">—</div><div class="fi-stat-sub">precisa de 12 meses de histórico com a FI no horizonte</div>` : `
+          <div class="fi-stat-val" style="color:${dFi12 < 0 ? 'var(--green)' : dFi12 > 0 ? 'var(--red)' : 'var(--text)'}">${dFi12 === 0 ? 'parada' : (dFi12 < 0 ? 'adiantou ' : 'atrasou ') + fmtMeses(Math.abs(dFi12))}</div>
+          <div class="fi-stat-sub">há 12 meses: ${fmtMC(h12.m)} → hoje: ${fmtMC(hNow.m)}</div>`}
         </div>
-        <div style="text-align:center;padding:14px;border-radius:var(--r-sm);background:var(--accent-dim)">
-          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Mediana (P50)</div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent)">${fmtMC(mc.p50)}</div>
-          <div style="font-size:12px;color:var(--text-muted)">${(mc.p50/12).toFixed(1)} anos</div>
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Retorno real · ${rr36 ? rr36.n : 36} meses</div>
+          ${rr36 ? `
+          <div class="fi-stat-val" style="color:${!rrOk ? "var(--text-muted)" : rr36.pct - prem >= -0.5 ? 'var(--green)' : rr36.pct - prem >= -1.5 ? 'var(--yellow)' : 'var(--red)'}">${fmtPct(rr36.pct)}<small style="font-size:12px;color:var(--text-muted);font-weight:500"> a.a.</small></div>
+          <div class="fi-stat-sub">premissa da projeção: ${fmtPct(prem)} · ${rr36.pct >= prem ? '+' : '−'}${fmtAnos(Math.abs(rr36.pct - prem))} pp${rr36.suspect ? avisoDado(rr36.suspect, rr36.n, 'Rentabilidade') : ''}</div>`
+          : `<div class="fi-stat-val" style="color:var(--text-muted)">—</div><div class="fi-stat-sub">precisa de 12 meses de rentabilidade</div>`}
         </div>
-        <div style="text-align:center;padding:14px;border-radius:var(--r-sm);background:var(--red-dim)">
-          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px">Conservador (P90)</div>
-          <div style="font-size:22px;font-weight:700;color:var(--red)">${fmtMC(mc.p90)}</div>
-          <div style="font-size:12px;color:var(--text-muted)">${(mc.p90/12).toFixed(1)} anos</div>
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Aporte médio · 12 meses</div>
+          ${sv12 ? `
+          <div class="fi-stat-val" style="color:${!svOk || plan <= 0 ? 'var(--text)' : sv12.avg / plan >= 0.95 ? 'var(--green)' : sv12.avg / plan >= 0.8 ? 'var(--yellow)' : 'var(--red)'}">${fmtK(Math.max(0, sv12.avg))}<small style="font-size:12px;color:var(--text-muted);font-weight:500">/mês</small></div>
+          <div class="fi-stat-sub">a projeção conta com ${fmt(plan)}/mês${plan > 0 ? ` · ${sv12.avg >= plan ? '+' : '−'}${fmtPct(Math.abs(sv12.avg / plan - 1) * 100)}` : ''}${sv12.mixed ? avisoDado(sv12.mixed, sv12.n, 'o aporte separado do imóvel') : ''}</div>`
+          : `<div class="fi-stat-val" style="color:var(--text-muted)">—</div><div class="fi-stat-sub">precisa de 6 meses de aporte</div>`}
+        </div>
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Taxa de saque implícita</div>
+          ${pad ? `
+          <div class="fi-stat-val" style="color:${pad.rate <= curRate ? 'var(--green)' : pad.rate <= curRate * 1.5 ? 'var(--accent)' : 'var(--yellow)'}">${fmtPct(pad.rate)}<small style="font-size:12px;color:var(--text-muted);font-weight:500"> a.a.</small></div>
+          <div class="fi-stat-sub">se parasse hoje: gasto real de ${fmt(pad.gasMes)}/mês ÷ patrimônio. FI do padrão atual em ${fmtPct(curRate)}</div>`
+          : `<div class="fi-stat-val" style="color:var(--text-muted)">—</div><div class="fi-stat-sub">precisa de 10 meses de gasto</div>`}
         </div>
       </div>
-      <div class="mt-12 text-sm text-muted" style="text-align:center">
-        Probabilidade de atingir a FI dentro do horizonte de ${S.assumptions.projectionYears} anos:
-        <strong style="color:${mc.probInHorizon >= 80 ? 'var(--green)' : mc.probInHorizon >= 50 ? 'var(--yellow)' : 'var(--red)'}">${fmtPct(mc.probInHorizon)}</strong>
-        · 80% dos cenários caem entre ${fmtMC(mc.p10)} e ${fmtMC(mc.p90)}
+      <div class="grid-2" style="gap:22px">
+        <div>
+          <div class="fi-chart-t">Data projetada da FI, fechamento a fechamento</div>
+          <div class="chart-wrap" style="height:210px"><canvas id="ch-fi-hist"></canvas></div>
+          <div class="fi-chart-n">O patrimônio de cada mês projetado com as premissas de hoje. Linha descendo = FI chegando mais cedo.</div>
+        </div>
+        <div>
+          <div class="fi-chart-t">Taxa de saque implícita</div>
+          <div class="chart-wrap" style="height:210px"><canvas id="ch-fi-swr"></canvas></div>
+          <div class="fi-chart-n">Gasto real de 12 meses ÷ patrimônio investível. Quando cruza a linha, o padrão de vida de hoje já se paga.</div>
+        </div>
       </div>
-    </div>` : ''}
+      <div class="fi-read">
+        ${(() => {
+          const t = [];
+          if (real && !(rrOk && svOk)) {
+            t.push(`<span style="color:var(--yellow)">⚠</span> <b>Premissa × realizado ainda não é confiável.</b> ${!rrOk ? `${rr36.suspect} dos ${rr36.n} meses não têm a Rentabilidade da planilha e já tinham imóvel — o recálculo trata o aporte no imóvel como prejuízo de mercado.` : ''} ${!svOk ? `${sv12.mixed} dos ${sv12.n} meses não separam o aporte do imóvel (apoPL), então o aporte ao investível sai inflado.` : ''} Sincronize as colunas na planilha antes de tirar conclusão daqui.`);
+          } else if (real && real.fi && fiRes) {
+            const dm = real.fi.months - fiRes.months;
+            t.push(`<b>Se o futuro repetir o passado</b> — retorno real de ${fmtPct(real.rr.pct)} e aporte de ${fmt(real.sv.avg)}/mês — a FI chega em <b>${fmtMC(real.fi.months)}</b>, aos ${ageAt(real.fi.months)}: ` +
+              (Math.abs(dm) < 3 ? 'praticamente a data oficial. As premissas estão calibradas.'
+                : `<b style="color:${dm < 0 ? 'var(--green)' : 'var(--red)'}">${fmtMeses(Math.abs(dm))} ${dm < 0 ? 'antes' : 'depois'}</b> da data oficial. ${dm < 0 ? 'A projeção está conservadora — ótimo, desde que você não suba a premissa só porque o passado foi bom.' : 'A projeção está otimista: ou o realizado melhora, ou a data oficial é promessa.'}`));
+          } else if (real && !real.fi) {
+            t.push(`<b>Se o futuro repetir o passado</b> — retorno real de ${fmtPct(real.rr.pct)} e aporte de ${fmt(real.sv.avg)}/mês — a FI <b style="color:var(--red)">sai do horizonte</b> de ${S.assumptions.projectionYears} anos. A data oficial depende de premissas que o histórico ainda não entregou.`);
+          }
+          if (pad) {
+            t.push(`Seu padrão de vida real (${fmt(pad.gasMes)}/mês nos últimos 12 meses) pede <b>${fmtK(pad.fin)}</b>. Você já tem ${fmtPct(Math.min(100, pad.pct))} disso` +
+              (pad.m === 0 ? ' — <b style="color:var(--green)">já é FI do padrão atual</b>.' : pad.m != null ? ` e chega lá em <b>${fmtMC(pad.m)}</b>, aos ${ageAt(pad.m)}.` : '.') +
+              (tgt > pad.gasMes * 1.1 ? ` A renda-alvo de ${fmt(tgt)} fica ${fmtPct(tgt / pad.gasMes * 100 - 100)} acima do gasto real: é essa folga que empurra a FI oficial para ${fiRes ? fiRes.date.getFullYear() : 'depois'}.` : ''));
+          }
+          return t.map(x => `<p>${x}</p>`).join('');
+        })()}
+      </div>
+    </div>
+
+    <div class="card mb-16">
+      <div class="card-title">A jornada inteira — da acumulação ao último saque ${infoBtn('jornada')}</div>
+      <div class="fi-strip">
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Chega à FI (mediana) ${infoBtn('montecarlo')}</div>
+          ${life.fiP50 != null ? `
+            <div class="fi-stat-val" style="color:var(--accent)">aos ${ageAt(life.fiP50)}</div>
+            <div class="fi-stat-sub">${fmtMC(life.fiP50)} · 80% dos cenários entre ${ageAt(life.fiP10)} e ${life.fiP90 != null ? ageAt(life.fiP90) : `<b style="color:var(--red)">nunca</b>`}</div>`
+          : `
+            <div class="fi-stat-val" style="color:var(--red)">não chega</div>
+            <div class="fi-stat-sub">menos da metade das simulações bate a meta${life.fiP10 != null ? ` · no cenário bom, aos ${ageAt(life.fiP10)}` : ''}</div>`}
+        </div>
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Chance de bater a meta</div>
+          <div class="fi-stat-val" style="color:${succCol(life.reachPct)}">${fmtPct(life.reachPct)}</div>
+          <div class="fi-stat-sub">${life.retAge !== Infinity ? `antes da aposentadoria aos ${life.retAge} — depois disso o saque começa de qualquer jeito` : `até os ${life.horizonAge}`}</div>
+        </div>
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Dinheiro dura até os ${life.horizonAge} ${infoBtn('mcdecum')}</div>
+          <div class="fi-stat-val" style="color:${succCol(life.successRate)}">${fmtPct(life.successRate)}</div>
+          <div class="fi-stat-sub">sacando ${fmt(tgt)}/mês sem nunca cortar</div>
+        </div>
+        <div class="fi-stat">
+          <div class="fi-stat-lbl">Quando falha</div>
+          <div class="fi-stat-val" style="color:${life.medianRuinAge != null ? 'var(--red)' : 'var(--green)'}">${life.medianRuinAge != null ? `aos ${Math.round(life.medianRuinAge)}` : 'nunca'}</div>
+          <div class="fi-stat-sub">${life.medianRuinAge != null ? `idade mediana em que o dinheiro acaba, nos ${fmtPct(100 - life.successRate)} que quebram` : 'nenhuma das simulações quebrou'}</div>
+        </div>
+      </div>
+      <div class="chart-wrap chart-tall"><canvas id="ch-fi"></canvas></div>
+      <div class="fi-read">
+        ${(() => {
+          const t = [];
+          if (fiRes && life.fiP50 != null) {
+            const dm = life.fiP50 - fiRes.months;
+            if (dm >= 6) t.push(`A data do card acima (${fiRes.date.getFullYear()}) é o caminho médio, sem solavanco. Com a oscilação real da carteira (${fmtPct(life.vol)} a.a.), a mediana chega <b>${fmtAnos(dm / 12)} ano(s) depois</b>: o mesmo retorno médio, entregue aos trancos, compõe menos.`);
+          }
+          t.push(`Faixas = onde caem 50% e 80% das ${life.sims} trajetórias. Depois da FI o patrimônio passa a pagar ${fmt(tgt)}/mês em valores de hoje${goals.length ? `; os ${goals.length} objetivo(s) da Linha da Vida saem da carteira nas datas cadastradas` : ''}.${Math.max(...life.fan.p75) > fin * 2.5 ? ` Eixo cortado em ${fmtK(fin * 2.5)} (2,5× a meta) — acima disso é folga, não decisão.` : ''}`);
+          return t.map(x => `<p>${x}</p>`).join('');
+        })()}
+      </div>
+    </div>
 
     <div class="grid-2 mb-16">
       <div class="card">
-        <div class="card-title">Sensibilidade — Retorno x Data FI</div>
-        <div class="table-wrap">
-          <table class="sensitivity">
-            <thead><tr><th>Retorno a.a.</th><th>Delta</th><th>Data FI</th><th>Anos</th></tr></thead>
-            <tbody>${sensi.map(s=>`
-              <tr>
-                <td class="bold">${fmtPct(s.ret)}</td>
-                <td style="color:${s.delta>0?'var(--green)':s.delta<0?'var(--red)':'var(--text-muted)'}">${s.delta===0?'Base':(s.delta>0?'+':'')+s.delta+'%'}</td>
-                <td class="${s.delta===0?'highlight':s.delta>0?'good':'bad'}">${s.fi?s.fi.date.getFullYear()+'/'+String(s.fi.date.getMonth()+1).padStart(2,'0'):'> horizonte'}</td>
-                <td>${s.fi?Math.floor(s.fi.months/12):'—'}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
+        <div class="card-title">Quanto dá pra sacar ${infoBtn('saqueseguro')}</div>
+        <div class="fi-wd">
+          <div class="fi-wd-row">
+            <span class="fi-wd-lbl">Sua renda-alvo</span>
+            <span class="fi-wd-val">${fmt(tgt)}<small>/mês</small></span>
+            <span class="fi-wd-aux" style="color:${succCol(life.successRate)}">${fmtPct(life.successRate)} de sucesso</span>
+          </div>
+          ${[[90, life.safe90], [95, life.safe95]].map(([c, v]) => `
+          <div class="fi-wd-row">
+            <span class="fi-wd-lbl">Com ${c}% de confiança</span>
+            <span class="fi-wd-val">${v != null ? fmt(v) + '<small>/mês</small>' : '—'}</span>
+            <span class="fi-wd-aux" style="color:${v == null ? 'var(--text-muted)' : v >= tgt ? 'var(--green)' : 'var(--red)'}">${v == null ? '' : (v >= tgt ? '+' : '−') + fmtPct(Math.abs(v / tgt - 1) * 100) + ' vs alvo'}</span>
+          </div>`).join('')}
+        </div>
+        <div class="fi-read"><p>${life.safe90 == null ? 'Nas simulações você não chega a aposentar antes dos ' + life.horizonAge + ' — não há saque para testar.'
+          : life.safe90 >= tgt
+            ? `Folga: aposentando quando bater a meta, a carteira aguenta até <b>${fmt(life.safe90)}/mês</b> com 90% de confiança — ${fmtPct((life.safe90 / tgt - 1) * 100)} acima do que você planeja gastar.`
+            : `Para 90% de confiança, o saque teria que cair para <b>${fmt(life.safe90)}/mês</b> (−${fmtPct((1 - life.safe90 / tgt) * 100)}). Ou isso, ou a meta sobe — taxa de retirada menor, aposentadoria mais tarde.`}</p></div>
+        <hr class="sep">
+        <div class="cb-title" style="color:var(--accent)">E se você for flexível?</div>
+        <div class="text-sm text-muted mb-8">Regra simples: enquanto a carteira estiver abaixo de ${fmtPct(life.flex.floor * 100)} do valor com que você se aposentou, o saque cai ${fmtPct(life.flex.cut * 100)}.</div>
+        <div class="fi-flex">
+          <div><div class="fi-stat-lbl">Saque fixo</div><div class="fi-flex-val" style="color:${succCol(life.successRate)}">${fmtPct(life.successRate)}</div></div>
+          <div class="fi-flex-arrow">→</div>
+          <div><div class="fi-stat-lbl">Com corte</div><div class="fi-flex-val" style="color:${succCol(life.flexSuccess)}">${fmtPct(life.flexSuccess)}</div></div>
+          <div class="fi-flex-note">${life.flexSuccess - life.successRate >= 0.5
+            ? `<b>+${fmtAnos(life.flexSuccess - life.successRate)} pp</b> de sucesso. O preço: em média, ${fmtPct(life.flexCutShare)} da aposentadoria vivendo com ${fmt(tgt * (1 - life.flex.cut))}/mês.`
+            : `Quase não muda — ${life.successRate >= 95 ? 'o plano já sobrevive sem precisar apertar.' : 'o problema é o tamanho do pote, não a disciplina no saque.'}`}</div>
         </div>
       </div>
+
       <div class="card">
-        <div class="card-title">Sensibilidade — Poupança Adicional x Data FI</div>
-        <div class="table-wrap">
-          <table class="sensitivity">
-            <thead><tr><th>Δ Poupança/mês</th><th>Data FI</th><th>Anos</th></tr></thead>
-            <tbody>${sensiSavings.map(s=>`
-              <tr>
-                <td class="${s.delta>0?'green':s.delta<0?'red':''}">${s.delta===0?'Atual':(s.delta>0?'+':'')+fmt(s.delta)}</td>
-                <td class="${s.delta===0?'highlight':s.delta>0?'good':'bad'}">${s.months?2026+Math.floor(s.months/12)+'/'+(1+(s.months%12||0)).toString().padStart(2,'0'):'> horizonte'}</td>
-                <td>${s.months?Math.floor(s.months/12):'—'}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
+        <div class="card-title">Fronteira da taxa de retirada ${infoBtn('fronteira')}</div>
+        <div class="chart-wrap" style="height:260px"><canvas id="ch-fi-front"></canvas></div>
+        <div class="fi-read">
+          ${(() => {
+            const i = frontier.findIndex(f => f.atual), cur = frontier[i];
+            const rd = f => fmtPct(f.rt);
+            const t = [];
+            const lo = frontier[i - 1], hi = frontier[i + 1];
+            const sTxt = (f, verbo) => Math.abs(f.succ - cur.succ) < 0.5
+              ? `e o sucesso fica em <b style="color:${succCol(f.succ)}">${fmtPct(f.succ)}</b> — ${verbo === 'sobe' ? 'tempo pago por uma segurança que você já tem' : 'antecipação sem custo em segurança'}`
+              : `e ${verbo === 'sobe' ? 'leva' : 'derruba'} o sucesso para <b style="color:${succCol(f.succ)}">${fmtPct(f.succ)}</b>`;
+            if (lo) t.push(`Descer para <b>${rd(lo)}</b> ${lo.fiP50 == null ? 'tira a FI do alcance na mediana' : `atrasa a FI em ${fmtAnos(Math.max(0, lo.fiP50 - (cur.fiP50 ?? lo.fiP50)) / 12)} ano(s)`} ${sTxt(lo, 'sobe')}.`);
+            if (hi) t.push(`Subir para <b>${rd(hi)}</b> ${hi.fiP50 != null && cur.fiP50 != null ? `adianta ${fmtAnos(Math.max(0, cur.fiP50 - hi.fiP50) / 12)} ano(s)` : 'antecipa a FI'} ${sTxt(hi, 'cai')}.`);
+            const fora = frontier.filter(f => f.fiP50 == null).map(rd);
+            if (fora.length) t.push(`<span class="text-muted">Fora do gráfico (não chega na mediana): ${fora.join(', ')}.</span>`);
+            return t.map(x => `<p>${x}</p>`).join('');
+          })()}
         </div>
       </div>
     </div>
 
-    ${sensiRate ? `
-    <div class="card mb-16">
-      <div class="card-title">Trade-off da Taxa de Retirada — meta menor ≠ plano melhor</div>
-      <div class="table-wrap">
-        <table class="sensitivity">
-          <thead><tr><th>Taxa</th><th class="r">Meta FI</th><th class="r">Anos até a FI</th><th class="r">Sucesso pós-FI (até os 90)</th></tr></thead>
-          <tbody>${sensiRate.map(s => `
-            <tr class="${s.atual ? 'sim-best' : ''}">
-              <td class="bold">${fmtPct(s.rt)}${s.atual ? ' <span class="sim-badge">atual</span>' : ''}</td>
-              <td class="r">${fmtK(s.meta)}</td>
-              <td class="r">${s.anos != null ? s.anos.toFixed(1) : '> horizonte'}</td>
-              <td class="r" style="color:${s.succ >= 90 ? 'var(--green)' : s.succ >= 75 ? 'var(--yellow)' : 'var(--red)'};font-weight:700">${fmtPct(s.succ)}</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="text-sm text-muted mt-8">Taxa maior = meta menor e FI mais cedo, porém <b style="color:var(--red)">maior risco de o dinheiro acabar</b>. A taxa é a premissa de quanto dá pra sacar do patrimônio por ano — agressividade, não rendimento.</div>
-    </div>` : ''}
-
     <div class="card">
-      <div class="card-title">Projeção Rumo à FI — Cenário Base</div>
-      <div class="chart-wrap chart-tall"><canvas id="ch-fi"></canvas></div>
+      <div class="card-title">O que mexe o ponteiro ${infoBtn('tornado')}</div>
+      <div class="tor">
+        <div class="tor-h">
+          <span>Alavanca</span><span></span>
+          <span class="tor-h-track"><i>atrasa a FI</i><i>adianta a FI</i></span>
+          <span class="r">Data FI</span><span class="r">Sucesso até os ${life.horizonAge}</span>
+        </div>
+        ${levers.map(L => L.vars.map((v, j) => {
+          const late = v.naoChega || (v.dFi || 0) > 0;
+          const wPct = v.naoChega ? 50 : Math.abs(v.dFi || 0) / torMax * 50;
+          const dTxt = v.naoChega ? 'não chega' : v.dFi == null ? '—' : Math.abs(v.dFi) < 0.05 ? 'igual' : (v.dFi > 0 ? '+' : '−') + fmtAnos(Math.abs(v.dFi)) + ' anos';
+          return `<div class="tor-row${j === 0 ? ' tor-first' : ''}">
+            <span class="tor-lbl">${j === 0 ? L.label : ''}</span>
+            <span class="tor-var">${v.txt}</span>
+            <span class="tor-track"><span class="tor-bar ${late ? 'late' : 'early'}" style="width:${wPct}%"></span></span>
+            <span class="r tor-d" style="color:${v.naoChega || (v.dFi || 0) > 0.05 ? 'var(--red)' : (v.dFi || 0) < -0.05 ? 'var(--green)' : 'var(--text-muted)'}">${dTxt}</span>
+            <span class="r tor-s"><b style="color:${succCol(v.succ)}">${fmtPct(v.succ)}</b> <small style="color:${v.dSucc > 0.5 ? 'var(--green)' : v.dSucc < -0.5 ? 'var(--red)' : 'var(--text-muted)'}">${Math.abs(v.dSucc) < 0.5 ? '=' : (v.dSucc > 0 ? '+' : '−') + fmtAnos(Math.abs(v.dSucc)) + ' pp'}</small></span>
+          </div>`;
+        }).join('')).join('')}
+      </div>
+      <div class="fi-read"><p>Cada linha muda uma premissa e roda as mesmas ${life.sims} trajetórias da base — a diferença é efeito da alavanca, não sorte de sorteio. Base: FI ${life.fiP50 != null ? `aos ${ageAt(life.fiP50)}` : 'fora do alcance'}, ${fmtPct(life.successRate)} de sucesso. Ordenado pelo impacto na data.</p></div>
     </div>
   `;
 
-  if (base) {
-    requestAnimationFrame(() => {
-      const step   = Math.max(1, Math.floor(base.path.length/120));
-      const pts    = base.path.filter((_,i)=>i%step===0);
-      const fiStart = projectionStart().date;
-      const labels = pts.map(p => { const d = new Date(fiStart.getFullYear(), fiStart.getMonth()+p.m, 1); return d.getFullYear()+(d.getMonth()===0?'':''); });
-      destroyChart('fi');
-      activeCharts.fi = new Chart(document.getElementById('ch-fi'), {
-        type:'line',
-        data:{
-          labels,
-          datasets:[
-            { label:'Patrimônio Projetado', data:pts.map(p=>p.w), borderColor:'#4f8ef7', backgroundColor:'#4f8ef720', fill:true, tension:.4, pointRadius:0, borderWidth:2 },
-            { label:'Meta FI', data:pts.map(()=>fin), borderColor:'#fbbf2466', borderDash:[8,5], borderWidth:1.5, pointRadius:0 },
-          ]
-        },
-        options:{
-          responsive:true, maintainAspectRatio:false,
-          interaction:{mode:'index',intersect:false},
-          plugins:{
-            legend:{labels:{color:'#8ca3c1',font:{size:11}}},
-            tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${fmtK(c.parsed.y)}`}}
+  requestAnimationFrame(() => {
+    if (!document.getElementById('ch-fi')) return;
+    const tick = { color:'#8ca3c1', font:{ size:10 } };
+    const grid = { color:'#1e2d4240' };
+
+    // Leque P10–P90 / P25–P75 + mediana, de hoje até o horizonte, eixo em idade
+    const F = life.fan;
+    const ages = F.p50.map((_, k) => age0 + k);
+    // A cauda de cima (patrimônio sobrando aos 85) não decide nada e esmaga a zona que
+    // importa — perto da meta e perto do zero. Corta em 2,5× a meta quando passa disso.
+    const topo = Math.max(...F.p75);
+    const yMax = topo > fin * 2.5 ? fin * 2.5 : Math.max(fin * 1.3, topo * 1.1);
+    const annFan = {};
+    if (life.fiP50 != null) annFan.fi = {
+      type:'line', xMin: life.fiP50 / 12, xMax: life.fiP50 / 12, borderColor:'#34d39999', borderWidth:1.5, borderDash:[4,4],
+      label:{ display:true, content:`FI mediana · ${ageAt(life.fiP50)}`, position:'start', color:'#34d399', backgroundColor:'#0a0c12cc', font:{ size:10 } },
+    };
+    if (life.retAge !== Infinity && life.retAge > age0 && life.retAge < life.horizonAge) annFan.ret = {
+      type:'line', xMin: life.retAge - age0, xMax: life.retAge - age0, borderColor:'#8b94a766', borderWidth:1, borderDash:[2,4],
+      label:{ display:true, content:`aposentadoria ${life.retAge}`, position:'end', color:'#8b94a7', backgroundColor:'#0a0c12cc', font:{ size:10 } },
+    };
+    const nm = ['P10', 'P90', 'P25', 'P75', 'Mediana', 'Meta FI'];
+    destroyChart('fi');
+    activeCharts.fi = new Chart(document.getElementById('ch-fi'), {
+      type:'line',
+      data:{
+        labels: ages,
+        datasets:[
+          { label:'_p10', data:F.p10, borderWidth:0, pointRadius:0, fill:false },
+          { label:'80% dos cenários', data:F.p90, borderWidth:0, pointRadius:0, fill:'-1', backgroundColor:'#6395ff1f' },
+          { label:'_p25', data:F.p25, borderWidth:0, pointRadius:0, fill:false },
+          { label:'Metade dos cenários', data:F.p75, borderWidth:0, pointRadius:0, fill:'-1', backgroundColor:'#6395ff3d' },
+          { label:'Mediana', data:F.p50, borderColor:'#6395ff', borderWidth:2, pointRadius:0, tension:.3, fill:false },
+          { label:'Meta FI', data:ages.map(() => fin), borderColor:'#fbbf2488', borderDash:[8,5], borderWidth:1.5, pointRadius:0, fill:false },
+        ],
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ labels:{ color:'#8ca3c1', font:{ size:11 }, boxWidth:14, filter: it => !it.text.startsWith('_') } },
+          annotation:{ annotations: annFan },
+          tooltip:{
+            itemSort:(a, b) => b.parsed.y - a.parsed.y,
+            callbacks:{
+              title: it => `aos ${it[0].label} anos`,
+              label: c => ` ${nm[c.datasetIndex]}: ${fmtK(c.parsed.y)}`,
+            },
           },
-          scales:{
-            x:{grid:{color:'#1e2d4230'},ticks:{color:'#8ca3c1',font:{size:10},maxTicksLimit:15}},
-            y:{grid:{color:'#1e2d4250'},ticks:{color:'#8ca3c1',font:{size:10},callback:v=>fmtK(v)}}
-          }
-        }
-      });
+        },
+        scales:{
+          x:{ grid, ticks:{ ...tick, maxTicksLimit:14 } },
+          y:{ grid, min:0, max:yMax, ticks:{ ...tick, maxTicksLimit:6, callback:v => fmtK(v) } },
+        },
+      },
     });
-  }
+
+    fiSimUpdate();
+
+    // Acompanhamento 1: data projetada da FI em cada fechamento (em ano decimal)
+    const MES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+    const toYr  = m => projStart.getFullYear() + (projStart.getMonth() + m) / 12;
+    const fmtYr = v => { const y = Math.floor(v + 1e-6), mo = Math.round((v - y) * 12) % 12; return `${MES[mo]}/${String(y).slice(2)}`; };
+    const histYs = hist.filter(x => x.m != null).map(x => toYr(x.m));
+    const histMid = histYs.length ? (Math.min(...histYs) + Math.max(...histYs)) / 2 : toYr(0);
+    destroyChart('fihist');
+    activeCharts.fihist = new Chart(document.getElementById('ch-fi-hist'), {
+      type:'line',
+      data:{ labels: hist.map(x => monthLabel(x.d)), datasets:[{
+        data: hist.map(x => x.m == null ? null : toYr(x.m)),
+        borderColor:'#6395ff', backgroundColor:'#6395ff', borderWidth:2, tension:.25,
+        pointRadius: hist.map((x, i) => i === hist.length - 1 || x === h12 ? 4 : 0),
+        pointBackgroundColor: hist.map((x, i) => i === hist.length - 1 ? '#ecf0f6' : '#6395ff'),
+      }] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false },
+          tooltip:{ callbacks:{ label: c => ` FI projetada: ${fmtYr(c.parsed.y)}` } } },
+        scales:{
+          x:{ grid, ticks:{ ...tick, maxTicksLimit:8, maxRotation:0 } },
+          // janela mínima de 2 anos: oscilação de poucos meses não pode parecer montanha-russa
+          y:{ grid, suggestedMin: histMid - 1, suggestedMax: histMid + 1, ticks:{ ...tick, maxTicksLimit:6, callback: fmtYr } },
+        },
+      },
+    });
+
+    // Acompanhamento 2: taxa de saque implícita contra a taxa da meta
+    destroyChart('fiswr');
+    activeCharts.fiswr = new Chart(document.getElementById('ch-fi-swr'), {
+      type:'line',
+      data:{ labels: swr.map(x => monthLabel(x.d)), datasets:[{
+        data: swr.map(x => x.pct), borderColor:'#22d3ee', backgroundColor:'#22d3ee1a', fill:true,
+        borderWidth:2, tension:.25, pointRadius:0,
+      }] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ display:false },
+          annotation:{ annotations:{ meta:{ type:'line', yMin:curRate, yMax:curRate, borderColor:'#34d39999', borderWidth:1.5, borderDash:[6,4],
+            label:{ display:true, content:`FI do padrão atual · ${fmtPct(curRate)}`, position:'start', color:'#34d399', backgroundColor:'#0a0c12cc', font:{ size:10 } } } } },
+          tooltip:{ callbacks:{ label: c => ` saque implícito: ${fmtPct(c.parsed.y)} a.a.` } } },
+        scales:{
+          x:{ grid, ticks:{ ...tick, maxTicksLimit:8, maxRotation:0 } },
+          y:{ grid, min:0, suggestedMax: curRate * 1.5, ticks:{ ...tick, maxTicksLimit:6, callback: v => fmtPct(v) } },
+        },
+      },
+    });
+
+    // Fronteira: idade da FI × chance de o dinheiro durar, um ponto por taxa
+    const pts = frontier.filter(f => f.fiP50 != null).map(f => ({ x: age0 + f.fiP50 / 12, y: f.succ, f }));
+    const annFr = {};
+    pts.forEach((p, i) => { annFr['l' + i] = {
+      // alterna acima/abaixo: perto de 100% os pontos encostam e os rótulos se atropelam
+      type:'label', xValue:p.x, yValue:p.y, yAdjust: i % 2 ? 15 : -14, content: fmtPct(p.f.rt) + (p.f.atual ? ' · atual' : ''),
+      color: p.f.atual ? '#ecf0f6' : '#8b94a7', font:{ size:10, weight: p.f.atual ? 'bold' : 'normal' },
+    }; });
+    destroyChart('fifront');
+    activeCharts.fifront = new Chart(document.getElementById('ch-fi-front'), {
+      type:'scatter',
+      data:{ datasets:[{
+        data: pts, showLine:true, borderColor:'#6395ff55', borderWidth:1.5,
+        pointRadius: pts.map(p => p.f.atual ? 7 : 4.5),
+        pointBackgroundColor: pts.map(p => p.y >= 90 ? '#34d399' : p.y >= 75 ? '#fbbf24' : '#f87171'),
+        pointBorderColor: pts.map(p => p.f.atual ? '#ecf0f6' : 'transparent'), pointBorderWidth:2,
+      }] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ top:18, right:24 } },
+        plugins:{
+          legend:{ display:false },
+          annotation:{ clip:false, annotations: annFr },
+          tooltip:{ callbacks:{ label: c => { const f = c.raw.f; return ` ${fmtPct(f.rt)}: FI aos ${Math.floor(c.raw.x)}, ${fmtPct(f.succ)} de sucesso`; } } },
+        },
+        scales:{
+          x:{ grid, ticks:{ ...tick, callback:v => Math.round(v) }, title:{ display:true, text:'idade na FI (mediana)', color:'#8b94a7', font:{ size:10 } } },
+          y:{ grid, suggestedMin:50, max:100, ticks:{ ...tick, callback:v => v + '%' }, title:{ display:true, text:`dinheiro dura até os ${life.horizonAge}`, color:'#8b94a7', font:{ size:10 } } },
+        },
+      },
+    });
+  });
 }
 
 function fiSetMode(mode) {
@@ -7645,6 +8799,234 @@ function fiSliderInput(el, type) {
 }
 
 function fiSliderCommit() { saveState(); }
+
+// ── Simulador "e se…?" da aba FI — caixa de areia, nunca persiste ──
+// Cada chave undefined = valor atual do plano. Só o que foi mexido vira override,
+// então sem mexer nada o simulado é idêntico à base (mesmas trajetórias, mesmo memo).
+let fiSim = {};   // { aporte, gasto, ret, taxa, link }
+
+function _fiSimBase() {
+  const pad = fiCurrentLifestyle();
+  const expHoje = S.expenses.filter(e => e.active).reduce((s, e) => s + e.amount, 0);
+  return {
+    aporte: Math.round(plannedSavings() / 100) * 100,
+    gasto: S.fi.targetMonthlyIncome,
+    ret: Math.round(weightedReturnReal() * 10) / 10,
+    taxa: fiRate(),
+    gastoHoje: Math.round((pad ? pad.gasMes : expHoje) / 100) * 100,
+  };
+}
+
+// Valores efetivos + opções do motor. Aporte é delta sobre a poupança do plano (que cresce
+// com a renda): "aportar 5k" = poupança de hoje vira 5k e segue o mesmo perfil.
+function _fiSimCalc() {
+  const b = _fiSimBase();
+  const v = {
+    aporte: fiSim.aporte ?? b.aporte, gasto: fiSim.gasto ?? b.gasto,
+    ret: fiSim.ret ?? weightedReturnReal(), taxa: fiSim.taxa ?? b.taxa,
+  };
+  let dAp = fiSim.aporte != null ? fiSim.aporte - plannedSavings() : 0;
+  // "O gasto muda já": a diferença para o gasto real de hoje sai (ou entra) no aporte.
+  if (fiSim.link && fiSim.gasto != null) dAp -= fiSim.gasto - b.gastoHoje;
+  const o = {};
+  if (Math.abs(dAp) > 0.5) o.aporteDelta = dAp;
+  if (fiSim.gasto != null || fiSim.taxa != null) { o.saque = v.gasto; o.fiNum = v.gasto * 12 / (v.taxa / 100); }
+  if (fiSim.ret != null) o.rReal = fiSim.ret;
+  return { b, v, o, aporteEf: plannedSavings() + dAp, mexeu: Object.keys(o).length > 0 };
+}
+
+function _fiSimCardInner() {
+  const { b, v, aporteEf } = _fiSimCalc();
+  const swr = S.fi.mode === 'swr';
+  const sl = (key, label, val, min, max, step, txt) => `
+    <div class="slider-group">
+      <div class="slider-label-row">
+        <span class="slider-lbl">${label}${fiSim[key] != null ? ' <span class="fisim-dot" title="alterado"></span>' : ''}</span>
+        <span class="slider-val" id="fisim-v-${key}">${txt(val)}</span>
+      </div>
+      <input type="range" class="sc-slider" min="${min}" max="${max}" step="${step}" value="${val}"
+        oninput="fiSimSet('${key}', +this.value)" onchange="fiSimRefresh()">
+    </div>`;
+  const chip = (txt, js, on) => `<button class="fisim-chip${on ? ' on' : ''}" onclick="${js}">${txt}</button>`;
+  return `
+    <div class="card-title">Simulador — e se…? <span class="fisim-tag">não altera o plano</span></div>
+    <div class="fisim">
+      <div class="fisim-in">
+        <div class="fisim-chips">
+          ${chip('Gasto real de hoje', `fiSimPreset({gasto:${b.gastoHoje}})`, fiSim.gasto === b.gastoHoje)}
+          ${Object.keys(fiSim).some(k => fiSim[k] != null && k !== 'link') ? chip('↺ Voltar ao plano', 'fiSimReset()') : ''}
+        </div>
+        ${sl('aporte', 'Aporte mensal', v.aporte, 0, Math.max(50000, Math.ceil(b.aporte * 2 / 5000) * 5000), 500, x => fmt(x))}
+        <div class="fisim-note">${fiSim.link && fiSim.gasto != null ? `aporte efetivo, com a mudança de gasto: <b>${fmt(aporteEf)}</b>` : `plano atual: ${fmt(b.aporte)} (Fluxo de Caixa)`}</div>
+        ${sl('gasto', 'Gasto mensal na FI', v.gasto, 2000, Math.max(60000, Math.ceil(b.gasto * 2 / 5000) * 5000), 500, x => fmt(x))}
+        <label class="fisim-link"><input type="checkbox" ${fiSim.link ? 'checked' : ''} onchange="fiSimSet('link', this.checked)">
+          <span>O gasto muda <b>já</b>: a diferença para o seu gasto de hoje (${fmt(b.gastoHoje)}) sai do aporte</span></label>
+        ${sl('ret', 'Retorno real da carteira', Math.round(v.ret * 10) / 10, 0, 12, 0.1, x => fmtPct(x) + ' a.a.')}
+        ${sl('taxa', swr ? 'Taxa de retirada' : 'Juro real assumido', v.taxa, 2.5, 7, 0.1, x => fmtPct(x))}
+      </div>
+      <div class="fisim-out" id="fisim-out"></div>
+    </div>
+    <div class="fisim-leg" id="fisim-leg"></div>
+    <div class="chart-wrap" style="height:280px"><canvas id="ch-fi-sim"></canvas></div>`;
+}
+
+// Ao soltar o slider (onchange) o card é redesenhado: atalhos acesos, ● de alterado e
+// "Voltar ao plano" dependem do estado. Durante o arraste só os números e o gráfico mudam.
+function fiSimSet(key, val) {
+  fiSim[key] = val;
+  if (key === 'link') { fiSimRefresh(); return; }
+  const el = document.getElementById('fisim-v-' + key);
+  if (el) el.textContent = key === 'ret' ? fmtPct(val) + ' a.a.' : key === 'taxa' ? fmtPct(val) : fmt(val);
+  clearTimeout(fiSimSet._t);
+  fiSimSet._t = setTimeout(fiSimUpdate, 60);
+}
+function fiSimPreset(p) { Object.assign(fiSim, p); fiSimRefresh(); }
+function fiSimReset() { fiSim = { link: fiSim.link }; fiSimRefresh(); }
+function fiSimRefresh() {
+  const card = document.getElementById('fi-sim');
+  if (!card) return;
+  card.innerHTML = _fiSimCardInner();
+  fiSimUpdate();
+}
+
+function fiSimUpdate() {
+  const out = document.getElementById('fisim-out');
+  if (!out) return;
+  const { o, aporteEf, mexeu } = _fiSimCalc();
+  const base = lifeSim(), sim = lifeSim(o);
+  const age0 = base.age0, ps = projectionStart().date;
+  const ageAt = m => Math.floor(age0 + m / 12);
+  const dateAt = m => { const d = new Date(ps); d.setMonth(d.getMonth() + m); return d.toLocaleDateString('pt-BR', { month:'short', year:'numeric' }); };
+  const fiTxt = r => r.fiP50 != null ? `aos ${ageAt(r.fiP50)} <small>${dateAt(r.fiP50)}</small>` : '<span style="color:var(--red)">não chega</span>';
+  const faixa = r => r.fiP10 == null ? '—' : `${ageAt(r.fiP10)}–${r.fiP90 != null ? ageAt(r.fiP90) : 'nunca'}`;
+  const col = (d, bomSePositivo) => Math.abs(d) < 1e-9 ? 'var(--text-muted)' : (d > 0) === bomSePositivo ? 'var(--green)' : 'var(--red)';
+  const pp = (a, c) => { const d = c - a; return Math.abs(d) < 0.5 ? '=' : `<span style="color:${col(d, true)}">${d > 0 ? '+' : '−'}${fmtPct(Math.abs(d)).replace('%', '')} pp</span>`; };
+  const rel = (a, c, bomSePositivo) => { if (!a) return ''; const d = c / a - 1; return Math.abs(d) < 0.005 ? '=' : `<span style="color:${col(d, bomSePositivo)}">${d > 0 ? '+' : '−'}${fmtPct(Math.abs(d) * 100)}</span>`; };
+  const folga = r => {
+    if (r.safe90 == null) return '—';
+    const f = r.safe90 / r.saque - 1;
+    return `${fmt(r.safe90)} <small style="color:${f >= 0 ? 'var(--green)' : 'var(--red)'}">${f >= 0 ? '+' : '−'}${fmtPct(Math.abs(f) * 100)} vs gasto</small>`;
+  };
+  const anos = (a, c) => {
+    if (a == null && c == null) return '=';
+    if (c == null) return '<span style="color:var(--red)">sai do alcance</span>';
+    if (a == null) return '<span style="color:var(--green)">entra no alcance</span>';
+    const d = (c - a) / 12;
+    return Math.abs(d) < 0.05 ? '=' : `<span style="color:${col(d, false)}">${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(1).replace('.', ',')} anos</span>`;
+  };
+
+  // Manchete: o que muda, numa frase
+  let head;
+  if (!mexeu) head = `<div class="fisim-head muted">Mexa num controle ou num atalho — o plano atual fica na coluna da esquerda.</div>`;
+  else {
+    const a = base.fiP50, c = sim.fiP50;
+    const quando = c == null ? 'a FI <b style="color:var(--red)">sai do alcance</b>'
+      : a == null ? `a FI <b style="color:var(--green)">entra no alcance</b>, aos ${ageAt(c)}`
+      : Math.abs(c - a) < 1 ? `a FI fica onde está (aos ${ageAt(c)})`
+      : `a FI ${c < a ? 'adianta' : 'atrasa'} <b style="color:${c < a ? 'var(--green)' : 'var(--red)'}">${(Math.abs(c - a) / 12).toFixed(1).replace('.', ',')} anos</b>, para os ${ageAt(c)}`;
+    const ds = sim.successRate - base.successRate;
+    const sc = sim.successRate >= 90 ? 'var(--green)' : sim.successRate >= 75 ? 'var(--yellow)' : 'var(--red)';
+    const dura = Math.abs(ds) < 0.5 ? `o dinheiro dura como antes (${fmtPct(sim.successRate)})`
+      : `a chance de o dinheiro durar ${ds > 0 ? 'sobe' : 'cai'} para <b style="color:${sc}">${fmtPct(sim.successRate)}</b>`;
+    head = `<div class="fisim-head">Nesse cenário, ${quando}, e ${dura}.</div>`;
+  }
+
+  const rows = [
+    ['Aporte mensal (hoje)', fmt(plannedSavings()), fmt(aporteEf), rel(plannedSavings(), aporteEf, true)],
+    ['Gasto na FI', fmt(base.saque), fmt(sim.saque), rel(base.saque, sim.saque, false)],
+    ['Meta FI', fmtK(base.fiNum), fmtK(sim.fiNum), rel(base.fiNum, sim.fiNum, false)],
+    ['FI (mediana)', fiTxt(base), fiTxt(sim), anos(base.fiP50, sim.fiP50)],
+    ['80% dos cenários', faixa(base), faixa(sim), ''],
+    ['Chance de bater a meta', fmtPct(base.reachPct), fmtPct(sim.reachPct), pp(base.reachPct, sim.reachPct)],
+    [`Dinheiro dura até os ${base.horizonAge}`, fmtPct(base.successRate), fmtPct(sim.successRate), pp(base.successRate, sim.successRate)],
+    // Saque seguro só faz sentido contra o próprio gasto: a folga é o que importa, não o valor
+    ['Saque seguro (90%)', folga(base), folga(sim), ''],
+  ];
+  out.innerHTML = head + `
+    <table class="fisim-t">
+      <thead><tr><th></th><th>Plano</th><th>Simulado</th><th></th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td class="sim">${r[2]}</td><td class="d">${r[3]}</td></tr>`).join('')}</tbody>
+    </table>`;
+
+  // Gráfico: plano × simulado em escala log — as metas podem diferir 5×, e em escala
+  // linear a fase pós-FI sai pelo topo. Mediana cheia, cenário ruim (P10) pontilhado,
+  // FI marcada no cruzamento de cada um com a própria meta.
+  const cv = document.getElementById('ch-fi-sim');
+  if (!cv) return;
+  const C_PLAN = '#8b94a7', C_SIM = '#6395ff';
+  const ages = base.fan.p50.map((_, k) => age0 + k);
+  const nice = (v, up) => {
+    const e = Math.pow(10, Math.floor(Math.log10(v))), m = v / e;
+    const s = up ? [1, 2, 5, 10].find(x => x >= m - 1e-9) : [5, 2, 1].find(x => x <= m + 1e-9);
+    return s * e;
+  };
+  const lo = nice(Math.max(1, investableWealth()) * 0.5, false);
+  const hi = nice(Math.max(base.fiNum, sim.fiNum, ...base.fan.p50, ...(mexeu ? sim.fan.p50 : [])) * 1.15, true);
+  const clamp = arr => arr.map(v => Math.max(lo, v));          // ruína encosta no piso do gráfico
+  const runs = [{ r: base, cor: C_PLAN, nome: 'Plano' }];
+  if (mexeu) runs.push({ r: sim, cor: C_SIM, nome: 'Simulado' });
+  const raw = [];                                             // valores reais p/ o tooltip (antes do clamp)
+  const dsets = [];
+  runs.forEach(({ r, cor, nome }) => {
+    dsets.push({ label: nome + ' · mediana', data: clamp(r.fan.p50), borderColor: cor, borderWidth: nome === 'Simulado' ? 2.5 : 2, pointRadius: 0, tension: .3 });
+    raw.push(r.fan.p50);
+    dsets.push({ label: nome + ' · cenário ruim (P10)', data: clamp(r.fan.p10), borderColor: cor + 'aa', borderDash: [2, 3], borderWidth: 1.5, pointRadius: 0, tension: .3 });
+    raw.push(r.fan.p10);
+  });
+
+  const ann = {};
+  const metasIguais = !mexeu || Math.abs(sim.fiNum - base.fiNum) < 1;
+  runs.forEach(({ r, cor, nome }, i) => {
+    if (i === 1 && metasIguais) return;
+    ann['meta' + i] = { type: 'line', yMin: r.fiNum, yMax: r.fiNum, borderColor: cor + '88', borderWidth: 1, borderDash: [6, 4],
+      label: { display: true, content: (metasIguais ? 'meta' : 'meta ' + nome.toLowerCase()) + ' · ' + fmtK(r.fiNum), position: 'end',
+        color: cor, backgroundColor: '#0a0c12d9', font: { size: 10 }, padding: 3, yAdjust: -9 } };
+  });
+  runs.forEach(({ r, cor, nome }, i) => {
+    if (r.fiP50 == null) return;
+    const x = r.fiP50 / 12;
+    ann['fi' + i] = { type: 'point', xValue: x, yValue: r.fiNum, radius: 5, backgroundColor: cor, borderColor: '#0a0c12', borderWidth: 2 };
+    ann['fil' + i] = { type: 'label', xValue: x, yValue: r.fiNum, yAdjust: i === 0 ? -18 : 18,
+      content: (runs.length > 1 ? nome + ': ' : '') + 'FI aos ' + ageAt(r.fiP50), color: cor, font: { size: 10.5, weight: 'bold' },
+      backgroundColor: '#0a0c12d9', padding: 3 };
+  });
+  if (base.retAge !== Infinity && base.retAge > age0 && base.retAge < base.horizonAge) ann.ret = {
+    type: 'line', xMin: base.retAge - age0, xMax: base.retAge - age0, borderColor: '#8b94a744', borderWidth: 1, borderDash: [2, 4],
+    label: { display: true, content: 'aposentadoria ' + base.retAge, position: 'end', color: '#8b94a7', backgroundColor: 'transparent', font: { size: 9.5 } } };
+
+  const leg = document.getElementById('fisim-leg');
+  if (leg) leg.innerHTML = runs.map(({ cor, nome }) => `<span><i style="background:${cor}"></i>${nome}</span>`).join('') +
+    `<span class="fisim-leg-k">linha cheia = mediana · pontilhada = cenário ruim (P10) · ● = FI · escala log</span>`;
+
+  const keep = v => { const m = v / Math.pow(10, Math.floor(Math.log10(v) + 1e-9)); return [1, 2, 5].some(s => Math.abs(m - s) < 1e-6); };
+  destroyChart('fisim');
+  activeCharts.fisim = new Chart(cv, {
+    type: 'line',
+    data: { labels: ages, datasets: dsets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,   // sem animação: o slider precisa responder na hora
+      layout: { padding: { top: 6, right: 8 } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        annotation: { annotations: ann },
+        tooltip: {
+          itemSort: (a, b) => a.datasetIndex - b.datasetIndex,
+          callbacks: {
+            title: it => `aos ${it[0].label} anos`,
+            label: c => { const v = raw[c.datasetIndex][c.dataIndex]; return ` ${c.dataset.label}: ${v <= 0 ? 'acabou' : fmtK(v)}`; },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { color: '#1e2d4230' }, ticks: { color: '#8ca3c1', font: { size: 10 }, maxTicksLimit: 14, maxRotation: 0 } },
+        y: { type: 'logarithmic', min: lo, max: hi,
+             grid: { color: c => keep(c.tick.value) ? '#1e2d4270' : 'transparent' },
+             ticks: { color: '#8ca3c1', font: { size: 10 }, autoSkip: false, callback: v => keep(v) ? fmtK(v) : '' } },
+      },
+    },
+  });
+}
 
 function openFISettings() {
   openModal('Configurar Meta FI', `
@@ -7746,8 +9128,11 @@ function _buildHistTableCard() {
     </div>`;
 }
 function setFluxoView(v) { fluxoView = v; renderHistory(); }
+let _fluxoScroll = null;   // posição da grade preservada entre re-renders do recolher/expandir
 function toggleFluxoSection(name) {
   if (fluxoCollapsed.has(name)) fluxoCollapsed.delete(name); else fluxoCollapsed.add(name);
+  const w = document.querySelector('.fluxo-grid-wrap');
+  if (w) _fluxoScroll = { left: w.scrollLeft, top: w.scrollTop };
   renderHistory();
 }
 
@@ -7788,10 +9173,6 @@ function _buildFluxoGridTab() {
     else if (!hasResumo) visibleCols.push(j);   // sem colunas de resumo: mostra tudo
   }
 
-  const fmtHead = (h, kind) => {
-    if (kind === 'mes' && isDate(h)) { const [y, m] = String(h).split('-'); return MES[+m - 1] + '/' + y.slice(2); }
-    return String(h ?? '') || '—';
-  };
   const fmtCell = v => {
     if (typeof v === 'number') return v.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
     const s = String(v ?? '');
@@ -7830,7 +9211,14 @@ function _buildFluxoGridTab() {
   const bold = Array.isArray(FLUXOBOLD) ? FLUXOBOLD : [];
   const temSinal = FLUXOGRID.some(r => RE_SINAL.test(String(r[0] ?? '').trim()));
   const body = [];
-  let curColor = null, curTop = null, curSection = null;
+  let curColor = null, curTop = null, curSection = null, curTopColor = null;
+  // Seção fora do mapa fixo (ex.: "(-) Lazer") não tem cor própria: herda a da macro-conta
+  // de topo acima dela e, sem topo, a do sinal — (-) gasto, (+) receita. Antes isso passava
+  // batido porque todo negativo saía em vermelho; sem isso, essas seções ficavam sem cor.
+  const corDoSinal = label => {
+    const s = splitSinal(label).sinal;
+    return s === '-' ? FLUXO_SUPERGRUPO_COR.gastos : s === '+' ? FLUXO_SUPERGRUPO_COR.receitas : null;
+  };
   for (let i = hIdx + 1; i < FLUXOGRID.length; i++) {
     const label = String(FLUXOGRID[i][0] ?? '').trim();
     if (label === '') continue;
@@ -7838,8 +9226,10 @@ function _buildFluxoGridTab() {
     const section = temSinal ? (RE_SINAL.test(label) || ehTopo) : !!bold[i];
     const topo = section && ehTopo;
     if (section) {
-      curColor = colorForGrupo(label, resolveGrupo(label));
-      if (topo) { curTop = label; curSection = null; }
+      const grupo = resolveGrupo(label);
+      curColor = grupo ? colorForGrupo(label, grupo)
+        : (curTopColor || corDoSinal(label) || colorForGrupo(label, null));
+      if (topo) { curTop = label; curSection = null; curTopColor = curColor; }
       else curSection = label;
     }
     // pula linha se a seção-mãe estiver recolhida, ou (p/ não-topo) se o topo-mãe estiver recolhido
@@ -7853,38 +9243,79 @@ function _buildFluxoGridTab() {
     <button class="fi-mode-btn ${fluxoView === 'ano' ? 'active' : ''}" onclick="setFluxoView('ano')" ${hasResumo ? '' : 'disabled title="planilha sem colunas de Total/Média"'}>Por ano</button>
   </div>`;
 
+  // Ano de cada coluna visível: mês → ano da data; resumo → ano no rótulo ("Total 2025",
+  // 2025) ou, sem ano escrito, o do último mês antes dela (a planilha põe o resumo
+  // logo depois dos 12 meses do ano). Vira a 1ª linha do cabeçalho e as divisórias.
+  let anoCorrente = '';
+  const anoDe = {};
+  for (let j = 1; j < nCols; j++) {
+    const h = header[j];
+    if (colKind[j] === 'mes') anoCorrente = String(h).slice(0, 4);
+    else if (colKind[j] === 'resumo') { const m = String(h ?? '').match(/\b(19|20)\d{2}\b/); anoDe[j] = m ? m[0] : anoCorrente; continue; }
+    anoDe[j] = anoCorrente;
+  }
+  const dataCols = visibleCols.slice(1);
+  const yearStart = new Set(dataCols.filter((j, i) => i === 0 || anoDe[j] !== anoDe[dataCols[i - 1]]));
+  const yearGroups = [];
+  dataCols.forEach(j => {
+    const g = yearGroups[yearGroups.length - 1];
+    if (g && g.ano === anoDe[j]) g.n++; else yearGroups.push({ ano: anoDe[j], n: 1 });
+  });
+  const lastMes = fluxoView === 'mes' ? [...dataCols].reverse().find(j => colKind[j] === 'mes') : null;
+  // Com o ano no cabeçalho de cima, o mês dispensa o "/24"; resumo perde o ano repetido.
+  const fmtHead2 = (h, kind) => {
+    if (kind === 'mes' && isDate(h)) return MES[+String(h).slice(5, 7) - 1];
+    const s = String(h ?? '').replace(/\s*\b(19|20)\d{2}\b\s*/, ' ').trim();
+    return s || String(h ?? '') || '—';
+  };
+  const colCls = j => [
+    j > 0 ? 'r' : '',
+    colKind[j] === 'resumo' ? (/m[eé]dia/i.test(String(header[j] ?? '')) ? 'fx-sum fx-avg' : 'fx-sum') : '',
+    yearStart.has(j) ? 'fx-ys' : '',
+    j === lastMes ? 'fx-last' : '',
+  ].filter(Boolean).join(' ');
+
   const rowHtml = ({ cells, section, topo, color, toggleKey }) => {
-    const hasColor = !!color;
-    const alpha = topo ? .28 : section ? .16 : .06;
-    const bg = hasColor ? hexToRgba(color, alpha) : '';
-    const borderColor = hasColor ? (topo || section ? color : hexToRgba(color, .55)) : 'transparent';
-    const borderW = topo ? 5 : section ? 4 : 3;
+    // Cor só onde orienta: borda da 1ª coluna em todas as linhas, fundo nas macro-contas.
+    // Antes cada célula de detalhe era pintada e todo negativo ia em vermelho — vermelho
+    // sobre vermelho, e a categoria que interessa sumia.
+    const bg = color && (topo || section) ? hexToRgba(color, topo ? .2 : .08) : '';
+    const borderColor = color ? (topo || section ? color : hexToRgba(color, .45)) : 'transparent';
     const collapsed = section && fluxoCollapsed.has(toggleKey);
     const caret = section ? `<span class="fx-caret">${collapsed ? '▸' : '▾'}</span>` : '';
-    const trAttrs = section ? ` onclick="toggleFluxoSection('${esc(toggleKey)}')" style="cursor:pointer"` : '';
+    const trAttrs = section ? ` onclick="toggleFluxoSection('${esc(toggleKey)}')"` : '';
     const rowCls = topo ? 'fx-top' : section ? 'fx-section' : 'fx-detail';
     // A 1ª coluna é fixa (sticky): o fundo precisa ser OPACO, senão as colunas que passam por
     // baixo ao rolar vazam através do tint semi-transparente. Compõe o tint sobre o --surface sólido.
-    const firstBg = hasColor ? `linear-gradient(${bg}, ${bg}), var(--surface)` : 'var(--surface)';
+    const firstBg = bg ? `linear-gradient(${bg}, ${bg}), var(--surface)` : 'var(--surface)';
     return `<tr class="${rowCls}"${trAttrs}>${visibleCols.map((j, idx) => {
       const v = cells[j];
-      const isNum = typeof v === 'number';
-      const cls = `${j > 0 ? 'r ' : ''}${!section && colKind[j] === 'resumo' ? 'accent ' : ''}${isNum && v < 0 ? 'red' : ''}`.trim();
-      const style = idx === 0 ? `background:${firstBg};border-left:${borderW}px solid ${borderColor}` : `background:${bg}`;
-      const content = idx === 0 ? `${caret}${fmtCell(v)}` : fmtCell(v);
-      return `<td class="${cls}" style="${style}">${content}</td>`;
+      const zero = v === 0 || v === '' || v == null;
+      if (idx === 0) {
+        const lblColor = color && (topo || section) ? `;color:${color}` : '';
+        return `<td style="background:${firstBg};border-left:${topo ? 4 : 3}px solid ${borderColor}${lblColor}">${caret}${fmtCell(v)}</td>`;
+      }
+      return `<td class="${colCls(j)}${zero ? ' fx-zero' : ''}"${bg ? ` style="background:${bg}"` : ''}>${zero ? '–' : fmtCell(v)}</td>`;
     }).join('')}</tr>`;
   };
 
   return `<div class="card">
-    <div class="flex-between mb-8">
+    <div class="flex-between mb-8" style="flex-wrap:wrap;gap:10px">
       <div class="card-title" style="margin-bottom:0">Fluxo de Caixa — ${body.length} linhas</div>
-      <span style="font-size:11px;color:var(--text-dim)">espelho da planilha · verde = receita · vermelho = gasto · amarelo = (-) AP</span>
+      <div class="fx-legend">
+        <span><i style="background:${FLUXO_SUPERGRUPO_COR.receitas}"></i>receitas</span>
+        <span><i style="background:${FLUXO_SUPERGRUPO_COR.gastos}"></i>gastos</span>
+        <span><i style="background:${FLUXO_AP_COR}"></i>(-) AP</span>
+        <span class="fx-legend-k">clique numa macro-conta para recolher</span>
+      </div>
     </div>
     ${toggle}
-    <div class="table-wrap fluxo-grid-wrap" style="max-height:600px;overflow:auto">
-      <table>
-        <thead><tr>${visibleCols.map(j => `<th class="${colKind[j] === 'resumo' ? 'accent' : ''} ${j > 0 ? 'r' : ''}">${fmtHead(header[j], colKind[j])}</th>`).join('')}</tr></thead>
+    <div class="table-wrap fluxo-grid-wrap">
+      <table class="fx-table">
+        <thead>
+          <tr class="fx-years"><th>Conta</th>${yearGroups.map((g, i) => `<th colspan="${g.n}" class="fx-ys"><span class="fx-yl">${g.ano || '—'}</span></th>`).join('')}</tr>
+          <tr class="fx-months"><th></th>${dataCols.map(j => `<th class="${colCls(j)}">${fmtHead2(header[j], colKind[j])}</th>`).join('')}</tr>
+        </thead>
         <tbody>${body.map(rowHtml).join('')}</tbody>
       </table>
     </div>
@@ -7908,6 +9339,13 @@ function renderHistory() {
 
   if (historyTab === 'fluxo') {
     el.innerHTML = headerHtml('Espelho da aba Fluxo de Caixa da planilha') + tabsHtml + _buildFluxoGridTab();
+    // Abre no mês mais recente (fim à direita); ao recolher/expandir, volta onde estava.
+    const wrap = el.querySelector('.fluxo-grid-wrap');
+    if (wrap) {
+      const pos = _fluxoScroll; _fluxoScroll = null;
+      if (pos) { wrap.scrollLeft = pos.left; wrap.scrollTop = pos.top; }
+      else if (fluxoView === 'mes') wrap.scrollLeft = wrap.scrollWidth;
+    }
     return;
   }
 
@@ -8769,13 +10207,17 @@ function saveGoal(id) {
   } else {
     S.goals.push({ id: uid(), ...obj });
   }
-  saveState(); closeModal(); timelineTab = 'objetivos'; renderTimeline();
+  saveState(); closeModal();
+  if (activePage === 'timeline') timelineTab = 'objetivos';
+  renderPage(activePage);
 }
 
 function deleteGoal(id) {
   if (!confirm('Excluir esta meta?')) return;
   S.goals = S.goals.filter(x => x.id !== id);
-  saveState(); timelineTab = 'objetivos'; renderTimeline();
+  saveState();
+  if (activePage === 'timeline') timelineTab = 'objetivos';
+  renderPage(activePage);
 }
 
 // ── 20. IMPORT / EXPORT ───────────────────────────────────
@@ -9084,6 +10526,38 @@ function computeInsights() {
         `Se parar de aportar hoje, a FI chega aos ${coastAge} anos — antes da sua aposentadoria (${retAge})`,
         `Só o juro real composto sobre os ${fmtK(investableWealth())} atuais alcança a meta em ~${cyIns.toFixed(1).replace('.', ',')} anos. <b>Aportar deixou de ser obrigação e virou acelerador</b>: cada aporte antecipa a data, mas o plano já se sustenta sem ele. Isso muda o peso de decisões como trocar de trabalho ou reduzir ritmo.`,
         null);
+    }
+  }
+
+  // ── Premissas × realizado: a data da FI só vale o que valem o retorno e o aporte digitados
+  {
+    const rz = fiIfRealized();
+    const base = buildScenarioPaths((S.assumptions.projectionYears || 30) * 12).find(s => s.id === 'base');
+    const fiOf = base ? findFIDate(base.path) : null;
+    // Só com dado confiável: sem Rentabilidade/apoPL da planilha em meses com imóvel, o
+    // realizado sai viesado (aporte no imóvel vira prejuízo) e o alerta seria falso.
+    if (rz && fiOf && rz.rr.suspect <= rz.rr.n / 4 && rz.sv.mixed <= rz.sv.n / 4) {
+      const prem = weightedReturnReal(), gap = rz.rr.pct - prem;
+      const quando = rz.fi
+        ? `Repetindo os últimos ${Math.round(rz.rr.n / 12)} anos de retorno e o último ano de aporte, a FI chega em <b>${rz.fi.date.getFullYear()}</b>, contra <b>${fiOf.date.getFullYear()}</b> na projeção oficial.`
+        : `Repetindo os últimos ${Math.round(rz.rr.n / 12)} anos de retorno e o último ano de aporte, a FI <b>sai do horizonte</b> — contra ${fiOf.date.getFullYear()} na projeção oficial.`;
+      if (gap <= -1.5) {
+        push('warn', 'Premissas',
+          `A carteira rendeu ${fmtPct(rz.rr.pct)} real ao ano — a projeção assume ${fmtPct(prem)}`,
+          `Em ${rz.rr.n} meses, o retorno realizado ficou ${fmtPct(Math.abs(gap))} pp abaixo da premissa. ${quando} Pode ser ciclo ruim; três anos seguidos começam a ser a carteira.`,
+          'Revisar o retorno esperado por classe na aba Patrimônio — ou aceitar a data mais tarde.');
+      }
+      if (rz.plan > 0 && rz.sv.avg < rz.plan * 0.8) {
+        push('warn', 'Premissas',
+          `Você aportou ${fmt(rz.sv.avg)}/mês no último ano — a projeção conta com ${fmt(rz.plan)}`,
+          `O aporte real ficou ${fmtPct((1 - rz.sv.avg / rz.plan) * 100)} abaixo do que o Fluxo de Caixa promete. ${quando}`,
+          'Atualizar receitas e despesas no Fluxo de Caixa para o que de fato sobra.');
+      } else if (rz.plan > 0 && rz.sv.avg > rz.plan * 1.25 && gap > -1.5) {
+        push('good', 'Premissas',
+          `Aporte real ${fmtPct((rz.sv.avg / rz.plan - 1) * 100)} acima do plano`,
+          `${fmt(rz.sv.avg)}/mês no último ano contra ${fmt(rz.plan)} na projeção. ${quando} A data oficial está conservadora.`,
+          null);
+      }
     }
   }
 
@@ -9879,14 +11353,266 @@ function _rpNextMilestone(c) {
   return { nextV, meses, ritmoMes, janela };
 }
 
+// ── Fechamento do mês (seção 1) ──
+// Um mês do histórico com tudo que o fechamento precisa. Δ sempre contra a linha
+// ANTERIOR do array: se houver lacuna no sync, gap > 1 e a prosa avisa que a variação
+// cobre mais de um mês. Mercado = Δpl − apoPL, mesma regra de _rpYearRows.
+function _rpMonthStats(H, i, rsBy) {
+  const h = H[i];
+  if (!h) return null;
+  const p = i > 0 ? H[i - 1] : null;
+  const dPl = p ? (h.pl || 0) - (p.pl || 0) : null;
+  const dPat = p ? (h.pat || 0) - (p.pat || 0) : null;
+  const apo = h.apo || 0, apoPL = apoPLOf(h);
+  const rec = h.rec || 0, gas = h.gas || 0;
+  const y = Number(h.d.slice(0, 4));
+  return {
+    d: h.d, gap: p ? monthsBetween(p.d, h.d) : null,
+    pat: h.pat || 0, pl: h.pl || 0, prevPat: p ? (p.pat || 0) : null, prevPl: p ? (p.pl || 0) : null,
+    dPl, dPat, apo, apoPL, mkt: dPl == null ? null : dPl - apoPL,
+    r: rsBy[h.d] != null ? rsBy[h.d] * 100 : null,
+    cdi: (Math.pow(1 + (CDI_YEARLY[y] ?? 10) / 100, 1 / 12) - 1) * 100,
+    rec, gas, sob: rec - gas,
+    sr: rec > 0 ? savingsRateOf(h) : null,
+    ta: rec > 0 ? apo / rec * 100 : null,
+  };
+}
+// Média de uma lista de meses. Taxas saem agregadas (Σ ÷ Σ), não média de taxas —
+// um mês de bônus não pode pesar igual a um mês comum. Rentabilidade é geométrica.
+function _rpMonthBase(list) {
+  const L = list.filter(Boolean);
+  if (!L.length) return null;
+  const avgOf = k => { const v = L.map(x => x[k]).filter(v => v != null && isFinite(v)); return v.length ? _rpAvg(v) : null; };
+  const rs = L.map(x => x.r).filter(v => v != null && isFinite(v));
+  const rec = _rpSum(L.map(x => x.rec)), gas = _rpSum(L.map(x => x.gas)), apo = _rpSum(L.map(x => x.apo));
+  return {
+    n: L.length,
+    pl: null, dPl: avgOf('dPl'), apo: avgOf('apo'), mkt: avgOf('mkt'),
+    r: rs.length ? (Math.pow(rs.reduce((p, r) => p * (1 + r / 100), 1), 1 / rs.length) - 1) * 100 : null,
+    cdi: avgOf('cdi'),
+    rec: avgOf('rec'), gas: avgOf('gas'), sob: avgOf('sob'),
+    sr: rec > 0 ? (rec - gas) / rec * 100 : null,
+    ta: rec > 0 ? apo / rec * 100 : null,
+  };
+}
+// "o menor gasto dos últimos 12 meses" / "o segundo maior" — só nos extremos, senão nada.
+function _rpRankTxt(vals, v, noun) {
+  if (vals.length < 6) return '';
+  const lo = vals.filter(x => x < v).length + 1, hi = vals.filter(x => x > v).length + 1;
+  const n = vals.length;
+  if (lo === 1) return `o menor ${noun} dos últimos ${n} meses`;
+  if (lo === 2) return `o segundo menor ${noun} dos últimos ${n} meses`;
+  if (hi === 1) return `o maior ${noun} dos últimos ${n} meses`;
+  if (hi === 2) return `o segundo maior ${noun} dos últimos ${n} meses`;
+  return '';
+}
+// "12% acima da média" — contra a média dos meses ANTERIORES (o mês julgado fica fora da base)
+// ref = o que vem depois de "da"/"com a": 'média', 'média recorrente (…)'
+function _rpVsAvg(v, avg, ref = 'média') {
+  if (avg == null || !isFinite(avg) || avg <= 0 || v == null) return '';
+  const d = (v / avg - 1) * 100;
+  if (Math.abs(d) < 3) return `em linha com a ${ref}`;
+  return `${_rpPct(Math.abs(d), 0)} ${d > 0 ? 'acima' : 'abaixo'} da ${ref}`;
+}
+
+function _rpMonthClose(c) {
+  const H = c.H, n = H.length;
+  if (n < 2) return '';
+  const rsBy = {};
+  realizedReturns().forEach(x => { rsBy[x.d] = x.r; });
+  const m = _rpMonthStats(H, n - 1, rsBy);
+  if (!m || m.dPl == null) return '';
+  const prev = _rpMonthStats(H, n - 2, rsBy);
+  // Base de comparação: os até 12 meses ANTERIORES ao fechado (mesma lógica da seção 6 —
+  // o mês julgado dentro da própria média dilui qualquer desvio).
+  const baseList = [];
+  for (let i = Math.max(1, n - 13); i <= n - 2; i++) baseList.push(_rpMonthStats(H, i, rsBy));
+  const base = _rpMonthBase(baseList);
+  const yoyI = H.findIndex(h => h.d === addMonths(c.lastD, -12));
+  const yoy = yoyI >= 1 ? _rpMonthStats(H, yoyI, rsBy) : null;
+
+  const ml = monthLabel(m.d);
+  const prevLbl = prev ? monthLabel(prev.d) : '';
+  let html = _rpH3(`Fechamento de ${ml}`);
+
+  // ── Tabela: o mês contra o anterior, a média e o mesmo mês do ano passado ──
+  const cols = [
+    { h: ml, s: m },
+    prev && prev.d !== m.d ? { h: prevLbl, s: prev } : null,
+    base ? { h: `Média ${base.n}m ant.`, s: base } : null,
+    yoy ? { h: monthLabel(yoy.d), s: yoy } : null,
+  ].filter(Boolean);
+  const rowsDef = [
+    ['Patrimônio líquido (fim)', 'pl', v => fmt(v)],
+    ['Variação do líquido', 'dPl', _rpMoneyS, true],
+    ['Aporte', 'apo', _rpMoneyS],
+    ['Resultado de mercado', 'mkt', _rpMoneyS, true],
+    ['Rentabilidade', 'r', v => _rpPctS(v, 2), true],
+    ['CDI', 'cdi', v => _rpPct(v, 2)],
+    ['Receita', 'rec', v => fmt(v)],
+    ['Gasto', 'gas', v => fmt(v)],
+    ['Sobra (receita − gasto)', 'sob', _rpMoneyS, true],
+    ['Taxa de poupança', 'sr', v => _rpPct(v)],
+    ['Taxa de aporte', 'ta', v => _rpPct(v)],
+  ];
+  html += _rpTable(
+    `<th>No mês</th>${cols.map((col, i) => `<th class="n">${i === 0 ? `<b>${col.h}</b>` : col.h}</th>`).join('')}`,
+    rowsDef.map(([lbl, k, f, colored]) => `<tr><td class="lbl">${lbl}</td>` +
+      cols.map(col => {
+        const v = col.s[k];
+        return `<td class="n${colored ? ' ' + _rpCls(v) : ''}">${v == null || !isFinite(v) ? '—' : f(v)}</td>`;
+      }).join('') + `</tr>`).join(''),
+    null, 'rp-t-sm');
+  html += `<p class="rp-note">Mercado = variação do líquido − aporte que foi para o líquido (aporte em imóvel não move o líquido). ` +
+    `Taxa de aporte = aporte ÷ receita; como o aporte da planilha pode incluir dinheiro que não saiu da receita do mês, ela pode passar da taxa de poupança. ` +
+    `Na coluna de média, as taxas são agregadas (Σ ÷ Σ) e a rentabilidade é a média geométrica mensal.</p>`;
+
+  // ── 1) Patrimônio: quanto variou e por quê ──
+  const gapTxt = m.gap > 1 ? ` (a linha anterior é ${prevLbl} — lacuna de ${m.gap - 1} ${m.gap - 1 === 1 ? 'mês' : 'meses'} no sync, então a variação cobre ${m.gap} meses)` : '';
+  let p1 = `<b>${ml} fechou com patrimônio total de ${fmt(m.pat)}</b>, ${_rpMoneyS(m.dPat)}` +
+    (m.prevPat > 0 ? ` (${_rpPctS(m.dPat / m.prevPat * 100)})` : '') + ` sobre ${prevLbl}${gapTxt}. ` +
+    `O líquido, que é o dinheiro de fato investido, ${m.dPl >= 0 ? 'subiu' : 'caiu'} <b>${fmt(Math.abs(m.dPl))}</b>: ` +
+    `<b>${fmt(Math.abs(m.apoPL))}</b> de ${m.apoPL >= 0 ? 'aporte' : 'retirada'} e <b>${_rpMoneyS(m.mkt)}</b> de mercado.`;
+  if (Math.abs(m.dPat - m.dPl) >= 1) p1 += ` Os ${_rpMoneyS(m.dPat - m.dPl)} restantes da variação total são o imóvel.`;
+  if (m.r != null) {
+    p1 += ` A carteira rendeu <b>${_rpPctS(m.r, 2)}</b> no mês, contra ${_rpPct(m.cdi, 2)} do CDI` +
+      (m.r > 0 && m.cdi > 0 ? ` (${_rpPct(m.r / m.cdi * 100, 0)} do CDI)` : '') + '.';
+  }
+  if (m.apoPL > 0 && m.mkt < 0) {
+    p1 += m.dPl >= 0
+      ? ` O aporte absorveu a perda de mercado e ainda sobrou: sem ele, o líquido teria recuado ${fmt(-m.mkt)}.`
+      : ` Nem o aporte segurou: o mercado tirou mais do que você colocou.`;
+  } else if (m.apoPL > 0 && m.mkt > 0 && m.dPl > 0) {
+    p1 += m.mkt >= m.apoPL
+      ? ` O mercado fez mais que o seu depósito: ${_rpPct(m.mkt / m.dPl * 100, 0)} do avanço foi o dinheiro trabalhando.`
+      : ` ${_rpPct(m.apoPL / m.dPl * 100, 0)} do avanço saiu do seu bolso; o mercado completou o resto.`;
+  } else if (m.apoPL <= 0 && m.mkt > 0 && m.dPl > 0) {
+    p1 += ` Sem aporte líquido, o avanço inteiro foi rendimento.`;
+  }
+  if (c.fin > 0) {
+    const ppM = m.dPl / c.fin * 100;
+    p1 += Math.abs(ppM) < 0.005 ? ` Na régua da independência, o mês ficou no zero a zero.`
+      : ` Na régua da independência, o mês valeu ${_rpPP(ppM, 2)} da meta.`;
+  }
+  p1 += ` <span class="rp-dim">Rentabilidade em detalhe na ${_rpSecRef('resultado')}.</span>`;
+  html += _rpP(p1);
+
+  // ── 2) Caixa: quanto entrou, quanto saiu, quanto virou aporte ──
+  // Receita e taxas comparadas contra a base SEM meses atípicos (bônus, 13º, venda):
+  // um único mês de R$ 150 mil na janela faz qualquer mês normal parecer queda de 40%.
+  const hNow = H[n - 1];
+  const baseRecList = baseList.filter(s => s && !c.isOutlier(H.find(h => h.d === s.d)));
+  const nOut = baseList.filter(Boolean).length - baseRecList.length;
+  const baseN = nOut > 0 && baseRecList.length >= 3 ? _rpMonthBase(baseRecList) : base;
+  const baseLbl = baseN && baseN !== base ? `média recorrente dos ${baseN.n} meses anteriores, sem ${nOut === 1 ? 'o mês atípico' : `os ${nOut} atípicos`}` : base ? `média dos ${base.n} meses anteriores` : '';
+  const recVs = baseN ? _rpVsAvg(m.rec, baseN.rec, baseLbl) : '';
+  const gasVs = base ? _rpVsAvg(m.gas, base.gas) : '';
+  const gasRank = _rpRankTxt(c.L12.map(h => h.gas || 0), m.gas, 'gasto');
+  let p2 = `Entraram <b>${fmt(m.rec)}</b>` +
+    (c.isOutlier(hNow) ? ` — receita atípica, mais de 1,8× a mediana de 24 meses: conta como evento, não como régua`
+      : recVs ? ` (${recVs})` : '') +
+    `; saíram <b>${fmt(m.gas)}</b>` +
+    ((gasVs || gasRank) ? ` (${[gasVs, gasRank].filter(Boolean).join('; ')})` : '') + '. ';
+  const cmpLbl = baseN && baseN !== base ? 'na média recorrente' : 'na média anterior';
+  if (m.rec > 0) {
+    p2 += `${m.sob >= 0 ? 'Sobraram' : 'Faltaram'} <b>${fmt(Math.abs(m.sob))}</b>, taxa de poupança de <b>${_rpPct(m.sr)}</b>` +
+      (baseN && baseN.sr != null ? ` contra ${_rpPct(baseN.sr)} ${cmpLbl}` : '') + '. ';
+    if (m.apo >= 0) {
+      // Mediana, não Σ÷Σ: aporte de R$ 100 mil num mês de receita normal (13º, venda,
+      // caixa acumulado) não é outlier de RECEITA, então escapa do filtro acima e
+      // empurraria a "taxa típica" para mais de 100%.
+      const taMed = _rpMedian(baseList.filter(s => s && s.ta != null).map(s => s.ta));
+      p2 += `Foram <b>${fmt(m.apo)}</b> para a carteira, uma taxa de aporte de <b>${_rpPct(m.ta)}</b> da receita` +
+        (base && base.n >= 3 ? ` (mediana de ${_rpPct(taMed)} nos ${base.n} meses anteriores)` : '') + '.';
+      const dif = m.apo - m.sob;
+      if (m.sob > 0 && dif > Math.max(500, m.sob * 0.1)) {
+        p2 += ` O aporte passou a sobra em ${fmt(dif)}: esse pedaço não saiu da receita do mês (caixa acumulado, venda ou rendimento lançado como aporte).`;
+      } else if (m.sob > 0 && -dif > Math.max(500, m.sob * 0.1)) {
+        p2 += ` Ficaram ${fmt(-dif)} da sobra fora da carteira: parado em conta ou gasto que não passou pela coluna Gasto. Vale conferir.`;
+      }
+    } else {
+      p2 += `Mês de retirada líquida: saíram <b>${fmt(-m.apo)}</b> da carteira.`;
+    }
+  }
+  p2 += ` <span class="rp-dim">Aportes na ${_rpSecRef('aportes')}, fluxo de caixa na ${_rpSecRef('fluxo')}.</span>`;
+  html += _rpP(p2);
+
+  // ── 3) Gastos: para onde foi (Mobills) ──
+  const mb = c.mb;
+  const mbTot = mb.ok ? (mb.byMonth[m.d] || 0) : 0;
+  if (mbTot > 0) {
+    const secM = mb.secOrder.map(s => ({ s, v: mb.bySecMonth[s + '|' + m.d] || 0 })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+    const wPrev6 = mb.win(7).slice(0, 6);
+    // Média dos 6 anteriores dividindo pelos meses COM lançamento — a mesma régua da
+    // tabela "Por seção" da seção 6, para os números baterem entre as duas.
+    // Relevante = pelo menos R$ 150 e 15% de desvio; a que mais subiu e a que mais caiu.
+    const devs = mb.secOrder.map(s => {
+      const m1 = mb.bySecMonth[s + '|' + m.d] || 0;
+      const ms = wPrev6.filter(w => (mb.bySecMonth[s + '|' + w] || 0) > 0);
+      const a6 = ms.length ? mb.secIn(s, ms) / ms.length : 0;
+      return { s, m1, a6, d: m1 - a6 };
+    }).filter(x => Math.abs(x.d) >= 150 && (x.a6 <= 0 || Math.abs(x.d / x.a6) >= 0.15));
+    const up = devs.filter(x => x.d > 0).sort((a, b) => b.d - a.d)[0];
+    const down = devs.filter(x => x.d < 0).sort((a, b) => a.d - b.d)[0];
+    const topNat = Object.keys(mb.byNat).map(nat => ({ nat, v: mb.byNatMonth[nat + '|' + m.d] || 0 }))
+      .filter(x => x.v > 0).sort((a, b) => b.v - a.v)[0];
+    const top2 = secM.slice(0, 2);
+    let p3 = `No Mobills, os <b>${fmt(mbTot)}</b> categorizados do mês se concentram em ` +
+      top2.map(x => `<b>${_rpEsc(x.s)}</b> (${fmt(x.v)}, ${_rpPct(x.v / mbTot * 100, 0)})`).join(' e ') + '.';
+    if (topNat) p3 += ` A maior categoria isolada foi <b>${_rpEsc(topNat.nat)}</b>, com ${fmt(topNat.v)}.`;
+    if (up) {
+      p3 += up.a6 > 0
+        ? ` Contra os 6 meses anteriores, quem mais subiu foi <b>${_rpEsc(up.s)}</b>: ${fmt(up.m1)} contra ${fmt(up.a6)} de média (${_rpPctS((up.m1 / up.a6 - 1) * 100, 0)}).`
+        : ` Contra os 6 meses anteriores, a novidade foi <b>${_rpEsc(up.s)}</b>: ${fmt(up.m1)}, sem lançamento no semestre anterior.`;
+    }
+    if (down) {
+      p3 += down.m1 > 0
+        ? ` ${up ? 'Na outra ponta' : 'Contra os 6 meses anteriores'}, <b>${_rpEsc(down.s)}</b> caiu para ${fmt(down.m1)}, de ${fmt(down.a6)} de média (${_rpPctS((down.m1 / down.a6 - 1) * 100, 0)}).`
+        : ` ${up ? 'Na outra ponta' : 'Contra os 6 meses anteriores'}, <b>${_rpEsc(down.s)}</b> zerou: nos meses do semestre anterior em que apareceu, foi de ${fmt(down.a6)} em média.`;
+    }
+    if (!up && !down) p3 += ` Nenhuma seção fugiu de forma relevante da média dos 6 meses anteriores.`;
+    if (m.gas > 0 && Math.abs(mbTot - m.gas) / m.gas > 0.15) {
+      p3 += ` O total categorizado não bate com os ${fmt(m.gas)} da coluna Gasto (${_rpPctS((mbTot / m.gas - 1) * 100, 0)}): a quebra mostra a composição, não o valor oficial do mês.`;
+    }
+    p3 += ` <span class="rp-dim">Categorias na ${_rpSecRef('gastos')}, o que cresceu e o que caiu na ${_rpSecRef('gastos-variacao')}.</span>`;
+    html += _rpP(p3);
+  } else if (mb.ok) {
+    html += _rpP(`O Mobills não tem lançamento em ${ml}, então este mês fica sem quebra por categoria. <span class="rp-dim">A ${_rpSecRef('gastos')} usa o último mês com dado.</span>`);
+  }
+
+  // ── 4) Acumulado do ano ──
+  const y = m.d.slice(0, 4), mm = Number(m.d.slice(5));
+  const dez = H.find(h => h.d === (Number(y) - 1) + '-12');
+  if (mm >= 2 && dez) {
+    const ytd = H.filter(h => h.d.slice(0, 4) === y && h.d <= m.d);
+    const dPlY = m.pl - (dez.pl || 0);
+    const apoY = _rpSum(ytd.map(apoPLOf));
+    const rY = ytd.map(h => rsBy[h.d]).filter(v => v != null);
+    const retY = rY.length === ytd.length ? (rY.reduce((p, r) => p * (1 + r), 1) - 1) * 100 : null;
+    const cdiY = (Math.pow(1 + (CDI_YEARLY[Number(y)] ?? 10) / 100, ytd.length / 12) - 1) * 100;
+    const gasY = _rpSum(ytd.map(h => h.gas || 0)), recY = _rpSum(ytd.map(h => h.rec || 0));
+    const py = H.filter(h => h.d.slice(0, 4) === String(Number(y) - 1) && Number(h.d.slice(5)) <= mm);
+    const gasPY = py.length === ytd.length ? _rpSum(py.map(h => h.gas || 0)) : null;
+    let p4 = `No acumulado de ${y} (${ytd.length} meses), o líquido ${dPlY >= 0 ? 'avançou' : 'recuou'} <b>${fmt(Math.abs(dPlY))}</b>: ` +
+      `${fmt(apoY)} de aporte e ${_rpMoneyS(dPlY - apoY)} de mercado.`;
+    if (retY != null) p4 += ` A carteira soma <b>${_rpPctS(retY)}</b> no ano, contra ${_rpPct(cdiY)} do CDI no mesmo período (${_rpPP(retY - cdiY)}).`;
+    if (recY > 0) p4 += ` Taxa de poupança do ano: <b>${_rpPct((recY - gasY) / recY * 100)}</b>.`;
+    if (gasPY > 0) p4 += ` O gasto acumulado, ${fmt(gasY)}, está ${_rpPct(Math.abs(gasY / gasPY - 1) * 100, 0)} ${gasY >= gasPY ? 'acima' : 'abaixo'} do mesmo período de ${Number(y) - 1}.`;
+    html += _rpP(p4);
+  }
+
+  return html;
+}
+
 // ═══════ 1. RETRATO DE HOJE ═══════
 function _rpSec1(c) {
-  const ins = c.insights || [];
-  const nBad = ins.filter(i => i.sev === 'bad').length;
-  const nWarn = ins.filter(i => i.sev === 'warn').length;
   const sr12 = c.rec12 > 0 ? (c.rec12 - c.gas12) / c.rec12 * 100 : null;
   const pctFI = c.fin > 0 ? c.invest / c.fin * 100 : 0;
   const run = runwayMonths();
+  const rwG = runwayMonthsGrowth();
+  const alvoCo = coastFITarget();
+  const coastRaw = coastFIYears();                       // Infinity quando o investível é zero
+  const coastY = coastRaw != null && isFinite(coastRaw) ? coastRaw : null;
 
   // ETA empírico: quanto falta ÷ quanto andou nos últimos 12 meses
   // "Ano atrás" por calendário, não pela posição -13 do array — um gap no sync (mês pulado)
@@ -9913,17 +11639,26 @@ function _rpSec1(c) {
     _rpKpi('Meta de independência', fmt(c.fin), `${_rpPct(pctFI)} concluído · renda-alvo ${fmt(S.fi.targetMonthlyIncome)}/mês a ${_rpPct(c.fiR)}`),
     _rpKpi('Taxa de poupança 12m', _rpPct(sr12), sr12 == null ? '—' : sr12 >= 40 ? 'acima de 40% — folga real' : sr12 >= 20 ? 'entre 20% e 40% — mediana' : 'abaixo de 20% — aperta o plano',
       sr12 == null ? '' : sr12 >= 40 ? 'rp-pos' : sr12 >= 20 ? 'rp-warn' : 'rp-neg'),
-    _rpKpi('Colchão', `${Math.round(run)} meses`, `${(run / 12).toFixed(1).replace('.', ',')} anos de gasto médio (${fmt(c.avgGas)}/mês) sem nenhuma renda`),
     _rpKpi('Data projetada da FI', fiB ? _rpDateLabel(fiB.date) : 'fora do horizonte',
       fiB ? `aos ${fiB.date.getFullYear() - S.profile.birthYear} anos · ${_rpDur(fiB.months)} a partir de ${monthLabel(projectionStart().str)}` : `nem em ${S.assumptions.projectionYears} anos no cenário base`),
     _rpKpi('Ritmo do último ano', pp12 == null ? '—' : _rpPctS(pp12) + ' da meta',
       etaY ? `nesse passo, faltam ~${etaY.toFixed(0)} anos (extrapolação do realizado, sem premissa de retorno)` : 'sem avanço mensurável nos últimos 12 meses',
       _rpCls(pp12)),
     _rpKpi('Aporte médio 12m', fmt(c.avgApo), `${fmt(c.apo12)} no ano · receita média ${fmt(c.avgRec)}/mês`),
-    _rpKpi('Diagnóstico', `${nBad + nWarn} ${nBad + nWarn === 1 ? 'ponto' : 'pontos'}`,
-      `${nBad} ${nBad === 1 ? 'alerta' : 'alertas'} e ${nWarn} ${nWarn === 1 ? 'atenção' : 'atenções'} na seção ${_rpSecNo('diagnostico')}`,
-      nBad ? 'rp-neg' : nWarn ? 'rp-warn' : 'rp-pos'),
-  ]);
+    // Última linha: as três medidas de "quanto tempo o dinheiro aguenta", lado a lado.
+    // Colchão supõe a carteira parada; o Runway com valorização deixa ela render o juro real da premissa.
+    _rpKpi('Colchão', `${Math.round(run)} meses`, `${(run / 12).toFixed(1).replace('.', ',')} anos de gasto médio (${fmt(c.avgGas)}/mês) sem nenhuma renda`),
+    _rpKpi('Runway com valorização', rwG.infinite ? '∞' : `${Math.round(rwG.months)} meses`,
+      rwG.infinite ? `o juro real de ${_rpPct(rwG.rReal * 100)} a.a. sozinho já cobre o gasto médio — o patrimônio nunca acaba`
+        : `${(rwG.months / 12).toFixed(1).replace('.', ',')} anos com a carteira rendendo ${_rpPct(rwG.rReal * 100)} real a.a. enquanto é consumida`,
+      rwG.infinite ? 'rp-pos' : ''),
+    _rpKpi('Coast FI', coastY === 0 ? 'atingido' : coastY == null ? '—' : `${coastY.toFixed(1).replace('.', ',')} anos`,
+      (coastY === 0 ? 'o juro real sozinho já leva à meta — aportar virou escolha'
+        : coastY == null ? (c.invest > 0 ? 'retorno real esperado ≤ 0: sem aporte, o patrimônio não cresce em poder de compra' : 'sem patrimônio investível, não há o que coastar')
+        : `sem nunca mais aportar, a meta chega aos ${Math.round(currentAge() + coastY)} anos`) +
+      (alvoCo != null && alvoCo > 0 && coastY !== 0 ? ` · limiar ${fmt(alvoCo)} hoje (${_rpPct(c.invest / alvoCo * 100)} atingido) · ${_rpSecRef('fi')}` : ''),
+      coastY === 0 ? 'rp-pos' : coastY == null ? 'rp-neg' : ''),
+  ], 3);
 
   // Leitura em prosa — os mesmos números, encadeados.
   // Dois números diferentes andam por aqui e NÃO podem ter o mesmo nome:
@@ -9939,10 +11674,10 @@ function _rpSec1(c) {
   const dPl12 = yAgo ? c.plNow - (yAgo.pl || 0) : null;
   const apoJanela = yAgo ? _rpSum(c.H.filter(h => h.d > yAgo.d && h.d <= c.lastD).map(apoPLOf)) : _rpSum(c.L12.map(apoPLOf));
   const mkt12 = dPl12 == null ? null : dPl12 - apoJanela;
-  let lead = `Em ${monthLabel(c.lastD)} o patrimônio líquido da planilha está em <b>${fmt(c.plNow)}</b>`;
+  let lead = `O patrimônio líquido da planilha está em <b>${fmt(c.plNow)}</b>`;
   if (dPl12 != null) {
     const janelaLabel = yAgoMonths === 12 ? '12 meses' : `${yAgoMonths} meses (lacuna no sync — não achei o mês exato 12 atrás)`;
-    lead += `, ${dPl12 >= 0 ? 'um avanço de' : 'uma queda de'} <b>${fmt(Math.abs(dPl12))}</b> em ${janelaLabel} — ` +
+    lead += `, ${dPl12 >= 0 ? 'um avanço de' : 'uma queda de'} <b>${fmt(Math.abs(dPl12))}</b> em ${janelaLabel} (desde ${monthLabel(yAgo.d)}) — ` +
       `<b>${fmt(apoJanela)}</b> de aporte e <b>${_rpMoneyS(mkt12)}</b> de resultado de mercado`;
     if (dPl12 > 0 && apoJanela / dPl12 >= 0.85) lead += `. Ou seja: ${_rpPct(apoJanela / dPl12 * 100)} do avanço foi você depositando dinheiro, não o dinheiro trabalhando`;
   }
@@ -9972,7 +11707,7 @@ function _rpSec1(c) {
     id: 'retrato', title: 'Retrato de hoje', src: 'planilha + cadastro',
     html: (c.stale >= 2 ? _rpCall('warn', 'Os dados param em ' + monthLabel(c.lastD),
       `São <b>${c.stale} meses</b> de defasagem em relação a ${monthLabel(c.realKey)}. Todo número deste relatório — inclusive as projeções — está calculado sobre essa foto. Sincronize a planilha (↻ Sync Sheets) e gere de novo antes de decidir com base nele.`) : '') +
-      kpis + _rpP(lead) + (veredito ? _rpP(veredito) : '') + recon,
+      kpis + _rpMonthClose(c) + _rpH3('Em 12 meses') + _rpP(lead) + (veredito ? _rpP(veredito) : '') + recon,
   };
 }
 
@@ -9989,7 +11724,7 @@ function _rpSec2(c) {
 
   html += _rpKpis([
     _rpKpi('Desde o início', fmt(c.patNow), real ? `${_rpX(real.nomMult)} nominal · ${_rpX(real.realMult)} em poder de compra` : `primeiro registro em ${monthLabel(c.H[0].d)}`),
-    _rpKpi('Crescimento do saldo', real ? _rpPct(real.nomCAGR) + ' a.a.' : '—', 'CAGR do saldo — <b>inclui aporte</b>, não é retorno da carteira; o retorno está na seção ' + _rpSecNo('resultado')),
+    _rpKpi('Crescimento do saldo', real ? _rpPct(real.nomCAGR) + ' a.a.' : '—', 'CAGR do saldo — <b>inclui aporte</b>, não é retorno da carteira; o retorno está na ' + _rpSecRef('resultado')),
     _rpKpi('Crescimento real do saldo', real ? _rpPct(real.realCAGR) + ' a.a.' : '—', real ? `o mesmo CAGR já sem a inflação de ${_rpPct(real.inflAcum)} acumulada no período` : '', real && real.realCAGR > 0 ? 'rp-pos' : 'rp-neg'),
     _rpKpi('Maior queda já atravessada', _rpPct(mdd), dd.pct >= 5 ? `hoje ${_rpPct(dd.pct)} abaixo do pico de ${fmt(dd.peak)} (${monthLabel(dd.peakD)})` : 'hoje no topo histórico ou a menos de 5% dele'),
   ], 4);
@@ -10322,7 +12057,7 @@ function _rpSec4(c) {
     `<td>Total</td><td class="n">${fmt(_rpSum(yr.map(r => r.apo)))}</td><td class="n">—</td><td class="n">—</td>` +
     `<td class="n">${c.H.filter(h => (h.apo || 0) < 0).length}</td><td class="n">—</td>`,
     'rp-t-sm');
-  html += `<p class="rp-note">“% da receita” usa o aporte como está na planilha — ele inclui rendimento reinvestido, então pode passar de 100% e não é taxa de poupança. A taxa honesta está na seção ${_rpSecNo('fluxo')}.</p>`;
+  html += `<p class="rp-note">“% da receita” usa o aporte como está na planilha — ele inclui rendimento reinvestido, então pode passar de 100% e não é taxa de poupança. A taxa honesta está na ${_rpSecRef('fluxo')}.</p>`;
 
   html += _rpH3('O que as projeções assumem vs. o que acontece');
   const apHypDefault = Math.max(0, Math.round(c.avgApo));
@@ -10349,7 +12084,7 @@ function _rpSec4(c) {
   }
   if (c.avgApo > 0 && qAvg < c.avgApo * 0.6) {
     html += _rpCall('warn', 'O último trimestre aportou menos de 60% da média anual',
-      `${fmt(qAvg)}/mês contra ${fmt(c.avgApo)}/mês de média em 12 meses. Parte disso pode ser sazonal — bônus concentrados em poucos meses fazem a média subir e o trimestre “normal” parecer fraco. Vale olhar junto com a tendência de receita na seção ${_rpSecNo('fluxo')}.`);
+      `${fmt(qAvg)}/mês contra ${fmt(c.avgApo)}/mês de média em 12 meses. Parte disso pode ser sazonal — bônus concentrados em poucos meses fazem a média subir e o trimestre “normal” parecer fraco. Vale olhar junto com a tendência de receita na ${_rpSecRef('fluxo')}.`);
   }
 
   return { id: 'aportes', title: 'Aportes', src: 'planilha (col. Aporte) + cadastro', html };
@@ -11376,7 +13111,10 @@ function _rpSec8(c) {
     html += _rpTable(
       `<th>Percentil</th><th class="n">Prazo</th><th class="n">Chega em</th><th class="n">Idade</th>`,
       [['p10 — cenário bom', mc.p10], ['p50 — mediana', mc.p50], ['p90 — cenário ruim', mc.p90]]
-        .map(([l, m]) => `<tr><td class="lbl">${l}</td><td class="n">${_rpDur(m)}</td><td class="n">${dt(m)}</td>` +
+        .map(([l, m]) => m == null
+          // percentil sobre todas as simulações: se nem essa fração chega, é "não chega", não um número otimista
+          ? `<tr><td class="lbl">${l}</td><td class="n">não chega</td><td class="n">—</td><td class="n">—</td></tr>`
+          : `<tr><td class="lbl">${l}</td><td class="n">${_rpDur(m)}</td><td class="n">${dt(m)}</td>` +
           `<td class="n">${dAt(m).getFullYear() - S.profile.birthYear} anos</td></tr>`).join(''),
       null, 'rp-t-sm');
     html += _rpP(`Em <b>${_rpPct(mc.probInHorizon)}</b> das ${_rpN(mc.sims)} simulações a meta é atingida dentro do horizonte de ${S.assumptions.projectionYears} anos. ` +
@@ -11451,7 +13189,7 @@ function _rpSecAtivos(c) {
   ], 4);
 
   html += _rpP(`Esta seção lê a <b>Posição Detalhada</b> da corretora, ativo a ativo — é a única fonte do relatório que enxerga ` +
-    `vencimento, indexador e emissor. A seção ${_rpSecNo('carteira')} trata da carteira <i>cadastrada</i>, agrupada por classe: lá o número é a premissa que alimenta as projeções, ` +
+    `vencimento, indexador e emissor. A ${_rpSecRef('carteira')} trata da carteira <i>cadastrada</i>, agrupada por classe: lá o número é a premissa que alimenta as projeções, ` +
     `aqui é a foto do que está custodiado em ${monthLabel(POSICAO.key)}.`);
 
   // ── por indexador ──
@@ -11915,16 +13653,16 @@ function _rpSec13(c) {
   if (c.stale >= 2) caveats.push(`<b>O histórico para em ${monthLabel(c.lastD)}</b>, ${c.stale} meses atrás. Tudo aqui — inclusive as datas projetadas — está calculado sobre essa foto.`);
   if (!(new Date().getFullYear() in CDI_YEARLY)) caveats.push(`<b>A tabela de CDI não tem ${new Date().getFullYear()}.</b> Anos ausentes caem num fallback de 10% a.a., o que distorce o alpha e a comparação com o CDI.`);
   if (c.mb.ok) {
-    caveats.push(`<b>Gasto do Mobills usa valor absoluto.</b> Estorno e crédito inflam o gasto em vez de abater — a soma da seção ${_rpSecNo('gastos')} é gasto bruto, não líquido.`);
-    caveats.push(`<b>Duas contas de gasto convivem.</b> A seção ${_rpSecNo('fluxo')} usa a coluna Gasto da planilha; a seção ${_rpSecNo('gastos')} soma os lançamentos do Mobills. Elas divergem por construção, e a divergência está medida no fim da seção ${_rpSecNo('gastos')}.`);
+    caveats.push(`<b>Gasto do Mobills usa valor absoluto.</b> Estorno e crédito inflam o gasto em vez de abater — a soma da ${_rpSecRef('gastos')} é gasto bruto, não líquido.`);
+    caveats.push(`<b>Duas contas de gasto convivem.</b> A ${_rpSecRef('fluxo')} usa a coluna Gasto da planilha; a ${_rpSecRef('gastos')} soma os lançamentos do Mobills. Elas divergem por construção, e a divergência está medida no fim da ${_rpSecRef('gastos')}.`);
   } else {
     caveats.push(`<b>Sem dados de Mobills</b>, a seção de gastos categorizados está vazia e o Lean FI não pode ser calculado.`);
   }
   caveats.push(`<b>A idade está fixada em 2026</b> no código (<code>currentAge()</code> faz <code>2026 − ano de nascimento</code>). Vira erro de um ano a partir de 2027.`);
   caveats.push(`<b>O Monte Carlo não tem correlação entre classes:</b> soma as volatilidades ponderadas, o que superestima o risco da carteira e alarga a dispersão dos percentis.`);
   caveats.push(`<b>Proteção não desconta a valor presente</b> e ignora reserva do cônjuge, pensão e benefício de empresa — é estimativa conservadora, para cima.`);
-  caveats.push(`<b>Aporte da planilha inclui rendimento reinvestido</b>, então não é taxa de poupança. A taxa honesta é (receita − gasto) ÷ receita, na seção ${_rpSecNo('fluxo')}.`);
-  caveats.push(`<b>Projeções assumem gasto constante em termos reais.</b> Se a inflação pessoal roda acima do IPCA (seção ${_rpSecNo('fluxo')}), a meta de hoje não compra o padrão de vida de amanhã.`);
+  caveats.push(`<b>Aporte da planilha inclui rendimento reinvestido</b>, então não é taxa de poupança. A taxa honesta é (receita − gasto) ÷ receita, na ${_rpSecRef('fluxo')}.`);
+  caveats.push(`<b>Projeções assumem gasto constante em termos reais.</b> Se a inflação pessoal roda acima do IPCA (${_rpSecRef('fluxo')}), a meta de hoje não compra o padrão de vida de amanhã.`);
   if (!_rpSum(Object.values(c.port.target))) caveats.push(`<b>Sem alocação alvo definida</b>, não há medida de desvio nem plano de rebalanceamento.`);
   html += `<ul class="rp-ul">${caveats.map(t => `<li>${t}</li>`).join('')}</ul>`;
 
@@ -11948,6 +13686,14 @@ const _RP_SECTIONS = [
 function _rpSecNo(id) {
   const i = _RP_SECTIONS.indexOf(id);
   return i < 0 ? '?' : String(i + 1);
+}
+// "seção N" clicável — mesma âncora #rp-<id> do índice. O link sobrevive ao
+// "Salvar como PDF" do Chrome (link interno do PDF). label troca o texto
+// quando a frase já disse "seção" antes ("na 5").
+function _rpSecRef(id, label) {
+  const n = _rpSecNo(id);
+  if (n === '?') return label || 'seção ?';
+  return `<a class="rp-xref" href="#rp-${id}">${label || 'seção ' + n}</a>`;
 }
 
 function buildReport() {
