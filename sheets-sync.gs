@@ -39,7 +39,10 @@
  * ════════════════════════════════════════════════════════════════ */
 const CARTEIRA_SHEET   = 'Carteira XP';
 const CARTEIRA_HEADERS = ['Mês', 'Data da posição', 'Patrimônio líquido', 'Total aplicado',
-                          'Aporte no mês', 'Nº ativos', 'Atualizado em', 'Snapshot (JSON)'];
+                          'Aporte no mês', 'Nº ativos', 'Atualizado em', 'Snapshot (JSON)', 'Posição (JSON)'];
+// Posição ativo a ativo (col. I em diante). Uma célula aceita 50 mil caracteres, então
+// o JSON é fatiado em colunas vizinhas e remontado na leitura.
+const POS_COL = 9, POS_CHUNK = 45000, POS_MAX_CHUNKS = 6;
 
 // Toda chamada (leitura e escrita) chega por POST com { type, token }. A senha fica em
 // Script Properties, fora do código; comparação em tempo constante.
@@ -64,7 +67,7 @@ function doPost(e) {
     if (payload.type !== 'carteira-snapshot' || !payload.snapshot || !payload.snapshot.key)
       return jsonOut({ ok: false, error: 'payload inválido' });
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    upsertCarteira(getOrCreateCarteira(ss), payload.snapshot);
+    upsertCarteira(getOrCreateCarteira(ss), payload.snapshot, payload.posicao);
     return jsonOut({ ok: true, mes: payload.snapshot.key });
   } catch (err) {
     return jsonOut({ ok: false, error: String((err && err.message) || err) });
@@ -87,20 +90,34 @@ function getOrCreateCarteira(ss) {
     sh = ss.insertSheet(CARTEIRA_SHEET);
     sh.getRange(1, 1, 1, CARTEIRA_HEADERS.length).setValues([CARTEIRA_HEADERS]).setFontWeight('bold');
     sh.setFrozenRows(1);
+  } else if (!sh.getRange(1, POS_COL).getValue()) {
+    sh.getRange(1, POS_COL).setValue(CARTEIRA_HEADERS[POS_COL - 1]).setFontWeight('bold');
   }
   return sh;
 }
 
-function upsertCarteira(sh, snap) {
+function upsertCarteira(sh, snap, posicao) {
   const row = [cellSafe(String(snap.key)), cellSafe(snap.dateStr), snap.totLiq, snap.totApl, snap.aplMes,
                snap.nAtivos, new Date(), cellSafe(JSON.stringify(snap))];
+  if (posicao && posicao.key === snap.key && Array.isArray(posicao.itens)) {
+    const txt = JSON.stringify(posicao);
+    for (let i = 0; i < txt.length && i / POS_CHUNK < POS_MAX_CHUNKS; i += POS_CHUNK) row.push(txt.slice(i, i + POS_CHUNK));
+    if (txt.length > POS_CHUNK * POS_MAX_CHUNKS) row.length = POS_COL - 1;   // grande demais: não grava pela metade
+  }
+  // A chave do mês vem do JSON (col. H): a col. A pode ter virado data no Sheets.
   const last = sh.getLastRow();
   let target = -1;
   if (last >= 2) {
-    const keys = sh.getRange(2, 1, last - 1, 1).getValues();
-    for (let i = 0; i < keys.length; i++) if (String(keys[i][0]) === String(snap.key)) { target = i + 2; break; }
+    const snaps = sh.getRange(2, 8, last - 1, 1).getValues();
+    for (let i = 0; i < snaps.length; i++) {
+      try { if (JSON.parse(String(snaps[i][0])).key === snap.key) { target = i + 2; break; } } catch (e) {}
+    }
   }
-  sh.getRange(target > 0 ? target : last + 1, 1, 1, row.length).setValues([row]);
+  if (target < 0) target = last + 1;
+  // Limpa fatias antigas da posição antes de gravar (a nova pode ter menos colunas).
+  const lastCol = sh.getLastColumn();
+  if (lastCol >= POS_COL) sh.getRange(target, POS_COL, 1, lastCol - POS_COL + 1).clearContent();
+  sh.getRange(target, 1, 1, row.length).setValues([row]);
   const n = sh.getLastRow();
   if (n > 2) sh.getRange(2, 1, n - 1, sh.getLastColumn()).sort({ column: 1, ascending: true });
 }
@@ -140,6 +157,7 @@ function buildSync() {
     const mob  = timed('find_mobills', timing, () => findMobillsSheet(ss));
     const flx  = timed('find_fluxo', timing, () => findSheetByName(ss, 'Fluxo de Caixa'));
     const fin  = timed('find_financiamento', timing, () => findSheetByName(ss, 'Financiamento'));
+    const cxp  = timed('find_carteira',      timing, () => ss.getSheetByName(CARTEIRA_SHEET));
 
     // Linhas visíveis do Fluxo de Caixa são calculadas UMA vez e reaproveitadas
     // pelo fluxoGrid e pelo fluxoBold (antes cada um escaneava isRowHiddenByUser
@@ -154,10 +172,11 @@ function buildSync() {
       fluxoGrid:     flx  ? timed('extract_fluxoGrid',     timing, () => safeExtract('fluxoGrid',      () => extractGrid(flx, 300, 250, flxVisibleRows))) : null,
       fluxoBold:     flx  ? timed('extract_fluxoBold',     timing, () => safeExtract('fluxoBold',      () => extractColABold(flx, 300, flxVisibleRows)))  : null,
       financiamento: fin  ? timed('extract_financiamento', timing, () => safeExtract('financiamento',  () => extractFinanciamento(fin)))                  : null,
+      carteira:      cxp  ? timed('extract_carteira',      timing, () => safeExtract('carteira',       () => extractCarteira(cxp)))                       : null,
       updatedAt:  new Date().toISOString(),
       // Carimbo de versão. O app lê: a partir de 'sync-portfolio-v2', portfolio traz null
       // para coluna inexistente e 0 só para classe zerada — e aí o app passa a aceitar o zero.
-      _ver: 'sync-portfolio-v3'
+      _ver: 'sync-portfolio-v4'
     };
 
     timing._total = Date.now() - tStart;
@@ -169,6 +188,26 @@ function buildSync() {
     timing._total = Date.now() - tStart;
     return { error: err.message, _timing: timing };
   }
+}
+
+// Aba Carteira XP de volta para o app: todos os fechamentos (col. H) e a posição
+// ativo a ativo mais recente que tiver sido enviada (col. I em diante, fatiada).
+function extractCarteira(sh) {
+  const n = sh.getLastRow(), w = sh.getLastColumn();
+  if (n < 2 || w < 8) return null;
+  const vals = sh.getRange(2, 8, n - 1, w - 7).getValues();
+  const hist = [];
+  let posicao = null;
+  vals.forEach(r => {
+    try { const s = JSON.parse(String(r[0])); if (s && s.key) hist.push(s); } catch (e) {}
+    const txt = r.slice(1).join('');
+    if (!txt) return;
+    try {
+      const p = JSON.parse(txt);
+      if (p && p.key && Array.isArray(p.itens) && (!posicao || p.key > posicao.key)) posicao = p;
+    } catch (e) {}
+  });
+  return { hist: hist, posicao: posicao };
 }
 
 function jsonOut(data) {

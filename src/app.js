@@ -558,6 +558,31 @@ async function syncFromSheets(silent = false) {
       changed = true;
     }
 
+    // ── Aba Carteira XP: fechamentos e posição ativo a ativo ──
+    // Quem processa a Posição XP é um aparelho só (o computador). Ele envia para a
+    // planilha, e aqui os outros recebem. Junta com o local: por mês, fica o mais novo.
+    if (data.carteira) {
+      const ler = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+      if (Array.isArray(data.carteira.hist) && data.carteira.hist.length) {
+        const porMes = {};
+        (ler('fechamento_hist_v1') || []).forEach(s => { if (s && s.key) porMes[s.key] = s; });
+        let mudou = false;
+        data.carteira.hist.forEach(s => {
+          const l = porMes[s.key];
+          if (!l || (s.savedAt || 0) > (l.savedAt || 0)) { porMes[s.key] = s; mudou = true; }
+        });
+        if (mudou) {
+          pendingWrites.push(['fechamento_hist_v1', Object.values(porMes).sort((a, b) => a.key < b.key ? -1 : 1)]);
+          changed = true;
+        }
+      }
+      const rp = data.carteira.posicao, lp = ler('finplan_posicao_ativos');
+      if (rp && rp.key && (!lp || rp.key > lp.key || (rp.key === lp.key && (rp.savedAt || 0) > (lp.savedAt || 0)))) {
+        pendingWrites.push(['finplan_posicao_ativos', rp]);
+        changed = true;
+      }
+    }
+
     // ── Atualiza espelho da grade Fluxo de Caixa ──────────
     if (Array.isArray(data.fluxoGrid) && data.fluxoGrid.length > 0) {
       FLUXOGRID = data.fluxoGrid;

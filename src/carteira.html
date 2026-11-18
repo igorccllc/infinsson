@@ -29,7 +29,8 @@ h1 span{color:var(--green)}
 #drop.over{border-color:var(--green);background:var(--green-soft)}
 #prep{margin-top:10px;padding:11px 14px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--rust);border-radius:0 6px 6px 0;font-size:12.5px;color:var(--ink-soft);display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
 #prep .tag{font-family:var(--mono);font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--rust);white-space:nowrap}
-#prep code{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--line-soft);padding:2px 7px;border-radius:4px}
+#prep[hidden]{display:none}
+#prep input{font-family:var(--mono);font-size:12px;padding:4px 8px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--ink)}
 #drop strong{display:block;font-size:16px;font-weight:700;margin-bottom:4px}
 #drop em{font-style:normal;color:var(--ink-soft);font-size:13px}
 #file{display:none}
@@ -148,9 +149,11 @@ tr.liq-month td.name{font-family:var(--mono);font-size:12.5px;text-transform:non
     <strong>Solte aqui a Posição Detalhada Histórica (.xlsx)</strong>
     <em>ou clique para selecionar — tudo roda local, nada sai do navegador</em>
   </div>
-  <div id="prep">
-    <span class="tag">Antes de subir</span>
-    <span>ADICIONAR EM F1: <code>Data da Posição Histórica: 31/XX/2026</code></span>
+  <div id="prep" hidden>
+    <span class="tag">Data da posição</span>
+    <span>O arquivo não traz a data. Confirme o dia da foto:</span>
+    <input type="date" id="pos-date">
+    <button id="pos-date-ok">Usar esta data</button>
   </div>
   <input type="file" id="file" accept=".xlsx,.xls">
   <div id="err"></div>
@@ -274,7 +277,8 @@ function classifica(nome){
 }
 
 /* ── parser ── */
-function parseSheet(rows){
+// dataFora: {d,m,y} confirmada na tela, usada só se a planilha não trouxer a data.
+function parseSheet(rows, dataFora){
   let posDate = null;
   // Aceita espaçamento irregular entre "Posição" e "Histórica" (alguns exports da XP saem com
   // espaço duplo) e também relatórios sem a palavra "Histórica" no rótulo da data.
@@ -282,6 +286,7 @@ function parseSheet(rows){
     const m = String(cell ?? '').match(/Data da Posi[çc][ãa]o\s*(?:Hist[óo]rica\s*)?:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
     if (m){ posDate = {d:m[1], m:m[2], y:m[3]}; break; }
   }
+  if (!posDate && dataFora) posDate = dataFora;
 
   const cats = [];   // {nome, total, secoes:[{nome, hdr, cols, items}]}
   let cat = null, sec = null;
@@ -629,6 +634,11 @@ function deltaCellHTML(v){
   return `<td class="${v >= 0 ? 'pos' : 'neg'}">${v > 0 ? '+' : ''}${fmt(v)}</td>`;
 }
 const SHEETS_URL_KEY = 'fechamento_sheets_url';
+// Posição ativo a ativo gravada por savePosicao(), se for do mesmo mês do envio.
+function posicaoDoMes(key){
+  try { const p = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); return p && p.key === key ? p : null; }
+  catch(_){ return null; }
+}
 async function enviarSheets(data){
   const status = document.getElementById('sheets-status');
   if (!data.posDate){ status.textContent = 'arquivo sem data de posição'; return; }
@@ -646,7 +656,7 @@ async function enviarSheets(data){
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // text/plain evita preflight CORS
-      body: JSON.stringify({ type: 'carteira-snapshot', snapshot: snap,
+      body: JSON.stringify({ type: 'carteira-snapshot', snapshot: snap, posicao: posicaoDoMes(snap.key),
                              token: localStorage.getItem('finplan_sync_token') || '' }),
     });
     let ok = true, err = null;
@@ -1015,14 +1025,41 @@ function handleFile(file){
       const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:false, defval:null});
       parsed = parseSheet(rows);
       if (!parsed.cats.length) throw new Error('Nenhuma categoria reconhecida — confira se é o relatório "Posição Detalhada Histórica" da XP.');
-      render(parsed);
       document.getElementById('drop').style.display = 'none';
+      if (parsed.posDate) { render(parsed); return; }
+      // Sem data não dá pra renderizar: o fechamento e a posição são gravados pela data.
+      pedeData(rows, file.name);
     }catch(ex){
       err.textContent = 'Não consegui ler o arquivo: ' + ex.message;
       err.style.display = 'block';
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+// Palpite da data: uma data no nome do arquivo (31-10-2026, 2026-10-31, 31102026);
+// senão, o último dia do mês passado, que é quando se tira a foto do fechamento.
+function palpiteData(nome){
+  const n = String(nome || '');
+  let m = n.match(/(\d{4})[-_.](\d{2})[-_.](\d{2})/);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = n.match(/(\d{2})[-_.](\d{2})[-_.](\d{4})/) || n.match(/(?<!\d)(\d{2})(\d{2})(20\d{2})(?!\d)/);
+  if (m && +m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31) return m[3] + '-' + m[2] + '-' + m[1];
+  const h = new Date(), fim = new Date(h.getFullYear(), h.getMonth(), 0);
+  return fim.getFullYear() + '-' + String(fim.getMonth() + 1).padStart(2, '0') + '-' + String(fim.getDate()).padStart(2, '0');
+}
+function pedeData(rows, nome){
+  const prep = document.getElementById('prep'), inp = document.getElementById('pos-date');
+  inp.value = palpiteData(nome);
+  prep.hidden = false;
+  inp.focus();
+  document.getElementById('pos-date-ok').onclick = () => {
+    const [y, m, d] = (inp.value || '').split('-');
+    if (!y) { inp.focus(); return; }
+    prep.hidden = true;
+    parsed = parseSheet(rows, { d, m, y });
+    render(parsed);
+  };
 }
 
 const drop = document.getElementById('drop'), input = document.getElementById('file');
@@ -1055,6 +1092,7 @@ document.getElementById('btn-reset').addEventListener('click', () => {
   document.getElementById('summary').style.display = 'none';
   document.getElementById('actions').style.display = 'none';
   document.getElementById('drop').style.display = 'block';
+  document.getElementById('prep').hidden = true;
   document.getElementById('posdate').textContent = 'aguardando arquivo';
   input.value = '';
 });
