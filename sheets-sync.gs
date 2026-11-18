@@ -9,10 +9,17 @@
  * 5. Clique em "Deploy" > "New deployment"
  * 6. Tipo: Web app
  * 7. Execute as: Me (a conta Google dona da planilha)
- * 8. Who has access: ⚠️ "Anyone, even anonymous"  ← OBRIGATÓRIO para funcionar no browser
- *    (A URL gerada tem 65 chars aleatórios — é a "senha". Ninguém vai adivinhar.)
+ * 8. Who has access: "Anyone, even anonymous"  ← obrigatório para o app (GitHub Pages) conseguir chamar
  * 9. Deploy > Authorize > Copy the Web app URL
- * 10. Cole essa URL no app (botão "↻ Sync Sheets" > primeira vez pede a URL)
+ * 10. SENHA: no app, Shift+clique em "↻ Sync Sheets" > "Gerar" (a senha vai para a área de
+ *     transferência). No Apps Script: ⚙ Project Settings > Script Properties > Add property:
+ *     nome SYNC_TOKEN, valor = a senha. Salve.
+ * 11. De volta ao app: cole a URL, confira a senha, "Salvar e Sincronizar".
+ *     No celular, o mesmo modal: mesma URL e mesma senha.
+ *
+ * Por que a senha: "Anyone" quer dizer que quem tiver a URL lê a planilha inteira. Com
+ * SYNC_TOKEN, a URL sozinha não devolve nada. Sem SYNC_TOKEN definido, o script recusa
+ * tudo (falha fechado).
  *
  * SE JÁ DEPLOYOU COM "Only myself":
  * Deploy > Manage deployments > ✏️ editar > mudar "Who has access" > nova versão > Deploy
@@ -34,17 +41,44 @@ const CARTEIRA_SHEET   = 'Carteira XP';
 const CARTEIRA_HEADERS = ['Mês', 'Data da posição', 'Patrimônio líquido', 'Total aplicado',
                           'Aporte no mês', 'Nº ativos', 'Atualizado em', 'Snapshot (JSON)'];
 
+// Toda chamada (leitura e escrita) chega por POST com { type, token }. A senha fica em
+// Script Properties, fora do código; comparação em tempo constante.
+function tokenOk(token) {
+  const expected = PropertiesService.getScriptProperties().getProperty('SYNC_TOKEN');
+  if (!expected || typeof token !== 'string' || token.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ token.charCodeAt(i);
+  return diff === 0;
+}
+
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
+    if (!PropertiesService.getScriptProperties().getProperty('SYNC_TOKEN'))
+      return jsonOut({ ok: false, error: 'SYNC_TOKEN não configurado no Apps Script' });
+    if (!tokenOk(payload.token))
+      return jsonOut({ ok: false, error: 'senha do sync incorreta' });
+
+    if (payload.type === 'sync') return jsonOut(buildSync());
+
     if (payload.type !== 'carteira-snapshot' || !payload.snapshot || !payload.snapshot.key)
-      return jsonpOrJson(e, { ok: false, error: 'payload inválido' });
+      return jsonOut({ ok: false, error: 'payload inválido' });
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     upsertCarteira(getOrCreateCarteira(ss), payload.snapshot);
-    return jsonpOrJson(e, { ok: true, mes: payload.snapshot.key });
+    return jsonOut({ ok: true, mes: payload.snapshot.key });
   } catch (err) {
-    return jsonpOrJson(e, { ok: false, error: String((err && err.message) || err) });
+    return jsonOut({ ok: false, error: String((err && err.message) || err) });
   }
+}
+
+// GET não lê mais nada: abrir a URL no navegador não pode devolver a planilha.
+function doGet() {
+  return jsonOut({ ok: false, error: 'use o app (POST com senha)' });
+}
+
+// Texto que começa com = + - @ vira fórmula no Sheets. Prefixar com ' grava como texto.
+function cellSafe(v) {
+  return (typeof v === 'string' && /^[=+\-@]/.test(v)) ? "'" + v : v;
 }
 
 function getOrCreateCarteira(ss) {
@@ -58,8 +92,8 @@ function getOrCreateCarteira(ss) {
 }
 
 function upsertCarteira(sh, snap) {
-  const row = [snap.key, snap.dateStr, snap.totLiq, snap.totApl, snap.aplMes,
-               snap.nAtivos, new Date(), JSON.stringify(snap)];
+  const row = [cellSafe(String(snap.key)), cellSafe(snap.dateStr), snap.totLiq, snap.totApl, snap.aplMes,
+               snap.nAtivos, new Date(), cellSafe(JSON.stringify(snap))];
   const last = sh.getLastRow();
   let target = -1;
   if (last >= 2) {
@@ -92,7 +126,7 @@ function timed(label, timing, fn) {
   return out;
 }
 
-function doGet(e) {
+function buildSync() {
   const timing = {};
   const tStart = Date.now();
   try {
@@ -123,31 +157,23 @@ function doGet(e) {
       updatedAt:  new Date().toISOString(),
       // Carimbo de versão. O app lê: a partir de 'sync-portfolio-v2', portfolio traz null
       // para coluna inexistente e 0 só para classe zerada — e aí o app passa a aceitar o zero.
-      _ver: 'sync-portfolio-v2'
+      _ver: 'sync-portfolio-v3'
     };
 
     timing._total = Date.now() - tStart;
     result._timing = timing;
 
-    return jsonpOrJson(e, result);
+    return result;
 
   } catch (err) {
     timing._total = Date.now() - tStart;
-    return jsonpOrJson(e, { error: err.message, _timing: timing });
+    return { error: err.message, _timing: timing };
   }
 }
 
-// Suporta JSONP (?callback=fn) — bypassa CORS em apps estáticos
-function jsonpOrJson(e, data) {
-  const cb = e && e.parameter && e.parameter.callback;
-  const body = JSON.stringify(data);
-  if (cb) {
-    return ContentService
-      .createTextOutput(cb + '(' + body + ')')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
+function jsonOut(data) {
   return ContentService
-    .createTextOutput(body)
+    .createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -297,7 +323,7 @@ function getVisibleCols(sheet, maxCols) {
 
 /* ── Espelho de grade crua: pula linhas e colunas OCULTAS, datas → "YYYY-MM-DD".
  * Usado por Financiamento e Fluxo de Caixa (o app decide cabeçalho/formato).
- * `visibleRowsPrecalc` permite reaproveitar um cálculo já feito (ver doGet). */
+ * `visibleRowsPrecalc` permite reaproveitar um cálculo já feito (ver buildSync). */
 function extractGrid(sheet, maxRows, maxCols, visibleRowsPrecalc) {
   const data = sheet.getDataRange().getValues();
   const nCols = Math.min(maxCols || 250, data[0] ? data[0].length : 0);

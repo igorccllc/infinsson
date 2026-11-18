@@ -632,7 +632,9 @@ const SHEETS_URL_KEY = 'fechamento_sheets_url';
 async function enviarSheets(data){
   const status = document.getElementById('sheets-status');
   if (!data.posDate){ status.textContent = 'arquivo sem data de posição'; return; }
-  let url = localStorage.getItem(SHEETS_URL_KEY);
+  // Mesma URL e senha do Sync Sheets do app (o iframe tem a mesma origem). A chave
+  // própria fica só como fallback de quem configurou aqui antes.
+  let url = localStorage.getItem('finplan_sync_url') || localStorage.getItem(SHEETS_URL_KEY);
   if (!url){
     url = prompt('Cole a URL da Web App do Apps Script (termina em /exec):');
     if (!url) return;
@@ -644,7 +646,8 @@ async function enviarSheets(data){
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // text/plain evita preflight CORS
-      body: JSON.stringify({ type: 'carteira-snapshot', snapshot: snap }),
+      body: JSON.stringify({ type: 'carteira-snapshot', snapshot: snap,
+                             token: localStorage.getItem('finplan_sync_token') || '' }),
     });
     let ok = true, err = null;
     try { const j = await res.json(); ok = !!j.ok; err = j.error; } catch(_){ /* resposta opaca — assume enviado */ }
@@ -652,8 +655,7 @@ async function enviarSheets(data){
       ? '✓ ' + monthKeyLabel(snap.key) + ' enviado às ' + new Date().toLocaleTimeString('pt-BR').slice(0,5)
       : '⚠ ' + (err || 'o Sheets recusou');
   } catch(_){
-    status.textContent = '⚠ falha de conexão — confira a URL (clique de novo p/ recolar)';
-    localStorage.removeItem(SHEETS_URL_KEY);
+    status.textContent = '⚠ falha de conexão — confira a URL e a senha no Sync Sheets do app';
   }
 }
 

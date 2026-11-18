@@ -395,17 +395,22 @@ function deepMerge(def, saved) {
 
 // ── 3b. GOOGLE SHEETS SYNC ───────────────────────────────
 const SYNC_KEY = 'finplan_sync_url';
+// Senha do sync: a mesma gravada em SYNC_TOKEN nas propriedades do Apps Script.
+// Sem ela o script não devolve nada, então a URL sozinha deixa de abrir a planilha.
+// A aba Carteira XP (iframe srcdoc, mesma origem) lê estas duas chaves.
+const SYNC_TOKEN_KEY = 'finplan_sync_token';
 
 function getSyncUrl()       { return localStorage.getItem(SYNC_KEY) || ''; }
 function setSyncUrl(url)    { localStorage.setItem(SYNC_KEY, url.trim()); }
+function getSyncToken()     { return localStorage.getItem(SYNC_TOKEN_KEY) || ''; }
+function setSyncToken(t)    { localStorage.setItem(SYNC_TOKEN_KEY, t.trim()); }
 
-// Perfil do último sync — preenchido por jsonpFetch/syncFromSheets, lido por syncReport().
+// Perfil do último sync — preenchido por syncFetch/syncFromSheets, lido por syncReport().
 const SYNC_PROF = {};
 
-async function jsonpFetch(url) {
-  // Tenta fetch direto (funciona com Apps Script "Anyone, even anonymous")
+async function _syncRequest(url, init) {
   const t0 = performance.now();
-  const res = await fetch(url, { redirect: 'follow' });
+  const res = await fetch(url, { redirect: 'follow', ...init });
   const t1 = performance.now();
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const text = await res.text();
@@ -417,16 +422,23 @@ async function jsonpFetch(url) {
   SYNC_PROF.download = t2 - t1;
   SYNC_PROF.bytes    = text.length;
 
-  const parse = () => {
-    // Se vier JSON puro
-    try { return JSON.parse(text); } catch (_) {}
-    // Se vier JSONP wrappado: _fpSyncXXX({...})
-    const m = text.match(/\w+\((\{[\s\S]*\})\)/);
-    if (m) return JSON.parse(m[1]);
-    throw new Error('Resposta inesperada do servidor: ' + text.slice(0, 120));
-  };
-  const data = parse();
+  let data;
+  try { data = JSON.parse(text); }
+  catch (_) { throw new Error('Resposta inesperada do servidor: ' + text.slice(0, 120)); }
   SYNC_PROF.parse = performance.now() - t2;
+  return data;
+}
+
+// A leitura vai por POST com a senha no corpo (text/plain não dispara preflight
+// CORS). Um script ainda sem senha responde 'payload inválido' ao POST de leitura;
+// aí cai no GET antigo, para o sync não quebrar entre atualizar o app e o script.
+async function syncFetch(url) {
+  const data = await _syncRequest(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ type: 'sync', token: getSyncToken() }),
+  });
+  if (data && data.ok === false && data.error === 'payload inválido') return _syncRequest(url);
   return data;
 }
 
@@ -467,7 +479,7 @@ async function syncFromSheets(silent = false) {
   // depois do render — a tela fica pronta antes do disco.
   const pendingWrites = [];
   try {
-    const data = await jsonpFetch(url);
+    const data = await syncFetch(url);
     if (data.error) throw new Error(data.error);
     const tProcess = performance.now();
     // Se o doGet devolver _timing (ms por aba), o relatorio mostra o custo servidor a servidor.
@@ -677,20 +689,25 @@ function promptSyncUrl(errorMsg) {
   openModal('Configurar Sync com Google Sheets', `
     ${errorMsg ? `<div style="color:var(--red);font-size:12px;margin-bottom:12px;padding:8px 12px;background:var(--red-dim);border-radius:6px">⚠️ ${errorMsg}</div>` : ''}
     <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
-      Cole a URL gerada no <strong>Deploy > Web App</strong> do Apps Script.<br>
-      Certifique-se que "Who has access" está como <strong>Anyone, even anonymous</strong>.
+      Cole a URL gerada no <strong>Deploy > Web App</strong> do Apps Script (termina em <code style="color:var(--accent)">/exec</code>).
     </p>
-    <input id="sync-url-input" type="text"
-      style="width:100%;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border-2);border-radius:6px;color:var(--text);font-size:12px;margin-bottom:8px"
+    <input id="sync-url-input" type="text" autocomplete="off"
+      style="width:100%;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border-2);border-radius:6px;color:var(--text);font-size:12px;margin-bottom:12px"
       placeholder="https://script.google.com/macros/s/…/exec"
-      value="${cur || ''}">
-    <div style="font-size:11px;color:var(--text-muted);margin-bottom:14px">
-      A URL deve terminar em <code style="color:var(--accent)">/exec</code> e o deployment precisa estar como
-      <strong>Anyone, even anonymous</strong>.
-      <span id="sync-test-link" style="margin-left:6px"></span>
+      value="${_rpEsc(cur)}">
+    <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px">
+      Senha do sync: a mesma gravada como <code style="color:var(--accent)">SYNC_TOKEN</code> nas propriedades do script
+    </label>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input id="sync-token-input" type="text" autocomplete="off" spellcheck="false"
+        style="flex:1;min-width:0;padding:10px 12px;background:var(--surface-2);border:1px solid var(--border-2);border-radius:6px;color:var(--text);font-size:12px;font-family:monospace"
+        placeholder="cole a senha ou gere uma nova"
+        value="${_rpEsc(getSyncToken())}">
+      <button class="btn btn-secondary btn-sm" onclick="genSyncToken()" title="Gera uma senha aleatória e copia">Gerar</button>
     </div>
+    <div id="sync-test-msg" style="font-size:11px;color:var(--text-muted);margin-bottom:14px;min-height:15px"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-secondary btn-sm" onclick="testSyncUrl()">🔗 Testar URL</button>
+      <button class="btn btn-secondary btn-sm" onclick="testSyncUrl()">Testar</button>
       <button class="btn btn-secondary btn-sm" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary btn-sm" onclick="confirmSyncUrl()">Salvar e Sincronizar</button>
     </div>
@@ -701,11 +718,40 @@ function promptSyncUrl(errorMsg) {
   }, 50);
 }
 
-function testSyncUrl() {
-  const inp = document.getElementById('sync-url-input');
-  const url = inp ? inp.value.trim() : '';
-  if (!url) return;
-  window.open(url, '_blank');
+// 24 caracteres sem ambíguos (0/O, 1/l/I): ~140 bits, e ainda dá para digitar no celular.
+function genSyncToken() {
+  const abc = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const rnd = crypto.getRandomValues(new Uint8Array(24));
+  const tok = Array.from(rnd, b => abc[b % abc.length]).join('');
+  const inp = document.getElementById('sync-token-input');
+  if (inp) inp.value = tok;
+  const msg = document.getElementById('sync-test-msg');
+  const done = ok => { if (msg) msg.textContent = ok ? 'Senha gerada e copiada. Cole no Apps Script e depois salve aqui.' : 'Senha gerada. Copie e cole no Apps Script, depois salve aqui.'; };
+  if (navigator.clipboard) navigator.clipboard.writeText(tok).then(() => done(true), () => done(false));
+  else done(false);
+}
+
+// Testa URL + senha sem gravar nada: faz a leitura e mostra o resultado no modal.
+async function testSyncUrl() {
+  const url = (document.getElementById('sync-url-input')?.value || '').trim();
+  const tok = (document.getElementById('sync-token-input')?.value || '').trim();
+  const msg = document.getElementById('sync-test-msg');
+  if (!url || !msg) return;
+  msg.style.color = 'var(--text-muted)';
+  msg.textContent = 'Testando…';
+  const prev = getSyncToken();
+  try {
+    setSyncToken(tok);
+    const data = await syncFetch(url);
+    if (data.error) throw new Error(data.error);
+    msg.style.color = 'var(--green)';
+    msg.textContent = `✓ Conectado: ${(data.historical || []).length} meses de histórico.`;
+  } catch (err) {
+    msg.style.color = 'var(--red)';
+    msg.textContent = '✕ ' + err.message;
+  } finally {
+    setSyncToken(prev);
+  }
 }
 
 function confirmSyncUrl() {
@@ -716,6 +762,7 @@ function confirmSyncUrl() {
     return;
   }
   setSyncUrl(url);
+  setSyncToken(document.getElementById('sync-token-input')?.value || '');
   closeModal();
   syncFromSheets();
 }
