@@ -403,7 +403,7 @@ Depois de validar: rodar `scripts/build.ps1` para regerar o `index.html` autocon
 - **Duas contas de gasto convivem:** seção 5 usa a coluna Gasto da planilha, seção 6 soma os lançamentos do Mobills. Divergem por construção; a divergência está medida no fim da seção 6.
 - **Gasto do Mobills usa `Math.abs`** (como em todo o app): estorno e crédito inflam o gasto em vez de abater.
 - **A seção Método de Pagamento usa `MOBILLS_RAW`** (inclui os termos ignorados) e o histórico inteiro, não 12 meses — é como a tela faz. Por isso o total dela não bate com o de gasto.
-- **`currentAge()` tem 2026 hardcoded.** Vira erro de um ano a partir de 2027 — e o relatório avisa isso na seção 13.
+- **A idade só tem o ano de nascimento.** `currentAge()` é a idade no início da projeção (ano de `projectionStart()` − ano de nascimento), então quem nasceu no fim do ano aparece até um ano mais velho.
 - **Monte Carlo sem correlação entre classes** (herdado de `portfolioVol()`): superestima risco e alarga a dispersão dos percentis.
 - **Impressão em PWA standalone no iOS é irregular.** O documento é legível em tela de qualquer forma; se `window.print()` não abrir, o caminho é Compartilhar › Imprimir.
 

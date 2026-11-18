@@ -953,8 +953,11 @@ function fiRate() {
 function fiNumber() {
   return (S.fi.targetMonthlyIncome * 12) / (fiRate() / 100);
 }
+// Idade no início da projeção (mês seguinte ao último do histórico). É a âncora
+// de todo o motor: idade no mês m = currentAge() + m/12. Avança sozinha a cada
+// fechamento sincronizado, sem ano fixo no código.
 function currentAge() {
-  return 2026 - S.profile.birthYear;
+  return projectionStart().date.getFullYear() - S.profile.birthYear;
 }
 // Taxa de poupança honesta: (receita - gastos) / receita.
 // Não usa aporte — aporte inclui rendimento reinvestido e estoura >100%.
@@ -980,6 +983,10 @@ function apoPLOf(h) {
 const CDI_YEARLY = { 2017:9.9, 2018:6.4, 2019:5.9, 2020:2.8, 2021:4.4, 2022:12.4, 2023:13.0, 2024:10.9, 2025:14.7, 2026:13.6 };
 // IPCA anual (%) — inflação oficial. 2025/2026 estimados. Usado p/ deflacionar o patrimônio.
 const IPCA_YEARLY = { 2017:2.95, 2018:3.75, 2019:4.31, 2020:4.52, 2021:10.06, 2022:5.79, 2023:4.62, 2024:4.83, 2025:4.80, 2026:4.50 };
+// Ano fora das tabelas (o corrente, quando ninguém atualizou o código) usa as
+// premissas do cadastro, não um número fixo de outra época.
+const cdiAno  = y => CDI_YEARLY[y]  ?? S.assumptions.cdi  ?? 10;
+const ipcaAno = y => IPCA_YEARLY[y] ?? S.assumptions.ipca ?? 4.5;
 
 // Retorno mensal realizado da carteira. Fonte da verdade = coluna Rentabilidade da planilha
 // (h.rent, já em % → ÷100), para o heatmap ficar IDÊNTICO à planilha. Só quando o mês não tem
@@ -1055,7 +1062,7 @@ function cdiAnnualized(monthsWindow) {
   if (!slice.length) return 0;
   const acc = slice.reduce((p, x) => {
     const y = parseInt(x.d.slice(0, 4));
-    return p * Math.pow(1 + (CDI_YEARLY[y] ?? 10) / 100, 1/12);
+    return p * Math.pow(1 + cdiAno(y) / 100, 1/12);
   }, 1);
   return (Math.pow(acc, 12 / slice.length) - 1) * 100;
 }
@@ -1065,7 +1072,7 @@ function cdiAnnualized(monthsWindow) {
 // Caixa). Aqui elas são confrontadas com o Histórico, e a data da FI é refeita em cada
 // fechamento para mostrar se o plano está ganhando ou perdendo terreno.
 
-const _ipcaM = y => Math.pow(1 + (IPCA_YEARLY[y] ?? S.assumptions.ipca ?? 4.5) / 100, 1/12);
+const _ipcaM = y => Math.pow(1 + ipcaAno(y) / 100, 1/12);
 
 // Inflação acumulada entre dois meses 'YYYY-MM' (de → até), mês a mês pela tabela anual.
 function ipcaFactor(from, to) {
@@ -1183,6 +1190,10 @@ function irRate(dias) {
   if (dias <= 720) return 0.175;
   return 0.15;
 }
+// Dias corridos de um prazo em meses. Não é meses × 30: 6, 12 e 24 meses dariam
+// 180, 360 e 720 dias e cairiam na faixa de cima, quando têm ~183, 365 e 730.
+function diasDeMeses(meses) { return Math.round(meses * 365.25 / 12); }
+function irRateMeses(meses) { return irRate(diasDeMeses(meses)); }
 
 // Rentabilidade anual da poupança (% a.a., TR ≈ 0).
 function poupancaRate(selic) {
@@ -1193,7 +1204,7 @@ function poupancaRate(selic) {
 function simulate() {
   const { valor, meses, cdi, ipca, selic, pctCDB, pctLCI, pctTSelic, spreadIPCA, preFixado } = S.simulator;
   const anos  = meses / 12;
-  const dias  = meses * 30;
+  const dias  = diasDeMeses(meses);
   const aliq  = irRate(dias);
 
   const produtos = [
@@ -2307,7 +2318,7 @@ function _buildSimResults() {
     const realCls = r.realPct >= 0 ? 'green' : 'red';
     const irCell  = r.isento
       ? `<span style="color:var(--green);font-size:11px">Isento IR</span>`
-      : `<span style="color:var(--red);font-size:11px">IR ${(irRate(meses*30)*100).toFixed(1)}%</span> ${fmt(r.ir)}`;
+      : `<span style="color:var(--red);font-size:11px">IR ${(irRateMeses(meses)*100).toFixed(1)}%</span> ${fmt(r.ir)}`;
     const bestBadge = r.best ? `<span class="sim-badge">&#9733; Melhor</span>` : '';
     return `
       <tr class="${r.best ? 'sim-best' : ''}">
@@ -2468,7 +2479,7 @@ function _buildEqResults() {
   // ── Rentabilidade líquida (IR regressivo sobre o ganho no período) ──
   const meses = Math.max(1, S.simulator.eqMeses || 25);
   const anos  = meses / 12;
-  const dias  = meses * 30;
+  const dias  = diasDeMeses(meses);
   const aliq  = irRate(dias);
   const fatorBruto  = Math.pow(1 + taxaAnual/100, anos);
   const ganhoBrutoP = (fatorBruto - 1) * 100;               // ganho bruto no período (%)
@@ -3042,7 +3053,7 @@ function simQuitarInvestir() {
   const pathEconParc  = [];   // juros economizados + ganho do freed reinvestido (para gráfico)
 
   for (let m = 0; m < N; m++) {
-    const aliqM = irRate((m + 1) * 30);
+    const aliqM = irRateMeses(m + 1);
 
     // A: Investir
     invA *= (1 + gm);
@@ -3084,7 +3095,7 @@ function simQuitarInvestir() {
     pathEconParc.push(+((jurosOrigTotal - jurosParcTotal) + (ganhoMFreed - ganhoMFreed * aliqM)).toFixed(2));
   }
 
-  const aliqFinal = irRate(N * 30);
+  const aliqFinal = irRateMeses(N);
 
   const brutoCDB   = invA - basisA;
   const irCDB      = brutoCDB * aliqFinal;
@@ -3145,7 +3156,7 @@ function _quitarRefresh() {
 function _buildQuitarResults() {
   const r = simQuitarInvestir();
   const q = S.quitar;
-  const aliqPct = (irRate(q.prazo * 30) * 100).toFixed(1);
+  const aliqPct = (irRateMeses(q.prazo) * 100).toFixed(1);
 
   const row = (label, val, cls) =>
     `<div class="qi-row"><span class="qi-label">${label}</span><span class="qi-val ${cls||''}">${val}</span></div>`;
@@ -3348,7 +3359,7 @@ function simAmort() {
   for (let m = 0; m < N; m++) {
     // A: aporte rende — chart mostra só o lucro líquido (sem incluir o capital X)
     invA *= (1 + gm);
-    const aliqM = irRate((m + 1) * 30);
+    const aliqM = irRateMeses(m + 1);
     pathInvestir.push(+((invA - basisA) * (1 - aliqM)).toFixed(2));
 
     // Juros originais acumulados (SAC) — compartilhado entre B e C
@@ -3385,7 +3396,7 @@ function simAmort() {
     let irTotalC = 0;
     aportesMensais.forEach(ap => {
       const meses = m - ap.mes + 1;
-      irTotalC += ap.valor * (Math.pow(1 + gm, meses) - 1) * irRate(meses * 30);
+      irTotalC += ap.valor * (Math.pow(1 + gm, meses) - 1) * irRateMeses(meses);
     });
 
     // Ganho C = juros economizados (saldo menor) + rendimento líquido do reinvestimento
@@ -3395,7 +3406,7 @@ function simAmort() {
   }
 
   // Resultados finais
-  const aliqFinal    = irRate(N * 30);
+  const aliqFinal    = irRateMeses(N);
   const rendLiqA     = (invA - basisA) * (1 - aliqFinal);
   const econPrazoFinal   = pathPrazo[N - 1] || 0;
   const econParcelaFinal = jurosOrigAcum - jurosCParcAcum;
@@ -3403,7 +3414,7 @@ function simAmort() {
   let irTotalCFinal = 0;
   aportesMensais.forEach(ap => {
     const meses = N - ap.mes;
-    irTotalCFinal += ap.valor * (Math.pow(1 + gm, meses) - 1) * irRate(meses * 30);
+    irTotalCFinal += ap.valor * (Math.pow(1 + gm, meses) - 1) * irRateMeses(meses);
   });
   const rendInvC = (invC - basisC) - irTotalCFinal;
   const rendLiqC = econParcelaFinal + rendInvC; // ganho total do cenário C
@@ -3819,7 +3830,7 @@ function patrimonioRealSeries() {
   let acc = 1;
   for (let i = 0; i < n; i++) {
     const y = parseInt(HISTORICAL[i].d.slice(0, 4), 10);
-    const mRate = Math.pow(1 + (IPCA_YEARLY[y] ?? 4.5) / 100, 1 / 12) - 1;
+    const mRate = Math.pow(1 + ipcaAno(y) / 100, 1 / 12) - 1;
     if (i > 0) acc *= (1 + mRate);   // índice de preços acumulado mês a mês
     idx.push(acc);
   }
@@ -9168,7 +9179,7 @@ function renderHistory() {
       twrSeries.push((Math.pow(Math.max(acc, 0.01), 1) - 1) * 100);
       const cdiAcc = win.reduce((p, x) => {
         const y = parseInt(x.d.slice(0, 4));
-        return p * Math.pow(1 + (CDI_YEARLY[y] ?? 10) / 100, 1/12);
+        return p * Math.pow(1 + cdiAno(y) / 100, 1/12);
       }, 1);
       cdiSeries.push((cdiAcc - 1) * 100);
       twrLabels.push(monthLabel(rs[i].d));
@@ -9574,7 +9585,7 @@ function saveDebt(id) {
   const obj = {
     name:     document.getElementById('debt-name').value.trim() || 'Financiamento',
     saldo:    parseFloat(document.getElementById('debt-saldo').value) || 0,
-    dataRef:  document.getElementById('debt-dataref').value || addMonths('2026-01', 0),
+    dataRef:  document.getElementById('debt-dataref').value || new Date().toISOString().slice(0, 7),
     taxaMes:  parseFloat(document.getElementById('debt-taxa').value) || 0,
     parcelas: parseInt(document.getElementById('debt-parcelas').value, 10) || 1,
     sistema:  document.getElementById('debt-sistema').value,
@@ -9789,8 +9800,25 @@ function deleteGoal(id) {
 }
 
 // ── 20. IMPORT / EXPORT ───────────────────────────────────
+// O backup leva o que só existe neste aparelho: o cadastro (S) e o que as abas
+// Carteira XP e Cartão XP guardam. Fica de fora o que o Sync Sheets rebaixa
+// (histórico, Mobills, fluxo, financiamento) e, de propósito, a URL e a senha do
+// sync: um arquivo de backup esquecido não pode abrir a planilha.
+const BACKUP_KEYS = {
+  fechamento_hist_v1:     'fechamentos da Carteira XP',
+  finplan_posicao_ativos: 'posição detalhada da XP',
+  finplan_cartao_faturas: 'faturas do Cartão XP',
+  cartao_copia_cabecalho: 'preferência do Cartão XP',
+};
+
 function exportData() {
-  const blob = new Blob([JSON.stringify(S, null, 2)], { type:'application/json' });
+  const extras = {};
+  Object.keys(BACKUP_KEYS).forEach(k => {
+    const v = localStorage.getItem(k);
+    if (v != null) extras[k] = v;
+  });
+  const pkg = { app: 'finplan', version: 2, exportedAt: new Date().toISOString(), state: S, extras };
+  const blob = new Blob([JSON.stringify(pkg, null, 2)], { type:'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `finplan-${new Date().toISOString().slice(0,10)}.json`;
@@ -9799,16 +9827,31 @@ function exportData() {
 function triggerImport() { document.getElementById('import-file').click(); }
 function importData(e) {
   const file = e.target.files[0];
+  e.target.value = '';                 // permite reimportar o mesmo arquivo
   if (!file) return;
   const r = new FileReader();
   r.onload = ev => {
+    let state, extras = {}, quando = '';
     try {
-      S = deepMerge(DEFAULT_STATE, JSON.parse(ev.target.result));
-      saveState();
-      refreshMobillsFilter();
-      renderPage(activePage);
-      showToast('Dados importados!');
-    } catch(err) { alert('Arquivo inválido.'); }
+      const j = JSON.parse(ev.target.result);
+      if (j && j.app === 'finplan' && j.state) {          // backup v2 (envelope)
+        state = j.state;
+        extras = j.extras || {};
+        quando = j.exportedAt ? ' de ' + new Date(j.exportedAt).toLocaleDateString('pt-BR') : '';
+      } else if (j && Array.isArray(j.portfolio)) {      // backup antigo: só o cadastro
+        state = j;
+      } else throw new Error('formato');
+    } catch (err) { alert('Arquivo inválido: não é um backup do FinPlan.'); return; }
+
+    const itens = ['cadastro (carteira, renda, gastos, metas, premissas)']
+      .concat(Object.keys(extras).filter(k => k in BACKUP_KEYS).map(k => BACKUP_KEYS[k]));
+    if (!confirm(`Importar o backup${quando}?\n\nSubstitui neste aparelho:\n• ${itens.join('\n• ')}\n\nO histórico e o Mobills continuam vindo do Sync Sheets.`)) return;
+
+    S = deepMerge(DEFAULT_STATE, state);
+    saveState();
+    Object.keys(extras).forEach(k => { if (k in BACKUP_KEYS) localStorage.setItem(k, extras[k]); });
+    // Recarrega: as migrações de loadState() e as abas da XP (iframes) releem tudo do zero.
+    location.reload();
   };
   r.readAsText(file);
 }
@@ -10320,7 +10363,7 @@ function computeInsights() {
   if (!(anoAtual in CDI_YEARLY)) {
     push('info', 'Dados',
       `Tabela de CDI sem o ano de ${anoAtual}`,
-      `O benchmark (CDI_YEARLY, no código) vai até ${Math.max(...Object.keys(CDI_YEARLY).map(Number))} — anos ausentes caem num fallback de 10% a.a., o que distorce o Alpha e a comparação com o CDI. Atualize a tabela com o CDI médio do ano.`,
+      `O benchmark (CDI_YEARLY, no código) vai até ${Math.max(...Object.keys(CDI_YEARLY).map(Number))} — anos ausentes usam a premissa de CDI do cadastro (${fmtPct(S.assumptions.cdi)}), não o CDI realizado. Atualize a tabela com o CDI médio do ano.`,
       null);
   }
 
@@ -10956,7 +10999,7 @@ function _rpMonthStats(H, i, rsBy) {
     pat: h.pat || 0, pl: h.pl || 0, prevPat: p ? (p.pat || 0) : null, prevPl: p ? (p.pl || 0) : null,
     dPl, dPat, apo, apoPL, mkt: dPl == null ? null : dPl - apoPL,
     r: rsBy[h.d] != null ? rsBy[h.d] * 100 : null,
-    cdi: (Math.pow(1 + (CDI_YEARLY[y] ?? 10) / 100, 1 / 12) - 1) * 100,
+    cdi: (Math.pow(1 + cdiAno(y) / 100, 1 / 12) - 1) * 100,
     rec, gas, sob: rec - gas,
     sr: rec > 0 ? savingsRateOf(h) : null,
     ta: rec > 0 ? apo / rec * 100 : null,
@@ -11174,7 +11217,7 @@ function _rpMonthClose(c) {
     const apoY = _rpSum(ytd.map(apoPLOf));
     const rY = ytd.map(h => rsBy[h.d]).filter(v => v != null);
     const retY = rY.length === ytd.length ? (rY.reduce((p, r) => p * (1 + r), 1) - 1) * 100 : null;
-    const cdiY = (Math.pow(1 + (CDI_YEARLY[Number(y)] ?? 10) / 100, ytd.length / 12) - 1) * 100;
+    const cdiY = (Math.pow(1 + cdiAno(Number(y)) / 100, ytd.length / 12) - 1) * 100;
     const gasY = _rpSum(ytd.map(h => h.gas || 0)), recY = _rpSum(ytd.map(h => h.rec || 0));
     const py = H.filter(h => h.d.slice(0, 4) === String(Number(y) - 1) && Number(h.d.slice(5)) <= mm);
     const gasPY = py.length === ytd.length ? _rpSum(py.map(h => h.gas || 0)) : null;
@@ -11508,7 +11551,7 @@ function _rpTrackingError(rs) {
   if (rs.length < 2) return null;
   const excess = rs.map(x => {
     const y = parseInt(x.d.slice(0, 4));
-    const cdiM = Math.pow(1 + (CDI_YEARLY[y] ?? 10) / 100, 1 / 12) - 1;
+    const cdiM = Math.pow(1 + cdiAno(y) / 100, 1 / 12) - 1;
     return x.r - cdiM;
   });
   return _rpVarAnualizada(excess);
@@ -11656,7 +11699,7 @@ function _rpSec3(c) {
     `Em 12 meses a carteira rendeu <b>${_rpPct(t12)} a.a.</b> contra <b>${_rpPct(c12)}</b> do CDI. Desde o início são ${_rpPct(tAll)} contra ${_rpPct(cAll)} — ` +
     `alpha de ${_rpPP(tAll - cAll)} ao ano na janela de ${rs.length} meses, que é a que importa. ` +
     (rs.filter(x => x.d.slice(0, 4) === String(new Date().getFullYear())).length === 0 && !(new Date().getFullYear() in CDI_YEARLY)
-      ? `<i>Atenção: a tabela CDI_YEARLY não tem o ano corrente — anos ausentes caem num fallback de 10% a.a. e distorcem o alpha.</i>` : ''));
+      ? `<i>Atenção: a tabela CDI_YEARLY não tem o ano corrente — anos ausentes usam a premissa de CDI do cadastro e o alpha do ano fica aproximado.</i>` : ''));
 
   return { id: 'resultado', title: 'Resultado — rentabilidade', src: 'planilha (col. Rentabilidade) + CDI_YEARLY', html };
 }
@@ -13386,14 +13429,13 @@ function _rpSec13(c) {
   html += _rpH3('O que não confiar');
   const caveats = [];
   if (c.stale >= 2) caveats.push(`<b>O histórico para em ${monthLabel(c.lastD)}</b>, ${c.stale} meses atrás. Tudo aqui — inclusive as datas projetadas — está calculado sobre essa foto.`);
-  if (!(new Date().getFullYear() in CDI_YEARLY)) caveats.push(`<b>A tabela de CDI não tem ${new Date().getFullYear()}.</b> Anos ausentes caem num fallback de 10% a.a., o que distorce o alpha e a comparação com o CDI.`);
+  if (!(new Date().getFullYear() in CDI_YEARLY)) caveats.push(`<b>A tabela de CDI não tem ${new Date().getFullYear()}.</b> Anos ausentes usam a premissa de CDI do cadastro, não o realizado — o alpha do ano é aproximado.`);
   if (c.mb.ok) {
     caveats.push(`<b>Gasto do Mobills usa valor absoluto.</b> Estorno e crédito inflam o gasto em vez de abater — a soma da ${_rpSecRef('gastos')} é gasto bruto, não líquido.`);
     caveats.push(`<b>Duas contas de gasto convivem.</b> A ${_rpSecRef('fluxo')} usa a coluna Gasto da planilha; a ${_rpSecRef('gastos')} soma os lançamentos do Mobills. Elas divergem por construção, e a divergência está medida no fim da ${_rpSecRef('gastos')}.`);
   } else {
     caveats.push(`<b>Sem dados de Mobills</b>, a seção de gastos categorizados está vazia e o Lean FI não pode ser calculado.`);
   }
-  caveats.push(`<b>A idade está fixada em 2026</b> no código (<code>currentAge()</code> faz <code>2026 − ano de nascimento</code>). Vira erro de um ano a partir de 2027.`);
   caveats.push(`<b>O Monte Carlo não tem correlação entre classes:</b> soma as volatilidades ponderadas, o que superestima o risco da carteira e alarga a dispersão dos percentis.`);
   caveats.push(`<b>Proteção não desconta a valor presente</b> e ignora reserva do cônjuge, pensão e benefício de empresa — é estimativa conservadora, para cima.`);
   caveats.push(`<b>Aporte da planilha inclui rendimento reinvestido</b>, então não é taxa de poupança. A taxa honesta é (receita − gasto) ÷ receita, na ${_rpSecRef('fluxo')}.`);
