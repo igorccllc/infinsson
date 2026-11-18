@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FinPlan Pro — Planejamento Financeiro</title>
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#6395ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="FinPlan">
+  <meta name="finplan-build" content="dev">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<button id="menu-btn" class="menu-btn" onclick="toggleSidebar()" aria-label="Menu">
+  <span></span><span></span><span></span>
+</button>
+<div id="sidebar-backdrop" class="sidebar-backdrop" onclick="closeSidebar()"></div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-gem">&#9670;</span>
+      <span class="brand-name">FinPlan<em>Pro</em></span>
+    </div>
+    <nav class="nav">
+      <a class="nav-item active" data-page="dashboard" href="#" onclick="navigate('dashboard');return false;">
+        <span class="nav-icon">&#8862;</span><span>Dashboard</span>
+      </a>
+      <a class="nav-item" data-page="insights" href="#" onclick="navigate('insights');return false;">
+        <span class="nav-icon">&#128161;</span><span>Insights</span>
+      </a>
+      <a class="nav-item" data-page="portfolio" href="#" onclick="navigate('portfolio');return false;">
+        <span class="nav-icon">&#9673;</span><span>Patrim&ocirc;nio</span>
+      </a>
+      <a class="nav-item" data-page="expenses" href="#" onclick="navigate('expenses');return false;">
+        <span class="nav-icon">&#9638;</span><span>An&aacute;lise de Gastos</span>
+      </a>
+      <a class="nav-item" data-page="timeline" href="#" onclick="navigate('timeline');return false;">
+        <span class="nav-icon">&#8767;</span><span>Linha da Vida</span>
+      </a>
+      <a class="nav-item" data-page="fi" href="#" onclick="navigate('fi');return false;">
+        <span class="nav-icon">&#9733;</span><span>Independ&ecirc;ncia FI</span>
+      </a>
+      <a class="nav-item" data-page="protection" href="#" onclick="navigate('protection');return false;">
+        <span class="nav-icon">&#9730;</span><span>Prote&ccedil;&atilde;o</span>
+      </a>
+      <a class="nav-item" data-page="history" href="#" onclick="navigate('history');return false;">
+        <span class="nav-icon">&#9636;</span><span>Hist&oacute;rico</span>
+      </a>
+      <a class="nav-item" data-page="simulador" href="#" onclick="navigate('simulador');return false;">
+        <span class="nav-icon">&#128202;</span><span>Simulador</span>
+      </a>
+      <a class="nav-item" data-page="debts" href="#" onclick="navigate('debts');return false;">
+        <span class="nav-icon">&#128179;</span><span>Financiamento</span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div id="demo-badge" class="demo-badge" hidden>Dados de exemplo. Sincronize para ver os seus.</div>
+      <button id="sync-btn" class="btn-ghost btn-sm sync-btn" onclick="event.shiftKey ? promptSyncUrl() : syncFromSheets()" title="Clique para sincronizar · Shift+clique para trocar a URL">&#8635; Sync Sheets</button>
+      <div class="sidebar-footer-row">
+        <button class="btn-ghost btn-sm" onclick="exportData()">&#8593; Exportar</button>
+        <button class="btn-ghost btn-sm" onclick="triggerImport()">&#8595; Importar</button>
+        <input type="file" id="import-file" accept=".json" style="display:none" onchange="importData(event)">
+      </div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="page-dashboard"   class="page active"></div>
+    <div id="page-insights"    class="page"></div>
+    <div id="page-timeline"    class="page"></div>
+    <div id="page-portfolio"   class="page"></div>
+    <div id="page-assumptions" class="page"></div>
+    <div id="page-expenses"    class="page"></div>
+    <div id="page-fi"          class="page"></div>
+    <div id="page-protection"  class="page"></div>
+    <div id="page-history"     class="page"></div>
+    <div id="page-simulador"   class="page"></div>
+    <div id="page-debts"       class="page"></div>
+  </main>
+</div>
+
+<div id="modal-overlay" class="modal-overlay hidden" onclick="overlayClick(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="app.js"></script>
+<script>
+function toggleSidebar() {
+  document.querySelector('.sidebar').classList.toggle('open');
+  document.getElementById('sidebar-backdrop').classList.toggle('open');
+}
+function closeSidebar() {
+  document.querySelector('.sidebar').classList.remove('open');
+  document.getElementById('sidebar-backdrop').classList.remove('open');
+}
+document.addEventListener('click', function(e) {
+  if (e.target.closest('.nav-item') && window.innerWidth <= 600) closeSidebar();
+});
+if ('serviceWorker' in navigator) {
+  // Havia um SW no controle quando esta pagina carregou? Se nao, o primeiro
+  // controllerchange e a instalacao inicial - nao e update, nao recarrega.
+  var hadController = !!navigator.serviceWorker.controller;
+  var didReload = false;
+
+  navigator.serviceWorker.addEventListener('controllerchange', function() {
+    if (!hadController || didReload) return;
+    didReload = true;
+    location.reload();
+  });
+
+  // updateViaCache:'none' impede que o proprio sw.js venha do cache HTTP -
+  // sem isso o iOS pode comparar contra uma copia velha e nao ver o build novo.
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+    .then(function(reg) {
+      // App retomado do background (nao e cold launch): checa update mesmo assim.
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) reg.update().catch(function(){});
+      });
+    })
+    .catch(function(){});
+}
+</script>
+</body>
+</html>

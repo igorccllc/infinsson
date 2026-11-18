@@ -1,0 +1,7 @@
+src/_cache_chartjs.js
+src/_cache_anno.js
+out-*.html
+*.bak
+
+# backup local do historico antigo (com dados reais) — nunca sobe
+_backup/
